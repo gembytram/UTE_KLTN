@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hệ thống KLTN – UTE FE</title>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<div id="screen-login" class="screen active">
+  <div class="login-bg"></div>
+  <div class="login-bg-overlay"></div>
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="login-logo-icon"><img src="logo.png" alt="Logo UTE" /></div>
+      <div class="login-logo-text">
+        <h1>KLTN System</h1>
+        <p>Đại học Công nghệ Kỹ thuật TP.HCM</p>
+      </div>
+    </div>
+    <div class="login-title">Đăng nhập</div>
+    <div class="login-sub">Hệ thống quản lý BCTT và KLTN</div>
+    <div class="form-group">
+      <label>Tên đăng nhập</label>
+      <input type="email" id="login-email" placeholder="Nhập MSSV hoặc MSGV">
+    </div>
+    <div class="form-group">
+      <label>Mật khẩu</label>
+      <input type="password" id="login-password" placeholder="••••••••">
+    </div>
+    <button class="btn btn-primary btn-full" onclick="doLogin()">Đăng nhập</button>
+  </div>
+</div>
+
+<div id="screen-app" class="screen">
+  <aside class="sidebar">
+    <div class="sidebar-header" style="padding:10px;">
+      <div class="sidebar-logo" style="display:flex; align-items:center; gap:10px;">
+        <div style="width:50px; height:50px; border-radius:50%; overflow:hidden;">
+          <img src="logok.png" alt="UTE Logo" style="width:100%; height:100%; object-fit:cover;">
+        </div>
+        <div>
+          <h2 style="margin:0; font-size:16px;">KLTN System</h2>
+          <p style="margin:0; font-size:12px;">FE – Khoa Kinh tế</p>
+        </div>
+      </div>
+    </div>
+    <div class="sidebar-user">
+      <div class="sidebar-user-name" id="sb-name">Nguyễn Văn A</div>
+      <div class="sidebar-user-role" id="sb-email"><a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="9cefeaacacaddcf4fff1e9e8f9b2f9f8e9b2eaf2">[email&#160;protected]</a></div>
+      <span class="sidebar-role-badge" id="sb-role">Sinh viên</span>
+    </div>
+    <nav class="sidebar-nav" id="sidebar-nav"></nav>
+    <div class="sidebar-footer">
+      <button class="btn btn-ghost btn-sm btn-logout-custom" onclick="doLogout()" style="width:100%">
+        🚪 Đăng xuất
+      </button>
+    </div>
+  </aside>
+
+  <div class="main-content">
+    <div class="topbar">
+      <div class="topbar-title" id="topbar-title">Dashboard</div>
+      <div class="topbar-right">
+        <button type="button" class="notif-btn" onclick="location.reload()" title="Tải lại giao diện (giữ đăng nhập)">🔄</button>
+        <button class="notif-btn" onclick="toggleNotif()" id="notif-btn">
+          🔔<span class="notif-dot" id="notif-dot"></span>
+        </button>
+        <div style="font-size:13px; font-weight:600; color:var(--text2)" id="topbar-user">–</div>
+      </div>
+    </div>
+
+    <div class="page" id="page-dashboard"></div>
+    <div class="page" id="page-bctt" style="display:none"></div>
+    <div class="page" id="page-kltn" style="display:none"></div>
+    <div class="page" id="page-detai" style="display:none"></div>
+    <div class="page" id="page-duyetde" style="display:none"></div>
+    <div class="page" id="page-phancong" style="display:none"></div>
+    <div class="page" id="page-nhapDiem" style="display:none"></div>
+    <div class="page" id="page-hoithuong" style="display:none"></div>
+    <div class="page" id="page-users" style="display:none"></div>
+    <div class="page" id="page-profile" style="display:none"></div>
+    <div class="page" id="page-theodoi" style="display:none"></div>
+    <div class="page" id="page-huongdan" style="display:none"></div>
+    <div class="page" id="page-phanbien" style="display:none"></div>
+    <div class="page" id="page-hoidong" style="display:none"></div>
+    <div class="page" id="page-chutich" style="display:none"></div>
+    <div class="page" id="page-thuky" style="display:none"></div>
+    <div class="page" id="page-goiy" style="display:none"></div>
+    <div class="page" id="page-thongke" style="display:none"></div>
+  </div>
+
+  <div class="notif-panel" id="notif-panel">
+    <div class="notif-header">🔔 Thông báo</div>
+    <div id="notif-list"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-overlay" onclick="closeModal(event)">
+  <div class="modal" id="modal-content"></div>
+</div>
+
+<div class="toast-container" id="toast-container"></div>
+
+<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script>
+
+<script src="js/app.js"></script>
+</body>
+</html>
