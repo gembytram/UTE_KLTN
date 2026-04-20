@@ -21,7 +21,7 @@ He thong gom 3 phan chinh:
 - Xuat file DOCX (bien ban, phieu cham diem)
 - Thong bao noi bo cho nguoi dung
 
-## Cau truc thu muc
+## Cau truc thu muc trang web la 
 
 ```text
 .
