@@ -11,7 +11,7 @@ He thong gom 3 phan chinh:
 - Frontend HTML/CSS/JS (thu muc frontend)
 - Script Node.js de xuat bien ban/cham diem dang DOCX
 
-## Tinh nang chinh
+## Tinh nang chinh cua web la 
 
 - Dang nhap theo vai tro: SV, GV, TBM
 - Dang ky BCTT/KLTN va duyet de tai
