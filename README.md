@@ -2,6 +2,8 @@
 
 Ung dung quan ly de tai Bao cao thuc tap (BCTT) va Khoa luan tot nghiep (KLTN) cho Khoa FE.
 
+#Test commit
+
 ## Tong quan
 
 He thong gom 3 phan chinh:
