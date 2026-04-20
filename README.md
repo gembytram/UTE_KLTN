@@ -116,7 +116,7 @@ Luu y: frontend dang goi API den `http://127.0.0.1:5000`.
 
 ## Tai khoan va dang nhap
 
-- Mat khau mac dinh thuong la: `123456`
+- Mat khau mac dinh thuong la: `12345678910`
 - Co the dang nhap bang ma (MSSV/MAGV) hoac email tuy bo du lieu import
 - Vai tro trong he thong:
   - SV: Sinh vien

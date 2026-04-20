@@ -195,7 +195,7 @@ def run_import():
         if email in GV_LINH_VUC:
             linh_vuc = ", ".join(GV_LINH_VUC[email])
 
-        mat_khau = "123456"
+        mat_khau = "12345678910"
         users.append((ma.upper(), ho_ten, mat_khau, role, linh_vuc, he_dao_tao))
 
     conn = get_db()
