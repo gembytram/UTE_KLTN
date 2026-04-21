@@ -87,7 +87,7 @@ python import_real_data.py
 
 Sau khi chay xong, `db.sqlite` se duoc tao/cap nhat.
 
-## Chay he thong
+## Chay he thong cua web haha 
 
 ### Backend
 
