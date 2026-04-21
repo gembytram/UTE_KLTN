@@ -140,7 +140,7 @@ Sau do mo them 1 terminal khac de chay frontend:
 python -m http.server 5500 -d frontend
 ```
 
-## Cac loi thuong gap
+## Cac loi thuong gap trong web nguyen thi tram 
 
 ### 1) ModuleNotFoundError: flask / flask_cors
 
