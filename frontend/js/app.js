@@ -1060,7 +1060,12 @@ function renderDuyetDe() {
       html += `<tr><td>${g.name}</td>
   <td><strong>${g.quota || 0}</strong> / ${g.quota_max || g.quota || 0}</td>
   <td>${g.slotOpen ? '<span class="badge badge-green">Đang mở</span>' : '<span class="badge badge-red">Đã khóa</span>'}</td>
-  <td><button class="btn btn-sm ${g.slotOpen ? 'btn-danger' : 'btn-success'}" onclick="toggleSlot('${g.email}')">${g.slotOpen ? 'Khóa slot' : 'Mở slot'}</button></td>
+  <td>
+    <div class="action-row">
+      <button class="btn btn-sm ${g.slotOpen ? 'btn-danger' : 'btn-success'}" onclick="toggleSlot('${g.email}')">${g.slotOpen ? 'Khóa slot' : 'Mở slot'}</button>
+      <button class="btn btn-ghost btn-sm" onclick="openEditTeacherSlots('${g.email}')">✏️ Sửa slot</button>
+    </div>
+  </td>
 </tr>`;
     });
     html += `</tbody></table></div></div>`;
@@ -1389,6 +1394,116 @@ async function toggleSlot(gvEmail) {
     toast(next ? 'Đã mở lại slot cho giảng viên' : 'Đã khóa slot giảng viên');
   } catch (err) {
     toast(err.message || 'Cập nhật slot thất bại', 'error');
+  }
+}
+
+function openEditTeacherSlots(gvEmail) {
+  const gv = DB.users.find((u) => u.email === gvEmail);
+  if (!gv) {
+    toast('Không tìm thấy giảng viên', 'error');
+    return;
+  }
+  const slots = (DB.gvSlots || [])
+    .filter((s) => Number(s.gvId) === Number(gv.id));
+  if (!slots.length) {
+    toast('Giảng viên chưa có slot để chỉnh sửa', 'error');
+    return;
+  }
+
+  const grouped = {};
+  slots.forEach((s) => {
+    const he = String(s.heDaoTao || 'DaiTra');
+    if (!grouped[he]) grouped[he] = [];
+    grouped[he].push(s);
+  });
+
+  const rowsHtml = Object.keys(grouped)
+    .sort()
+    .map((he) => {
+      const sample = grouped[he][0];
+      return `<tr>
+        <td>${escapeHtml(he)}</td>
+        <td><input type="number" min="0" id="slot-quota-he-${he}" value="${Number(sample.quota || 0)}" style="width:110px"></td>
+        <td><input type="number" min="0" id="slot-remain-he-${he}" value="${Number(sample.slotConLai || 0)}" style="width:110px"></td>
+      </tr>`;
+    })
+    .join('');
+
+  showModal(`
+    <div class="modal-header">
+      <div class="modal-title">✏️ Chỉnh slot theo hệ: ${escapeHtml(gv.name)}</div>
+      <button class="modal-close" onclick="closeModalForce()">✕</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Hệ đào tạo</th><th>Quota</th><th>Slot còn lại</th></tr>
+        </thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    </div>
+    <div style="font-size:12px;color:var(--text3);margin-top:10px">Cập nhật sẽ áp dụng cho tất cả slot cùng hệ của giảng viên. Slot còn lại không được lớn hơn quota.</div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModalForce()">Hủy</button>
+      <button class="btn btn-primary" onclick="saveTeacherSlots('${gv.email}')">💾 Lưu thay đổi</button>
+    </div>
+  `);
+}
+
+async function saveTeacherSlots(gvEmail) {
+  const gv = DB.users.find((u) => u.email === gvEmail);
+  if (!gv) {
+    toast('Không tìm thấy giảng viên', 'error');
+    return;
+  }
+  const slots = (DB.gvSlots || []).filter((s) => Number(s.gvId) === Number(gv.id));
+  if (!slots.length) {
+    toast('Giảng viên chưa có slot để chỉnh sửa', 'error');
+    return;
+  }
+  try {
+    const tasks = [];
+    const grouped = {};
+    slots.forEach((s) => {
+      const he = String(s.heDaoTao || 'DaiTra');
+      if (!grouped[he]) grouped[he] = [];
+      grouped[he].push(s);
+    });
+
+    for (const he of Object.keys(grouped)) {
+      const quotaEl = document.getElementById(`slot-quota-he-${he}`);
+      const remainEl = document.getElementById(`slot-remain-he-${he}`);
+      if (!quotaEl || !remainEl) continue;
+      const quota = parseInt(quotaEl.value, 10);
+      const slot_con_lai = parseInt(remainEl.value, 10);
+      if (!Number.isInteger(quota) || !Number.isInteger(slot_con_lai) || quota < 0 || slot_con_lai < 0) {
+        toast('Quota/slot phải là số nguyên >= 0', 'error');
+        return;
+      }
+      if (slot_con_lai > quota) {
+        toast('Slot còn lại không được lớn hơn quota', 'error');
+        return;
+      }
+      const sample = grouped[he][0];
+      if (quota === Number(sample.quota || 0) && slot_con_lai === Number(sample.slotConLai || 0)) continue;
+      tasks.push(
+        apiRequest('/api/gv-slot/update', {
+          method: 'POST',
+          body: JSON.stringify({ gv_id: gv.id, he_dao_tao: he, quota, slot_con_lai }),
+        })
+      );
+    }
+    if (!tasks.length) {
+      toast('Không có thay đổi để lưu', 'info');
+      return;
+    }
+    await Promise.all(tasks);
+    await syncFromServer();
+    closeModalForce();
+    renderDuyetDe();
+    toast('Cập nhật slot giảng viên thành công');
+  } catch (err) {
+    toast(err.message || 'Lưu slot thất bại', 'error');
   }
 }
 

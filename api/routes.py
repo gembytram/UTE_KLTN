@@ -638,6 +638,105 @@ def register_routes(app):
         conn.close()
         return ok("Cập nhật trạng thái slot thành công")
 
+    @app.route("/api/gv-slot/update", methods=["POST"])
+    @role_required("TBM")
+    def update_gv_slot():
+        data = request.json or {}
+        slot_id = data.get("slot_id")
+        gv_id = data.get("gv_id")
+        he_dao_tao = (data.get("he_dao_tao") or "").strip()
+        quota = data.get("quota")
+        slot_con_lai = data.get("slot_con_lai")
+        if not slot_id and not (gv_id and he_dao_tao):
+            return fail("Thiếu slot_id hoặc (gv_id, he_dao_tao)", 400)
+        if quota is None and slot_con_lai is None:
+            return fail("Thiếu dữ liệu cập nhật slot", 400)
+
+        conn = get_db()
+        current_user = get_current_user(conn)
+        if not current_user:
+            conn.close()
+            return fail("Chưa đăng nhập", 401)
+
+        slot = None
+        target_gv_id = None
+        if slot_id:
+            slot = conn.execute(
+                "SELECT id, gv_id, quota, slot_con_lai, he_dao_tao FROM gv_slot WHERE id = ?",
+                (slot_id,),
+            ).fetchone()
+            if not slot:
+                conn.close()
+                return fail("Không tìm thấy slot", 404)
+            target_gv_id = slot["gv_id"]
+            if not he_dao_tao:
+                he_dao_tao = (slot["he_dao_tao"] or "").strip() or "DaiTra"
+        else:
+            target_gv_id = gv_id
+            slot = conn.execute(
+                """
+                SELECT id, gv_id, quota, slot_con_lai, he_dao_tao
+                FROM gv_slot
+                WHERE gv_id = ? AND he_dao_tao = ?
+                ORDER BY id ASC
+                LIMIT 1
+                """,
+                (gv_id, he_dao_tao),
+            ).fetchone()
+            if not slot:
+                conn.close()
+                return fail("Không tìm thấy slot theo hệ đào tạo", 404)
+
+        target_gv = conn.execute(
+            "SELECT id, ho_ten, linh_vuc FROM users WHERE id = ?",
+            (target_gv_id,),
+        ).fetchone()
+        if not target_gv:
+            conn.close()
+            return fail("Không tìm thấy giảng viên", 404)
+        if not user_has_common_major(current_user, target_gv):
+            conn.close()
+            return fail("Chỉ trưởng bộ môn cùng ngành mới được sửa slot", 403)
+
+        new_quota = slot["quota"]
+        new_slot_con_lai = slot["slot_con_lai"]
+        try:
+            if quota is not None:
+                new_quota = int(quota)
+            if slot_con_lai is not None:
+                new_slot_con_lai = int(slot_con_lai)
+        except (TypeError, ValueError):
+            conn.close()
+            return fail("Quota hoặc slot còn lại không hợp lệ", 400)
+
+        if new_quota < 0 or new_slot_con_lai < 0:
+            conn.close()
+            return fail("Quota và slot còn lại phải >= 0", 400)
+        if new_slot_con_lai > new_quota:
+            conn.close()
+            return fail("Slot còn lại không được lớn hơn quota", 400)
+
+        if he_dao_tao:
+            cursor = conn.execute(
+                """
+                UPDATE gv_slot
+                SET quota = ?, slot_con_lai = ?
+                WHERE gv_id = ? AND he_dao_tao = ?
+                """,
+                (new_quota, new_slot_con_lai, target_gv_id, he_dao_tao),
+            )
+            if cursor.rowcount == 0:
+                conn.close()
+                return fail("Không tìm thấy slot theo hệ đào tạo để cập nhật", 404)
+        else:
+            conn.execute(
+                "UPDATE gv_slot SET quota = ?, slot_con_lai = ? WHERE id = ?",
+                (new_quota, new_slot_con_lai, slot_id),
+            )
+        conn.commit()
+        conn.close()
+        return ok("Cập nhật slot giảng viên thành công")
+
     @app.route("/api/phan-cong", methods=["POST"])
     @role_required("TBM")
     def assign_roles():
