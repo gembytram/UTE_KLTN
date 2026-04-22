@@ -4,7 +4,7 @@ Ung dung quan ly de tai Bao cao thuc tap (BCTT) va Khoa luan tot nghiep (KLTN) c
 
 #Test commit
 
-## Tong quan
+## Tong quan quan tri du an web ktln 
 
 He thong gom 3 phan chinh:
 - Backend Flask API + SQLite
@@ -87,7 +87,7 @@ python import_real_data.py
 
 Sau khi chay xong, `db.sqlite` se duoc tao/cap nhat.
 
-## Chay he thong
+## Chay he thong cua web haha 
 
 ### Backend
 
@@ -140,7 +140,7 @@ Sau do mo them 1 terminal khac de chay frontend:
 python -m http.server 5500 -d frontend
 ```
 
-## Cac loi thuong gap
+## Cac loi thuong gap trong web nguyen thi tram 
 
 ### 1) ModuleNotFoundError: flask / flask_cors
 
