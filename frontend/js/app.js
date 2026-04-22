@@ -825,14 +825,17 @@ function renderKLTN() {
         <div class="grid-2">
           <div class="form-group"><label>Tên đề tài *</label><input type="text" id="fk-ten" value="${myBCTT.tenDeTai}" placeholder="Tên đề tài KLTN..."></div>
           <div class="form-group"><label>Ngành *</label><select id="fk-mang"><option value="">-- Chọn ngành --</option>${DB.mangDeTai.map(m=>`<option ${m===myBCTT.mangDeTai?'selected':''}>${m}</option>`).join('')}</select></div>
-          <div class="form-group"><label>GV Hướng dẫn</label><input type="text" value="${getUser(myBCTT.gvEmail)?.name || myBCTT.gvEmail}" readonly style="background:var(--bg)" id="fk-gvhd-display"><input type="hidden" id="fk-gvhd" value="${myBCTT.gvEmail}"></div>
-          <div class="form-group"><label>Đợt đăng ký *</label><select id="fk-dot"><option value="">-- Chọn đợt --</option>${DB.dotDangKy.filter(d => d.trangThai === 'dang_mo' && d.loai === 'KLTN' && dotMatchesStudentHeAndMajor(d)).map(d => `<option value="${d.id}">${d.ten}</option>`).join('')}</select></div>
+          <div class="form-group"><label>GV Hướng dẫn *</label><select id="fk-gvhd"></select></div>
+          <div class="form-group"><label>Đợt đăng ký *</label><select id="fk-dot" onchange="renderKLTNGVOptions()"><option value="">-- Chọn đợt --</option>${DB.dotDangKy.filter(d => d.trangThai === 'dang_mo' && d.loai === 'KLTN' && dotMatchesStudentHeAndMajor(d)).map(d => `<option value="${d.id}">${d.ten}</option>`).join('')}</select></div>
         </div>
         <button class="btn btn-primary" style="margin-top:8px;min-width:200px" onclick="submitKLTN()">📤 Gửi đăng ký KLTN</button>
       </div>`;
     }
   }
   el.innerHTML = html;
+  if (document.getElementById('fk-gvhd')) {
+    queueMicrotask(() => renderKLTNGVOptions());
+  }
 }
 
 function renderDeTai() {
@@ -1236,6 +1239,157 @@ function switchTab(e, tabId) {
   parent.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
   e.target.classList.add('active');
   document.getElementById(tabId)?.classList.add('active');
+}
+
+function renderGVOptionsByField() {
+  const gvSelect = document.getElementById('f-gv');
+  const dotSelect = document.getElementById('f-dot');
+  const majorInput = document.getElementById('f-mang');
+  if (!gvSelect || !dotSelect) return;
+  const dotId = String(dotSelect.value || '').trim();
+  const major = String(majorInput?.value || '').trim();
+  const he = normalizeStudentSlotHe(DB.currentUser);
+  if (!dotId) {
+    gvSelect.innerHTML = `<option value="">-- Chọn đợt trước --</option>`;
+    return;
+  }
+
+  const rows = (DB.gvSlots || []).filter((s) => {
+    if (String(s.dotId) !== dotId) return false;
+    if ((s.heDaoTao || 'DaiTra') !== he) return false;
+    return Boolean(s.duyetTbm) && Number(s.slotConLai || 0) > 0;
+  });
+  const options = rows
+    .map((s) => DB.users.find((u) => Number(u.id) === Number(s.gvId)))
+    .filter(Boolean)
+    .filter((u) => {
+      if (!major) return true;
+      return Array.isArray(u.chuyenMon) && u.chuyenMon.includes(major);
+    });
+
+  if (!options.length) {
+    gvSelect.innerHTML = `<option value="">-- Không có GV còn slot phù hợp --</option>`;
+    return;
+  }
+
+  gvSelect.innerHTML =
+    `<option value="">-- Chọn giảng viên hướng dẫn --</option>` +
+    options
+      .map((u) => {
+        const slot = gvBcttSlotRow(u.id, dotId);
+        const slotText = slot ? ` (còn ${slot.slotConLai} slot)` : '';
+        return `<option value="${u.id}">${escapeHtml(u.name)}${slotText}</option>`;
+      })
+      .join('');
+}
+
+async function submitBCTT() {
+  try {
+    const ten_de_tai = String(document.getElementById('f-tenDeTai')?.value || '').trim();
+    const linh_vuc = String(document.getElementById('f-mang')?.value || '').trim();
+    const ten_cong_ty = String(document.getElementById('f-congty')?.value || '').trim();
+    const gv_id = parseInt(document.getElementById('f-gv')?.value || '', 10);
+    const dot_id = parseInt(document.getElementById('f-dot')?.value || '', 10);
+    if (!ten_de_tai || !linh_vuc || !ten_cong_ty || !gv_id || !dot_id) {
+      toast('Vui lòng nhập đầy đủ thông tin đăng ký BCTT', 'error');
+      return;
+    }
+
+    if (!gvAcceptsBcttRegistration(gv_id, String(dot_id))) {
+      toast('Giảng viên này không còn slot hoặc chưa được TBM mở', 'error');
+      return;
+    }
+
+    await apiRequest('/api/bctt/register', {
+      method: 'POST',
+      body: JSON.stringify({ ten_de_tai, linh_vuc, ten_cong_ty, gv_id, dot_id }),
+    });
+    await syncFromServer();
+    renderBCTT();
+    toast('Đăng ký BCTT thành công');
+  } catch (err) {
+    toast(err.message || 'Đăng ký BCTT thất bại', 'error');
+  }
+}
+
+function renderKLTNGVOptions() {
+  const gvSelect = document.getElementById('fk-gvhd');
+  const majorSelect = document.getElementById('fk-mang');
+  const dotSelect = document.getElementById('fk-dot');
+  if (!gvSelect) return;
+  const major = String(majorSelect?.value || '').trim();
+  const dotId = String(dotSelect?.value || '').trim();
+
+  let list = DB.users.filter((u) => u.role === 'gv' || u.role === 'bm');
+  if (major) {
+    list = list.filter((u) => Array.isArray(u.chuyenMon) && u.chuyenMon.includes(major));
+  }
+
+  if (!dotId) {
+    gvSelect.innerHTML = `<option value="">-- Chọn đợt trước --</option>`;
+    return;
+  }
+  if (!list.length) {
+    gvSelect.innerHTML = `<option value="">-- Không có GV phù hợp ngành --</option>`;
+    return;
+  }
+
+  gvSelect.innerHTML =
+    `<option value="">-- Chọn giảng viên hướng dẫn --</option>` +
+    list.map((u) => `<option value="${u.id}">${escapeHtml(u.name)}</option>`).join('');
+}
+
+async function submitKLTN() {
+  try {
+    const ten_de_tai = String(document.getElementById('fk-ten')?.value || '').trim();
+    const linh_vuc = String(document.getElementById('fk-mang')?.value || '').trim();
+    const gv_id = parseInt(document.getElementById('fk-gvhd')?.value || '', 10);
+    const dot_id = parseInt(document.getElementById('fk-dot')?.value || '', 10);
+    if (!ten_de_tai || !linh_vuc || !gv_id || !dot_id) {
+      toast('Vui lòng nhập đầy đủ thông tin đăng ký KLTN', 'error');
+      return;
+    }
+
+    await apiRequest('/api/kltn/register', {
+      method: 'POST',
+      body: JSON.stringify({ ten_de_tai, linh_vuc, gv_id, dot_id }),
+    });
+    await syncFromServer();
+    renderKLTN();
+    toast('Đăng ký KLTN thành công');
+  } catch (err) {
+    toast(err.message || 'Đăng ký KLTN thất bại', 'error');
+  }
+}
+
+async function toggleSlot(gvEmail) {
+  try {
+    const gv = DB.users.find((u) => u.email === gvEmail);
+    if (!gv) {
+      toast('Không tìm thấy giảng viên', 'error');
+      return;
+    }
+    const bcttSlots = (DB.gvSlots || []).filter((s) => Number(s.gvId) === Number(gv.id));
+    if (!bcttSlots.length) {
+      toast('Giảng viên chưa có slot để cập nhật', 'error');
+      return;
+    }
+    const current = bcttSlots.every((s) => Boolean(s.duyetTbm));
+    const next = !current;
+    await Promise.all(
+      bcttSlots.map((s) =>
+        apiRequest('/api/gv-slot/duyet', {
+          method: 'POST',
+          body: JSON.stringify({ slot_id: s.id, duyet: next }),
+        })
+      )
+    );
+    await syncFromServer();
+    renderDuyetDe();
+    toast(next ? 'Đã mở lại slot cho giảng viên' : 'Đã khóa slot giảng viên');
+  } catch (err) {
+    toast(err.message || 'Cập nhật slot thất bại', 'error');
+  }
 }
 
 document.addEventListener("DOMContentLoaded", async () => {

@@ -209,6 +209,19 @@ def register_routes(app):
             conn.close()
             return fail(dot_err, 400)
 
+        gv = conn.execute(
+            "SELECT id, role, linh_vuc FROM users WHERE id = ?",
+            (gv_id,),
+        ).fetchone()
+        if not gv or gv["role"] not in ("GV", "TBM"):
+            conn.close()
+            return fail("Giảng viên hướng dẫn không hợp lệ", 400)
+        if linh_vuc:
+            gv_majors = [x.strip() for x in (gv["linh_vuc"] or "").split(",") if x.strip()]
+            if gv_majors and linh_vuc not in gv_majors:
+                conn.close()
+                return fail("Giảng viên không cùng chuyên môn với ngành đăng ký KLTN", 400)
+
         conn.execute(
             """
             INSERT INTO dang_ky (sv_id, gv_id, dot_id, loai, ten_de_tai, linh_vuc, trang_thai)
