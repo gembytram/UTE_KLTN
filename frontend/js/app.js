@@ -24,6 +24,7 @@ const DB = {
   phanCongRoles: [],
   rawScoreRows: [],
   gvSlots: [],
+  selectedBcttIds: [],
 
   currentUser: null,
   currentPage: 'dashboard',
@@ -1165,18 +1166,44 @@ function renderNhapDiem() {
 function renderHuongDan() {
   const u = DB.currentUser;
   const list = DB.bcttList.filter(b => b.gvEmail === u.email && b.trangThai === 'cho_duyet');
-  const chamList = DB.bcttList.filter(b => b.gvEmail === u.email && b.trangThai === 'cho_cham');
   const el = document.getElementById('page-huongdan');
   let html = `<div class="page-header"><h1>✅ Hướng dẫn</h1><p>Duyệt BCTT và chấm BCTT theo quy trình</p></div>`;
   
   if (!list.length) {
+    DB.selectedBcttIds = [];
     html += `<div class="card"><div class="empty-state"><div class="empty-state-icon">✅</div><div class="empty-state-title">Không có đề tài chờ duyệt</div></div></div>`;
   } else {
-    list.forEach(b => {
-      html += `<div class="card" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap">
-      <div style="flex:1;min-width:160px"><div style="font-weight:700;cursor:pointer;color:var(--primary)" onclick="viewBCTTDetail('${b.id}')">${escapeHtml(b.tenDeTai)}</div></div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-ghost btn-sm" onclick="viewBCTTDetail('${b.id}')">👁 Chi tiết</button><button class="btn btn-success btn-sm" onclick="duyetBCTT('${b.id}',true)">Đồng ý</button> <button class="btn btn-danger btn-sm" onclick="duyetBCTT('${b.id}',false)">Không đồng ý</button></div></div></div>`;
+    const available = new Set(list.map((b) => Number(b.dangKyId)));
+    DB.selectedBcttIds = (DB.selectedBcttIds || []).filter((id) => available.has(Number(id)));
+    const allChecked = list.length > 0 && list.every((b) => (DB.selectedBcttIds || []).includes(Number(b.dangKyId)));
+    const hasAnyChecked = (DB.selectedBcttIds || []).length > 0;
+    html += `<div class="card" style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+        <div style="font-size:13px;color:var(--text2)">Đã chọn <strong>${(DB.selectedBcttIds || []).length}</strong> / ${list.length} sinh viên</div>
+        <div class="action-row">
+          <button class="btn btn-success btn-sm" ${hasAnyChecked ? '' : 'disabled'} onclick="batchDuyetBCTT(true)">✓ Duyệt tất cả đã chọn</button>
+          <button class="btn btn-danger btn-sm" ${hasAnyChecked ? '' : 'disabled'} onclick="batchDuyetBCTT(false)">✗ Từ chối tất cả đã chọn</button>
+        </div>
+      </div>
+    </div>`;
+    html += `<div class="card"><div class="table-wrap"><table>
+      <thead><tr>
+        <th style="width:40px"><input type="checkbox" ${allChecked ? 'checked' : ''} onchange="toggleSelectAllHuongDan(this.checked)"></th>
+        <th>Sinh viên</th><th>Đề tài</th><th>Mảng</th><th>Ngày đăng ký</th><th>Thao tác</th>
+      </tr></thead><tbody>`;
+    list.forEach((b) => {
+      const sv = getUser(b.svEmail);
+      const checked = (DB.selectedBcttIds || []).includes(Number(b.dangKyId));
+      html += `<tr>
+        <td><input type="checkbox" ${checked ? 'checked' : ''} onchange="toggleSelectHuongDan(${Number(b.dangKyId)}, this.checked)"></td>
+        <td><div style="font-weight:600">${escapeHtml(sv?.name || b.svEmail)}</div><div style="font-size:11px;color:var(--text3)">${escapeHtml(b.svEmail)}</div></td>
+        <td><div style="font-weight:600;cursor:pointer;color:var(--primary)" onclick="viewBCTTDetail('${b.id}')">${escapeHtml(b.tenDeTai)}</div></td>
+        <td><span class="badge badge-blue">${escapeHtml(b.mangDeTai || '')}</span></td>
+        <td style="font-size:12px;color:var(--text3)">${escapeHtml(b.ngayDangKy || '')}</td>
+        <td><div class="action-row"><button class="btn btn-ghost btn-sm" onclick="viewBCTTDetail('${b.id}')">👁 Chi tiết</button><button class="btn btn-success btn-sm" onclick="duyetBCTT('${b.id}',true)">Đồng ý</button><button class="btn btn-danger btn-sm" onclick="duyetBCTT('${b.id}',false)">Không đồng ý</button></div></td>
+      </tr>`;
     });
+    html += `</tbody></table></div></div>`;
   }
   el.innerHTML = html;
 }
@@ -1504,6 +1531,69 @@ async function saveTeacherSlots(gvEmail) {
     toast('Cập nhật slot giảng viên thành công');
   } catch (err) {
     toast(err.message || 'Lưu slot thất bại', 'error');
+  }
+}
+
+function toggleSelectHuongDan(dangKyId, checked) {
+  const id = Number(dangKyId);
+  if (!Number.isInteger(id)) return;
+  const selected = new Set((DB.selectedBcttIds || []).map((x) => Number(x)));
+  if (checked) selected.add(id);
+  else selected.delete(id);
+  DB.selectedBcttIds = Array.from(selected);
+  renderHuongDan();
+}
+
+function toggleSelectAllHuongDan(checked) {
+  const u = DB.currentUser;
+  const list = DB.bcttList.filter((b) => b.gvEmail === u.email && b.trangThai === 'cho_duyet');
+  DB.selectedBcttIds = checked ? list.map((b) => Number(b.dangKyId)).filter((id) => Number.isInteger(id)) : [];
+  renderHuongDan();
+}
+
+async function processBCTTApproval(dangKyIds, isApprove) {
+  const ids = (dangKyIds || []).map((x) => Number(x)).filter((id) => Number.isInteger(id));
+  if (!ids.length) {
+    toast('Không có sinh viên nào được chọn', 'error');
+    return false;
+  }
+  const action = isApprove ? 'dong_y' : 'tu_choi';
+  await apiRequest('/api/bctt/approve', {
+    method: 'POST',
+    body: JSON.stringify({ dang_ky_ids: ids, action }),
+  });
+  await syncFromServer();
+  return true;
+}
+
+async function batchDuyetBCTT(isApprove) {
+  try {
+    const ok = await processBCTTApproval(DB.selectedBcttIds || [], isApprove);
+    if (!ok) return;
+    DB.selectedBcttIds = [];
+    renderHuongDan();
+    toast(isApprove ? 'Đã duyệt các sinh viên đã chọn' : 'Đã từ chối các sinh viên đã chọn');
+  } catch (err) {
+    toast(err.message || 'Xử lý duyệt hàng loạt thất bại', 'error');
+  }
+}
+
+async function duyetBCTT(bcttId, isApprove) {
+  try {
+    const rec = DB.bcttList.find((b) => String(b.id) === String(bcttId));
+    if (!rec || !Number.isInteger(Number(rec.dangKyId))) {
+      toast('Không tìm thấy đăng ký cần xử lý', 'error');
+      return;
+    }
+    const ok = await processBCTTApproval([Number(rec.dangKyId)], isApprove);
+    if (!ok) return;
+    DB.selectedBcttIds = (DB.selectedBcttIds || []).filter((id) => Number(id) !== Number(rec.dangKyId));
+    if (DB.currentPage === 'huongdan') renderHuongDan();
+    else if (DB.currentPage === 'duyetde') renderDuyetDe();
+    else renderDashboard();
+    toast(isApprove ? 'Đã duyệt đề tài BCTT' : 'Đã từ chối đề tài BCTT');
+  } catch (err) {
+    toast(err.message || 'Xử lý duyệt thất bại', 'error');
   }
 }
 
