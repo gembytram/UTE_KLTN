@@ -24,7 +24,10 @@ const DB = {
   phanCongRoles: [],
   rawScoreRows: [],
   gvSlots: [],
+HEAD
   selectedBcttIds: [],
+
+e0ac28f (first commit)
 
   currentUser: null,
   currentPage: 'dashboard',
@@ -826,17 +829,24 @@ function renderKLTN() {
         <div class="grid-2">
           <div class="form-group"><label>Tên đề tài *</label><input type="text" id="fk-ten" value="${myBCTT.tenDeTai}" placeholder="Tên đề tài KLTN..."></div>
           <div class="form-group"><label>Ngành *</label><select id="fk-mang"><option value="">-- Chọn ngành --</option>${DB.mangDeTai.map(m=>`<option ${m===myBCTT.mangDeTai?'selected':''}>${m}</option>`).join('')}</select></div>
+<<<<<<< HEAD
           <div class="form-group"><label>GV Hướng dẫn *</label><select id="fk-gvhd"></select></div>
           <div class="form-group"><label>Đợt đăng ký *</label><select id="fk-dot" onchange="renderKLTNGVOptions()"><option value="">-- Chọn đợt --</option>${DB.dotDangKy.filter(d => d.trangThai === 'dang_mo' && d.loai === 'KLTN' && dotMatchesStudentHeAndMajor(d)).map(d => `<option value="${d.id}">${d.ten}</option>`).join('')}</select></div>
+=======
+          <div class="form-group"><label>GV Hướng dẫn</label><input type="text" value="${getUser(myBCTT.gvEmail)?.name || myBCTT.gvEmail}" readonly style="background:var(--bg)" id="fk-gvhd-display"><input type="hidden" id="fk-gvhd" value="${myBCTT.gvEmail}"></div>
+          <div class="form-group"><label>Đợt đăng ký *</label><select id="fk-dot"><option value="">-- Chọn đợt --</option>${DB.dotDangKy.filter(d => d.trangThai === 'dang_mo' && d.loai === 'KLTN' && dotMatchesStudentHeAndMajor(d)).map(d => `<option value="${d.id}">${d.ten}</option>`).join('')}</select></div>
+>>>>>>> e0ac28f (first commit)
         </div>
         <button class="btn btn-primary" style="margin-top:8px;min-width:200px" onclick="submitKLTN()">📤 Gửi đăng ký KLTN</button>
       </div>`;
     }
   }
   el.innerHTML = html;
+HEAD
   if (document.getElementById('fk-gvhd')) {
     queueMicrotask(() => renderKLTNGVOptions());
   }
+e0ac28f (first commit)
 }
 
 function renderDeTai() {
@@ -1061,12 +1071,16 @@ function renderDuyetDe() {
       html += `<tr><td>${g.name}</td>
   <td><strong>${g.quota || 0}</strong> / ${g.quota_max || g.quota || 0}</td>
   <td>${g.slotOpen ? '<span class="badge badge-green">Đang mở</span>' : '<span class="badge badge-red">Đã khóa</span>'}</td>
+<<<<<<< HEAD
   <td>
     <div class="action-row">
       <button class="btn btn-sm ${g.slotOpen ? 'btn-danger' : 'btn-success'}" onclick="toggleSlot('${g.email}')">${g.slotOpen ? 'Khóa slot' : 'Mở slot'}</button>
       <button class="btn btn-ghost btn-sm" onclick="openEditTeacherSlots('${g.email}')">✏️ Sửa slot</button>
     </div>
   </td>
+=======
+  <td><button class="btn btn-sm ${g.slotOpen ? 'btn-danger' : 'btn-success'}" onclick="toggleSlot('${g.email}')">${g.slotOpen ? 'Khóa slot' : 'Mở slot'}</button></td>
+>>>>>>> e0ac28f (first commit)
 </tr>`;
     });
     html += `</tbody></table></div></div>`;
@@ -1166,10 +1180,15 @@ function renderNhapDiem() {
 function renderHuongDan() {
   const u = DB.currentUser;
   const list = DB.bcttList.filter(b => b.gvEmail === u.email && b.trangThai === 'cho_duyet');
+<<<<<<< HEAD
+=======
+  const chamList = DB.bcttList.filter(b => b.gvEmail === u.email && b.trangThai === 'cho_cham');
+>>>>>>> e0ac28f (first commit)
   const el = document.getElementById('page-huongdan');
   let html = `<div class="page-header"><h1>✅ Hướng dẫn</h1><p>Duyệt BCTT và chấm BCTT theo quy trình</p></div>`;
   
   if (!list.length) {
+<<<<<<< HEAD
     DB.selectedBcttIds = [];
     html += `<div class="card"><div class="empty-state"><div class="empty-state-icon">✅</div><div class="empty-state-title">Không có đề tài chờ duyệt</div></div></div>`;
   } else {
@@ -1204,6 +1223,15 @@ function renderHuongDan() {
       </tr>`;
     });
     html += `</tbody></table></div></div>`;
+=======
+    html += `<div class="card"><div class="empty-state"><div class="empty-state-icon">✅</div><div class="empty-state-title">Không có đề tài chờ duyệt</div></div></div>`;
+  } else {
+    list.forEach(b => {
+      html += `<div class="card" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap">
+      <div style="flex:1;min-width:160px"><div style="font-weight:700;cursor:pointer;color:var(--primary)" onclick="viewBCTTDetail('${b.id}')">${escapeHtml(b.tenDeTai)}</div></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-ghost btn-sm" onclick="viewBCTTDetail('${b.id}')">👁 Chi tiết</button><button class="btn btn-success btn-sm" onclick="duyetBCTT('${b.id}',true)">Đồng ý</button> <button class="btn btn-danger btn-sm" onclick="duyetBCTT('${b.id}',false)">Không đồng ý</button></div></div></div>`;
+    });
+>>>>>>> e0ac28f (first commit)
   }
   el.innerHTML = html;
 }
@@ -1273,6 +1301,7 @@ function switchTab(e, tabId) {
   document.getElementById(tabId)?.classList.add('active');
 }
 
+<<<<<<< HEAD
 function renderGVOptionsByField() {
   const gvSelect = document.getElementById('f-gv');
   const dotSelect = document.getElementById('f-dot');
@@ -1597,6 +1626,8 @@ async function duyetBCTT(bcttId, isApprove) {
   }
 }
 
+=======
+>>>>>>> e0ac28f (first commit)
 document.addEventListener("DOMContentLoaded", async () => {
   const saved = localStorage.getItem("currentUser");
   if (!saved) return;
