@@ -4,7 +4,7 @@ Ung dung quan ly de tai Bao cao thuc tap (BCTT) va Khoa luan tot nghiep (KLTN) c
 
 #Test commit
 
-## Tong quan
+## Tong quan quan tri du an web ktln 
 
 He thong gom 3 phan chinh:
 - Backend Flask API + SQLite
