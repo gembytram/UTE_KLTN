@@ -24,10 +24,6 @@ const DB = {
   phanCongRoles: [],
   rawScoreRows: [],
   gvSlots: [],
-HEAD
-  selectedBcttIds: [],
-
-e0ac28f (first commit)
 
   currentUser: null,
   currentPage: 'dashboard',
@@ -829,24 +825,14 @@ function renderKLTN() {
         <div class="grid-2">
           <div class="form-group"><label>Tên đề tài *</label><input type="text" id="fk-ten" value="${myBCTT.tenDeTai}" placeholder="Tên đề tài KLTN..."></div>
           <div class="form-group"><label>Ngành *</label><select id="fk-mang"><option value="">-- Chọn ngành --</option>${DB.mangDeTai.map(m=>`<option ${m===myBCTT.mangDeTai?'selected':''}>${m}</option>`).join('')}</select></div>
-<<<<<<< HEAD
-          <div class="form-group"><label>GV Hướng dẫn *</label><select id="fk-gvhd"></select></div>
-          <div class="form-group"><label>Đợt đăng ký *</label><select id="fk-dot" onchange="renderKLTNGVOptions()"><option value="">-- Chọn đợt --</option>${DB.dotDangKy.filter(d => d.trangThai === 'dang_mo' && d.loai === 'KLTN' && dotMatchesStudentHeAndMajor(d)).map(d => `<option value="${d.id}">${d.ten}</option>`).join('')}</select></div>
-=======
           <div class="form-group"><label>GV Hướng dẫn</label><input type="text" value="${getUser(myBCTT.gvEmail)?.name || myBCTT.gvEmail}" readonly style="background:var(--bg)" id="fk-gvhd-display"><input type="hidden" id="fk-gvhd" value="${myBCTT.gvEmail}"></div>
           <div class="form-group"><label>Đợt đăng ký *</label><select id="fk-dot"><option value="">-- Chọn đợt --</option>${DB.dotDangKy.filter(d => d.trangThai === 'dang_mo' && d.loai === 'KLTN' && dotMatchesStudentHeAndMajor(d)).map(d => `<option value="${d.id}">${d.ten}</option>`).join('')}</select></div>
->>>>>>> e0ac28f (first commit)
         </div>
         <button class="btn btn-primary" style="margin-top:8px;min-width:200px" onclick="submitKLTN()">📤 Gửi đăng ký KLTN</button>
       </div>`;
     }
   }
   el.innerHTML = html;
-HEAD
-  if (document.getElementById('fk-gvhd')) {
-    queueMicrotask(() => renderKLTNGVOptions());
-  }
-e0ac28f (first commit)
 }
 
 function renderDeTai() {
@@ -1071,16 +1057,7 @@ function renderDuyetDe() {
       html += `<tr><td>${g.name}</td>
   <td><strong>${g.quota || 0}</strong> / ${g.quota_max || g.quota || 0}</td>
   <td>${g.slotOpen ? '<span class="badge badge-green">Đang mở</span>' : '<span class="badge badge-red">Đã khóa</span>'}</td>
-<<<<<<< HEAD
-  <td>
-    <div class="action-row">
-      <button class="btn btn-sm ${g.slotOpen ? 'btn-danger' : 'btn-success'}" onclick="toggleSlot('${g.email}')">${g.slotOpen ? 'Khóa slot' : 'Mở slot'}</button>
-      <button class="btn btn-ghost btn-sm" onclick="openEditTeacherSlots('${g.email}')">✏️ Sửa slot</button>
-    </div>
-  </td>
-=======
   <td><button class="btn btn-sm ${g.slotOpen ? 'btn-danger' : 'btn-success'}" onclick="toggleSlot('${g.email}')">${g.slotOpen ? 'Khóa slot' : 'Mở slot'}</button></td>
->>>>>>> e0ac28f (first commit)
 </tr>`;
     });
     html += `</tbody></table></div></div>`;
@@ -1180,50 +1157,11 @@ function renderNhapDiem() {
 function renderHuongDan() {
   const u = DB.currentUser;
   const list = DB.bcttList.filter(b => b.gvEmail === u.email && b.trangThai === 'cho_duyet');
-<<<<<<< HEAD
-=======
   const chamList = DB.bcttList.filter(b => b.gvEmail === u.email && b.trangThai === 'cho_cham');
->>>>>>> e0ac28f (first commit)
   const el = document.getElementById('page-huongdan');
   let html = `<div class="page-header"><h1>✅ Hướng dẫn</h1><p>Duyệt BCTT và chấm BCTT theo quy trình</p></div>`;
   
   if (!list.length) {
-<<<<<<< HEAD
-    DB.selectedBcttIds = [];
-    html += `<div class="card"><div class="empty-state"><div class="empty-state-icon">✅</div><div class="empty-state-title">Không có đề tài chờ duyệt</div></div></div>`;
-  } else {
-    const available = new Set(list.map((b) => Number(b.dangKyId)));
-    DB.selectedBcttIds = (DB.selectedBcttIds || []).filter((id) => available.has(Number(id)));
-    const allChecked = list.length > 0 && list.every((b) => (DB.selectedBcttIds || []).includes(Number(b.dangKyId)));
-    const hasAnyChecked = (DB.selectedBcttIds || []).length > 0;
-    html += `<div class="card" style="margin-bottom:12px">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-        <div style="font-size:13px;color:var(--text2)">Đã chọn <strong>${(DB.selectedBcttIds || []).length}</strong> / ${list.length} sinh viên</div>
-        <div class="action-row">
-          <button class="btn btn-success btn-sm" ${hasAnyChecked ? '' : 'disabled'} onclick="batchDuyetBCTT(true)">✓ Duyệt tất cả đã chọn</button>
-          <button class="btn btn-danger btn-sm" ${hasAnyChecked ? '' : 'disabled'} onclick="batchDuyetBCTT(false)">✗ Từ chối tất cả đã chọn</button>
-        </div>
-      </div>
-    </div>`;
-    html += `<div class="card"><div class="table-wrap"><table>
-      <thead><tr>
-        <th style="width:40px"><input type="checkbox" ${allChecked ? 'checked' : ''} onchange="toggleSelectAllHuongDan(this.checked)"></th>
-        <th>Sinh viên</th><th>Đề tài</th><th>Mảng</th><th>Ngày đăng ký</th><th>Thao tác</th>
-      </tr></thead><tbody>`;
-    list.forEach((b) => {
-      const sv = getUser(b.svEmail);
-      const checked = (DB.selectedBcttIds || []).includes(Number(b.dangKyId));
-      html += `<tr>
-        <td><input type="checkbox" ${checked ? 'checked' : ''} onchange="toggleSelectHuongDan(${Number(b.dangKyId)}, this.checked)"></td>
-        <td><div style="font-weight:600">${escapeHtml(sv?.name || b.svEmail)}</div><div style="font-size:11px;color:var(--text3)">${escapeHtml(b.svEmail)}</div></td>
-        <td><div style="font-weight:600;cursor:pointer;color:var(--primary)" onclick="viewBCTTDetail('${b.id}')">${escapeHtml(b.tenDeTai)}</div></td>
-        <td><span class="badge badge-blue">${escapeHtml(b.mangDeTai || '')}</span></td>
-        <td style="font-size:12px;color:var(--text3)">${escapeHtml(b.ngayDangKy || '')}</td>
-        <td><div class="action-row"><button class="btn btn-ghost btn-sm" onclick="viewBCTTDetail('${b.id}')">👁 Chi tiết</button><button class="btn btn-success btn-sm" onclick="duyetBCTT('${b.id}',true)">Đồng ý</button><button class="btn btn-danger btn-sm" onclick="duyetBCTT('${b.id}',false)">Không đồng ý</button></div></td>
-      </tr>`;
-    });
-    html += `</tbody></table></div></div>`;
-=======
     html += `<div class="card"><div class="empty-state"><div class="empty-state-icon">✅</div><div class="empty-state-title">Không có đề tài chờ duyệt</div></div></div>`;
   } else {
     list.forEach(b => {
@@ -1231,7 +1169,6 @@ function renderHuongDan() {
       <div style="flex:1;min-width:160px"><div style="font-weight:700;cursor:pointer;color:var(--primary)" onclick="viewBCTTDetail('${b.id}')">${escapeHtml(b.tenDeTai)}</div></div>
       <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-ghost btn-sm" onclick="viewBCTTDetail('${b.id}')">👁 Chi tiết</button><button class="btn btn-success btn-sm" onclick="duyetBCTT('${b.id}',true)">Đồng ý</button> <button class="btn btn-danger btn-sm" onclick="duyetBCTT('${b.id}',false)">Không đồng ý</button></div></div></div>`;
     });
->>>>>>> e0ac28f (first commit)
   }
   el.innerHTML = html;
 }
@@ -1301,333 +1238,6 @@ function switchTab(e, tabId) {
   document.getElementById(tabId)?.classList.add('active');
 }
 
-<<<<<<< HEAD
-function renderGVOptionsByField() {
-  const gvSelect = document.getElementById('f-gv');
-  const dotSelect = document.getElementById('f-dot');
-  const majorInput = document.getElementById('f-mang');
-  if (!gvSelect || !dotSelect) return;
-  const dotId = String(dotSelect.value || '').trim();
-  const major = String(majorInput?.value || '').trim();
-  const he = normalizeStudentSlotHe(DB.currentUser);
-  if (!dotId) {
-    gvSelect.innerHTML = `<option value="">-- Chọn đợt trước --</option>`;
-    return;
-  }
-
-  const rows = (DB.gvSlots || []).filter((s) => {
-    if (String(s.dotId) !== dotId) return false;
-    if ((s.heDaoTao || 'DaiTra') !== he) return false;
-    return Boolean(s.duyetTbm) && Number(s.slotConLai || 0) > 0;
-  });
-  const options = rows
-    .map((s) => DB.users.find((u) => Number(u.id) === Number(s.gvId)))
-    .filter(Boolean)
-    .filter((u) => {
-      if (!major) return true;
-      return Array.isArray(u.chuyenMon) && u.chuyenMon.includes(major);
-    });
-
-  if (!options.length) {
-    gvSelect.innerHTML = `<option value="">-- Không có GV còn slot phù hợp --</option>`;
-    return;
-  }
-
-  gvSelect.innerHTML =
-    `<option value="">-- Chọn giảng viên hướng dẫn --</option>` +
-    options
-      .map((u) => {
-        const slot = gvBcttSlotRow(u.id, dotId);
-        const slotText = slot ? ` (còn ${slot.slotConLai} slot)` : '';
-        return `<option value="${u.id}">${escapeHtml(u.name)}${slotText}</option>`;
-      })
-      .join('');
-}
-
-async function submitBCTT() {
-  try {
-    const ten_de_tai = String(document.getElementById('f-tenDeTai')?.value || '').trim();
-    const linh_vuc = String(document.getElementById('f-mang')?.value || '').trim();
-    const ten_cong_ty = String(document.getElementById('f-congty')?.value || '').trim();
-    const gv_id = parseInt(document.getElementById('f-gv')?.value || '', 10);
-    const dot_id = parseInt(document.getElementById('f-dot')?.value || '', 10);
-    if (!ten_de_tai || !linh_vuc || !ten_cong_ty || !gv_id || !dot_id) {
-      toast('Vui lòng nhập đầy đủ thông tin đăng ký BCTT', 'error');
-      return;
-    }
-
-    if (!gvAcceptsBcttRegistration(gv_id, String(dot_id))) {
-      toast('Giảng viên này không còn slot hoặc chưa được TBM mở', 'error');
-      return;
-    }
-
-    await apiRequest('/api/bctt/register', {
-      method: 'POST',
-      body: JSON.stringify({ ten_de_tai, linh_vuc, ten_cong_ty, gv_id, dot_id }),
-    });
-    await syncFromServer();
-    renderBCTT();
-    toast('Đăng ký BCTT thành công');
-  } catch (err) {
-    toast(err.message || 'Đăng ký BCTT thất bại', 'error');
-  }
-}
-
-function renderKLTNGVOptions() {
-  const gvSelect = document.getElementById('fk-gvhd');
-  const majorSelect = document.getElementById('fk-mang');
-  const dotSelect = document.getElementById('fk-dot');
-  if (!gvSelect) return;
-  const major = String(majorSelect?.value || '').trim();
-  const dotId = String(dotSelect?.value || '').trim();
-
-  let list = DB.users.filter((u) => u.role === 'gv' || u.role === 'bm');
-  if (major) {
-    list = list.filter((u) => Array.isArray(u.chuyenMon) && u.chuyenMon.includes(major));
-  }
-
-  if (!dotId) {
-    gvSelect.innerHTML = `<option value="">-- Chọn đợt trước --</option>`;
-    return;
-  }
-  if (!list.length) {
-    gvSelect.innerHTML = `<option value="">-- Không có GV phù hợp ngành --</option>`;
-    return;
-  }
-
-  gvSelect.innerHTML =
-    `<option value="">-- Chọn giảng viên hướng dẫn --</option>` +
-    list.map((u) => `<option value="${u.id}">${escapeHtml(u.name)}</option>`).join('');
-}
-
-async function submitKLTN() {
-  try {
-    const ten_de_tai = String(document.getElementById('fk-ten')?.value || '').trim();
-    const linh_vuc = String(document.getElementById('fk-mang')?.value || '').trim();
-    const gv_id = parseInt(document.getElementById('fk-gvhd')?.value || '', 10);
-    const dot_id = parseInt(document.getElementById('fk-dot')?.value || '', 10);
-    if (!ten_de_tai || !linh_vuc || !gv_id || !dot_id) {
-      toast('Vui lòng nhập đầy đủ thông tin đăng ký KLTN', 'error');
-      return;
-    }
-
-    await apiRequest('/api/kltn/register', {
-      method: 'POST',
-      body: JSON.stringify({ ten_de_tai, linh_vuc, gv_id, dot_id }),
-    });
-    await syncFromServer();
-    renderKLTN();
-    toast('Đăng ký KLTN thành công');
-  } catch (err) {
-    toast(err.message || 'Đăng ký KLTN thất bại', 'error');
-  }
-}
-
-async function toggleSlot(gvEmail) {
-  try {
-    const gv = DB.users.find((u) => u.email === gvEmail);
-    if (!gv) {
-      toast('Không tìm thấy giảng viên', 'error');
-      return;
-    }
-    const bcttSlots = (DB.gvSlots || []).filter((s) => Number(s.gvId) === Number(gv.id));
-    if (!bcttSlots.length) {
-      toast('Giảng viên chưa có slot để cập nhật', 'error');
-      return;
-    }
-    const current = bcttSlots.every((s) => Boolean(s.duyetTbm));
-    const next = !current;
-    await Promise.all(
-      bcttSlots.map((s) =>
-        apiRequest('/api/gv-slot/duyet', {
-          method: 'POST',
-          body: JSON.stringify({ slot_id: s.id, duyet: next }),
-        })
-      )
-    );
-    await syncFromServer();
-    renderDuyetDe();
-    toast(next ? 'Đã mở lại slot cho giảng viên' : 'Đã khóa slot giảng viên');
-  } catch (err) {
-    toast(err.message || 'Cập nhật slot thất bại', 'error');
-  }
-}
-
-function openEditTeacherSlots(gvEmail) {
-  const gv = DB.users.find((u) => u.email === gvEmail);
-  if (!gv) {
-    toast('Không tìm thấy giảng viên', 'error');
-    return;
-  }
-  const slots = (DB.gvSlots || [])
-    .filter((s) => Number(s.gvId) === Number(gv.id));
-  if (!slots.length) {
-    toast('Giảng viên chưa có slot để chỉnh sửa', 'error');
-    return;
-  }
-
-  const grouped = {};
-  slots.forEach((s) => {
-    const he = String(s.heDaoTao || 'DaiTra');
-    if (!grouped[he]) grouped[he] = [];
-    grouped[he].push(s);
-  });
-
-  const rowsHtml = Object.keys(grouped)
-    .sort()
-    .map((he) => {
-      const sample = grouped[he][0];
-      return `<tr>
-        <td>${escapeHtml(he)}</td>
-        <td><input type="number" min="0" id="slot-quota-he-${he}" value="${Number(sample.quota || 0)}" style="width:110px"></td>
-        <td><input type="number" min="0" id="slot-remain-he-${he}" value="${Number(sample.slotConLai || 0)}" style="width:110px"></td>
-      </tr>`;
-    })
-    .join('');
-
-  showModal(`
-    <div class="modal-header">
-      <div class="modal-title">✏️ Chỉnh slot theo hệ: ${escapeHtml(gv.name)}</div>
-      <button class="modal-close" onclick="closeModalForce()">✕</button>
-    </div>
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr><th>Hệ đào tạo</th><th>Quota</th><th>Slot còn lại</th></tr>
-        </thead>
-        <tbody>${rowsHtml}</tbody>
-      </table>
-    </div>
-    <div style="font-size:12px;color:var(--text3);margin-top:10px">Cập nhật sẽ áp dụng cho tất cả slot cùng hệ của giảng viên. Slot còn lại không được lớn hơn quota.</div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModalForce()">Hủy</button>
-      <button class="btn btn-primary" onclick="saveTeacherSlots('${gv.email}')">💾 Lưu thay đổi</button>
-    </div>
-  `);
-}
-
-async function saveTeacherSlots(gvEmail) {
-  const gv = DB.users.find((u) => u.email === gvEmail);
-  if (!gv) {
-    toast('Không tìm thấy giảng viên', 'error');
-    return;
-  }
-  const slots = (DB.gvSlots || []).filter((s) => Number(s.gvId) === Number(gv.id));
-  if (!slots.length) {
-    toast('Giảng viên chưa có slot để chỉnh sửa', 'error');
-    return;
-  }
-  try {
-    const tasks = [];
-    const grouped = {};
-    slots.forEach((s) => {
-      const he = String(s.heDaoTao || 'DaiTra');
-      if (!grouped[he]) grouped[he] = [];
-      grouped[he].push(s);
-    });
-
-    for (const he of Object.keys(grouped)) {
-      const quotaEl = document.getElementById(`slot-quota-he-${he}`);
-      const remainEl = document.getElementById(`slot-remain-he-${he}`);
-      if (!quotaEl || !remainEl) continue;
-      const quota = parseInt(quotaEl.value, 10);
-      const slot_con_lai = parseInt(remainEl.value, 10);
-      if (!Number.isInteger(quota) || !Number.isInteger(slot_con_lai) || quota < 0 || slot_con_lai < 0) {
-        toast('Quota/slot phải là số nguyên >= 0', 'error');
-        return;
-      }
-      if (slot_con_lai > quota) {
-        toast('Slot còn lại không được lớn hơn quota', 'error');
-        return;
-      }
-      const sample = grouped[he][0];
-      if (quota === Number(sample.quota || 0) && slot_con_lai === Number(sample.slotConLai || 0)) continue;
-      tasks.push(
-        apiRequest('/api/gv-slot/update', {
-          method: 'POST',
-          body: JSON.stringify({ gv_id: gv.id, he_dao_tao: he, quota, slot_con_lai }),
-        })
-      );
-    }
-    if (!tasks.length) {
-      toast('Không có thay đổi để lưu', 'info');
-      return;
-    }
-    await Promise.all(tasks);
-    await syncFromServer();
-    closeModalForce();
-    renderDuyetDe();
-    toast('Cập nhật slot giảng viên thành công');
-  } catch (err) {
-    toast(err.message || 'Lưu slot thất bại', 'error');
-  }
-}
-
-function toggleSelectHuongDan(dangKyId, checked) {
-  const id = Number(dangKyId);
-  if (!Number.isInteger(id)) return;
-  const selected = new Set((DB.selectedBcttIds || []).map((x) => Number(x)));
-  if (checked) selected.add(id);
-  else selected.delete(id);
-  DB.selectedBcttIds = Array.from(selected);
-  renderHuongDan();
-}
-
-function toggleSelectAllHuongDan(checked) {
-  const u = DB.currentUser;
-  const list = DB.bcttList.filter((b) => b.gvEmail === u.email && b.trangThai === 'cho_duyet');
-  DB.selectedBcttIds = checked ? list.map((b) => Number(b.dangKyId)).filter((id) => Number.isInteger(id)) : [];
-  renderHuongDan();
-}
-
-async function processBCTTApproval(dangKyIds, isApprove) {
-  const ids = (dangKyIds || []).map((x) => Number(x)).filter((id) => Number.isInteger(id));
-  if (!ids.length) {
-    toast('Không có sinh viên nào được chọn', 'error');
-    return false;
-  }
-  const action = isApprove ? 'dong_y' : 'tu_choi';
-  await apiRequest('/api/bctt/approve', {
-    method: 'POST',
-    body: JSON.stringify({ dang_ky_ids: ids, action }),
-  });
-  await syncFromServer();
-  return true;
-}
-
-async function batchDuyetBCTT(isApprove) {
-  try {
-    const ok = await processBCTTApproval(DB.selectedBcttIds || [], isApprove);
-    if (!ok) return;
-    DB.selectedBcttIds = [];
-    renderHuongDan();
-    toast(isApprove ? 'Đã duyệt các sinh viên đã chọn' : 'Đã từ chối các sinh viên đã chọn');
-  } catch (err) {
-    toast(err.message || 'Xử lý duyệt hàng loạt thất bại', 'error');
-  }
-}
-
-async function duyetBCTT(bcttId, isApprove) {
-  try {
-    const rec = DB.bcttList.find((b) => String(b.id) === String(bcttId));
-    if (!rec || !Number.isInteger(Number(rec.dangKyId))) {
-      toast('Không tìm thấy đăng ký cần xử lý', 'error');
-      return;
-    }
-    const ok = await processBCTTApproval([Number(rec.dangKyId)], isApprove);
-    if (!ok) return;
-    DB.selectedBcttIds = (DB.selectedBcttIds || []).filter((id) => Number(id) !== Number(rec.dangKyId));
-    if (DB.currentPage === 'huongdan') renderHuongDan();
-    else if (DB.currentPage === 'duyetde') renderDuyetDe();
-    else renderDashboard();
-    toast(isApprove ? 'Đã duyệt đề tài BCTT' : 'Đã từ chối đề tài BCTT');
-  } catch (err) {
-    toast(err.message || 'Xử lý duyệt thất bại', 'error');
-  }
-}
-
-=======
->>>>>>> e0ac28f (first commit)
 document.addEventListener("DOMContentLoaded", async () => {
   const saved = localStorage.getItem("currentUser");
   if (!saved) return;

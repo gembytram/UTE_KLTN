@@ -209,7 +209,6 @@ def register_routes(app):
             conn.close()
             return fail(dot_err, 400)
 
-<<<<<<< HEAD
         gv = conn.execute(
             "SELECT id, role, linh_vuc FROM users WHERE id = ?",
             (gv_id,),
@@ -223,8 +222,6 @@ def register_routes(app):
                 conn.close()
                 return fail("Giảng viên không cùng chuyên môn với ngành đăng ký KLTN", 400)
 
-=======
->>>>>>> e0ac28f (first commit)
         conn.execute(
             """
             INSERT INTO dang_ky (sv_id, gv_id, dot_id, loai, ten_de_tai, linh_vuc, trang_thai)
@@ -641,7 +638,7 @@ def register_routes(app):
         conn.close()
         return ok("Cập nhật trạng thái slot thành công")
 
-<<<<<<< HEAD
+
     @app.route("/api/gv-slot/update", methods=["POST"])
     @role_required("TBM")
     def update_gv_slot():
@@ -741,8 +738,6 @@ def register_routes(app):
         conn.close()
         return ok("Cập nhật slot giảng viên thành công")
 
-=======
->>>>>>> e0ac28f (first commit)
     @app.route("/api/phan-cong", methods=["POST"])
     @role_required("TBM")
     def assign_roles():
