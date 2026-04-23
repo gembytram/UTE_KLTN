@@ -562,6 +562,252 @@ async function buildNotifPanel() {
     </div>`).join('');
 }
 
+function getStudentUploadMa() {
+  const u = DB.currentUser || {};
+  return u.ma || u.mssv || "";
+}
+
+function findBcttRecord(recordId) {
+  return DB.bcttList.find((b) => String(b.id) === String(recordId));
+}
+
+function findKltnRecord(recordId) {
+  return DB.kltnList.find((k) => String(k.id) === String(recordId));
+}
+
+async function refreshCurrentView() {
+  await syncFromServer();
+  navigateTo(DB.currentPage || "dashboard");
+}
+
+async function submitBCTT() {
+  const ten = (document.getElementById("f-tenDeTai")?.value || "").trim();
+  const linh_vuc = (document.getElementById("f-mang")?.value || "").trim();
+  const cong_ty = (document.getElementById("f-congty")?.value || "").trim();
+  const gv_id = document.getElementById("f-gv")?.value || "";
+  const dot_id = document.getElementById("f-dot")?.value || "";
+  if (!ten || !linh_vuc || !cong_ty || !gv_id || !dot_id) {
+    toast("Vui lòng nhập đủ thông tin đăng ký BCTT", "error");
+    return;
+  }
+  try {
+    await apiRequest("/api/bctt/register", {
+      method: "POST",
+      body: JSON.stringify({ ten_de_tai: ten, linh_vuc, ten_cong_ty: cong_ty, gv_id, dot_id }),
+    });
+    toast("Gửi đăng ký BCTT thành công");
+    await refreshCurrentView();
+  } catch (err) {
+    toast(err.message, "error");
+  }
+}
+
+async function submitKLTN() {
+  const ten = (document.getElementById("fk-ten")?.value || "").trim();
+  const linh_vuc = (document.getElementById("fk-mang")?.value || "").trim();
+  const gvEmail = document.getElementById("fk-gvhd")?.value || "";
+  const dot_id = document.getElementById("fk-dot")?.value || "";
+  const gv = getUser(gvEmail);
+  const gv_id = gv ? gv.id : "";
+  if (!ten || !linh_vuc || !gv_id || !dot_id) {
+    toast("Vui lòng nhập đủ thông tin đăng ký KLTN", "error");
+    return;
+  }
+  try {
+    await apiRequest("/api/kltn/register", {
+      method: "POST",
+      body: JSON.stringify({ ten_de_tai: ten, linh_vuc, gv_id, dot_id }),
+    });
+    toast("Gửi đăng ký KLTN thành công");
+    await refreshCurrentView();
+  } catch (err) {
+    toast(err.message, "error");
+  }
+}
+
+function renderGVOptionsByField() {
+  const gvSelect = document.getElementById("f-gv");
+  const dotSelect = document.getElementById("f-dot");
+  if (!gvSelect || !dotSelect) return;
+
+  const dotId = dotSelect.value;
+  const major = (document.getElementById("f-mang")?.value || getCurrentStudentMajor() || "").trim();
+  const he = normalizeStudentSlotHe(DB.currentUser);
+
+  if (!dotId) {
+    gvSelect.innerHTML = `<option value="">-- Chọn đợt trước --</option>`;
+    return;
+  }
+
+  const candidates = DB.users.filter((u) => {
+    if (u.role !== "gv" && u.role !== "bm") return false;
+    if (major && Array.isArray(u.chuyenMon) && u.chuyenMon.length && !u.chuyenMon.includes(major)) return false;
+    const slot = (DB.gvSlots || []).find(
+      (s) => Number(s.gvId) === Number(u.id) && String(s.dotId) === String(dotId) && String(s.heDaoTao || "DaiTra") === he
+    );
+    return Boolean(slot && slot.duyetTbm && Number(slot.slotConLai || 0) > 0);
+  });
+
+  if (!candidates.length) {
+    gvSelect.innerHTML = `<option value="">-- Không có GV phù hợp cho đợt này --</option>`;
+    return;
+  }
+
+  gvSelect.innerHTML =
+    `<option value="">-- Chọn giảng viên hướng dẫn --</option>` +
+    candidates
+      .map((u) => {
+        const slot = gvBcttSlotRow(u.id, dotId);
+        const majors = (u.chuyenMon || []).join(", ");
+        const quota = slot ? slot.slotConLai : 0;
+        return `<option value="${u.id}">${escapeHtml(u.name)}${majors ? ` - ${escapeHtml(majors)}` : ""} (${quota} slot)</option>`;
+      })
+      .join("");
+}
+
+async function uploadRegistrationFile(dangKyId, loaiFile, file) {
+  const u = DB.currentUser || {};
+  const authHeaders = {};
+  if (u.id) authHeaders["X-User-Id"] = String(u.id);
+  if (u.role_raw || u.role) authHeaders["X-User-Role"] = String(u.role_raw || toApiRole(u.role));
+
+  const formData = new FormData();
+  formData.append("dang_ky_id", String(dangKyId));
+  formData.append("loai_file", loaiFile);
+  formData.append("ma_sv", getStudentUploadMa());
+  formData.append("file", file);
+
+  const res = await fetch(`${API_BASE}/api/upload`, {
+    method: "POST",
+    credentials: "include",
+    headers: authHeaders,
+    body: formData,
+  });
+  const body = await res.json().catch(() => ({ success: false, message: "Upload thất bại" }));
+  if (!res.ok || body.success === false) {
+    throw new Error(body.message || "Upload thất bại");
+  }
+  return body.data || {};
+}
+
+function chooseFileAndUpload(recordId, loaiFile) {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".pdf,.doc,.docx";
+  input.addEventListener("change", async () => {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    try {
+      await uploadRegistrationFile(recordId, loaiFile, file);
+      toast("Upload file thành công");
+      await refreshCurrentView();
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  });
+  input.click();
+}
+
+function fakeUpload(kind, recordId) {
+  const record = findBcttRecord(recordId);
+  if (!record) {
+    toast("Không tìm thấy hồ sơ BCTT", "error");
+    return;
+  }
+  const loaiFileMap = {
+    "bctt-bc": "bctt_baocao",
+    "bctt-xn": "bctt_xacnhan",
+  };
+  const loaiFile = loaiFileMap[kind];
+  if (!loaiFile) {
+    toast("Loại file upload không hợp lệ", "error");
+    return;
+  }
+  chooseFileAndUpload(record.dangKyId || extractId(record.id), loaiFile);
+}
+
+function fakeUploadKLTN(recordId, field) {
+  const record = findKltnRecord(recordId);
+  if (!record) {
+    toast("Không tìm thấy hồ sơ KLTN", "error");
+    return;
+  }
+  const loaiFileMap = {
+    fileBaiWord: "kltn_bai_word",
+    fileBai: "kltn_bai_pdf",
+    fileBaiChinhSua: "kltn_chinhsua",
+    fileGiaiTrinh: "bien_ban_giai_trinh",
+  };
+  const loaiFile = loaiFileMap[field];
+  if (!loaiFile) {
+    toast("Loại file upload không hợp lệ", "error");
+    return;
+  }
+  chooseFileAndUpload(record.dangKyId || extractId(record.id), loaiFile);
+}
+
+async function hoanTatBCTT(recordId) {
+  const record = findBcttRecord(recordId);
+  if (!record) {
+    toast("Không tìm thấy hồ sơ BCTT", "error");
+    return;
+  }
+  try {
+    await apiRequest("/api/bctt/submit", {
+      method: "POST",
+      body: JSON.stringify({ dang_ky_id: record.dangKyId || extractId(record.id) }),
+    });
+    toast("Đã nộp hồ sơ BCTT");
+    await refreshCurrentView();
+  } catch (err) {
+    toast(err.message, "error");
+  }
+}
+
+async function hoanTatKLTN(recordId) {
+  const record = findKltnRecord(recordId);
+  if (!record) {
+    toast("Không tìm thấy hồ sơ KLTN", "error");
+    return;
+  }
+  try {
+    await apiRequest("/api/kltn/submit", {
+      method: "POST",
+      body: JSON.stringify({ dang_ky_id: record.dangKyId || extractId(record.id) }),
+    });
+    toast("Đã nộp bài KLTN");
+    await refreshCurrentView();
+  } catch (err) {
+    toast(err.message, "error");
+  }
+}
+
+async function duyetBCTT(recordId, dongY) {
+  const record = findBcttRecord(recordId);
+  if (!record) {
+    toast("Không tìm thấy đề tài BCTT", "error");
+    return;
+  }
+  const dangKyId = record.dangKyId || extractId(record.id);
+  if (!dangKyId) {
+    toast("Mã đăng ký không hợp lệ", "error");
+    return;
+  }
+  try {
+    await apiRequest("/api/bctt/approve", {
+      method: "POST",
+      body: JSON.stringify({
+        dang_ky_ids: [dangKyId],
+        action: dongY ? "dong_y" : "tu_choi",
+      }),
+    });
+    toast(dongY ? "Đã duyệt đề tài BCTT" : "Đã từ chối đề tài BCTT");
+    await refreshCurrentView();
+  } catch (err) {
+    toast(err.message, "error");
+  }
+}
+
 // ============================================================
 // PAGES RENDER (BCTT, KLTN, DUYỆT, ... )
 // ============================================================
