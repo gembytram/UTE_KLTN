@@ -97,6 +97,35 @@ function gvAcceptsBcttRegistration(gvId, dotId) {
   return Boolean(sl.duyetTbm) && (sl.slotConLai || 0) > 0;
 }
 
+function renderGVOptionsByField() {
+  const gvSelect = document.getElementById('f-gv');
+  const dotSelect = document.getElementById('f-dot');
+  if (!gvSelect || !dotSelect) return;
+
+  const selectedDotId = dotSelect.value;
+  const heDaoTao = normalizeStudentSlotHe(DB.currentUser);
+  const validSlots = DB.gvSlots.filter((slot) => {
+    return String(slot.dotId) === String(selectedDotId) && String(slot.heDaoTao) === String(heDaoTao) && slot.duyetTbm && (slot.slotConLai || 0) > 0;
+  });
+
+  const gvIds = Array.from(new Set(validSlots.map((slot) => Number(slot.gvId))));
+  const options = gvIds
+    .map((gvId) => {
+      const gv = DB.users.find((u) => Number(u.id) === Number(gvId));
+      if (!gv) return null;
+      const slot = validSlots.find((s) => Number(s.gvId) === Number(gvId));
+      const label = gv.name;
+      const extra = slot ? ` - slot còn lại: ${slot.slotConLai}` : '';
+      return `<option value="${gvId}">${escapeHtml(label + extra)}</option>`;
+    })
+    .filter(Boolean);
+
+  gvSelect.innerHTML = `
+    <option value="">-- Chọn giảng viên hướng dẫn --</option>
+    ${options.length ? options.join('') : '<option value="" disabled>Không có giảng viên phù hợp hoặc chưa chọn đợt</option>'}
+  `;
+}
+
 function gvListMatchingKltnMajor(k) {
   const mang = k && k.mangDeTai ? String(k.mangDeTai).trim() : '';
   return DB.users.filter((u) => {

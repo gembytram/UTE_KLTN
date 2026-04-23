@@ -216,11 +216,7 @@ def register_routes(app):
         if not gv or gv["role"] not in ("GV", "TBM"):
             conn.close()
             return fail("Giảng viên hướng dẫn không hợp lệ", 400)
-        if linh_vuc:
-            gv_majors = [x.strip() for x in (gv["linh_vuc"] or "").split(",") if x.strip()]
-            if gv_majors and linh_vuc not in gv_majors:
-                conn.close()
-                return fail("Giảng viên không cùng chuyên môn với ngành đăng ký KLTN", 400)
+        # Bỏ ràng buộc: Giáo viên ngành khác vẫn có thể hướng dẫn được ngành khác
 
         conn.execute(
             """
@@ -840,10 +836,11 @@ def register_routes(app):
             return fail("Chỉ lập hội đồng cho đăng ký KLTN", 400)
         major = kltn_major_from_dang_ky(reg_hd["linh_vuc"])
         council_ids = [ct_id, tk_id, *tv_ids]
-        ok_m, err_m = assert_kltn_assignees_match_major(conn, major, council_ids)
-        if not ok_m:
-            conn.close()
-            return fail(err_m, 400)
+        # Bỏ ràng buộc: Cho phép giáo viên ngành khác lập hội đồng hướng dẫn
+        # ok_m, err_m = assert_kltn_assignees_match_major(conn, major, council_ids)
+        # if not ok_m:
+        #     conn.close()
+        #     return fail(err_m, 400)
 
         all_member_ids = [str(ct_id), str(tk_id), *[str(tv_id) for tv_id in tv_ids]]
         hoi_dong_path = "|".join(all_member_ids)

@@ -50,10 +50,8 @@ def kltn_major_from_dang_ky(linh_vuc_raw):
 
 
 def user_covers_kltn_major(user_row, major):
-    if not major:
-        return True
-    parts = [x.strip() for x in (user_row["linh_vuc"] or "").split(",") if x.strip()]
-    return major in parts
+    # Cho phép giáo viên ngành khác hướng dẫn - không ràng buộc điều kiện lĩnh vực
+    return True
 
 
 def assert_kltn_assignees_match_major(conn, major, user_ids):
