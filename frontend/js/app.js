@@ -717,6 +717,7 @@ function fakeUpload(kind, recordId) {
   const loaiFileMap = {
     "bctt-bc": "bctt_baocao",
     "bctt-xn": "bctt_xacnhan",
+    "bctt-turnitin": "turnitin_bctt",
   };
   const loaiFile = loaiFileMap[kind];
   if (!loaiFile) {
@@ -802,6 +803,40 @@ async function duyetBCTT(recordId, dongY) {
       }),
     });
     toast(dongY ? "Đã duyệt đề tài BCTT" : "Đã từ chối đề tài BCTT");
+    await refreshCurrentView();
+  } catch (err) {
+    toast(err.message, "error");
+  }
+}
+
+async function chamBCTT(recordId) {
+  const record = findBcttRecord(recordId);
+  if (!record) {
+    toast("Không tìm thấy hồ sơ BCTT", "error");
+    return;
+  }
+
+  const dangKyId = record.dangKyId || extractId(record.id);
+  const diemEl = document.getElementById(`bctt-diem-${record.id}`);
+  const nhanXetEl = document.getElementById(`bctt-nhanxet-${record.id}`);
+  const diem = diemEl ? Number(diemEl.value) : NaN;
+  const nhan_xet = nhanXetEl ? nhanXetEl.value.trim() : "";
+
+  if (Number.isNaN(diem)) {
+    toast("Vui lòng nhập điểm BCTT", "error");
+    return;
+  }
+
+  try {
+    await apiRequest("/api/bctt/grade", {
+      method: "POST",
+      body: JSON.stringify({
+        dang_ky_id: dangKyId,
+        diem,
+        nhan_xet,
+      }),
+    });
+    toast("Chấm BCTT thành công");
     await refreshCurrentView();
   } catch (err) {
     toast(err.message, "error");
@@ -933,7 +968,7 @@ function renderBCTT() {
       <div class="info-row"><span class="info-label">Ngày đăng ký:</span><span class="info-value">${b.ngayDangKy}</span></div>
     </div>`;
 
-    if (b.trangThai === 'gv_xac_nhan') {
+    if (b.trangThai === 'gv_xac_nhan' || b.trangThai === 'cho_cham') {
       html += `<div class="card"><div class="card-title" style="margin-bottom:16px">📤 Nộp hồ sơ BCTT</div>
         <div class="grid-2">
           <div>
@@ -950,6 +985,16 @@ function renderBCTT() {
               <div class="upload-text">${b.fileXacNhan ? b.fileXacNhan : 'Click để chọn file PDF'}</div>
             </div>
           </div>
+          <div>
+            <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">📊 File Turnitin BCTT (PDF/DOC/DOCX)</label>
+            <div class="upload-area ${b.fileTurnitinBCTT ? 'has-file' : ''}" onclick="fakeUpload('bctt-turnitin','${b.id}','fileTurnitinBCTT')">
+              <div class="upload-icon">${b.fileTurnitinBCTT ? '✅' : '📁'}</div>
+              <div class="upload-text">${b.fileTurnitinBCTT ? b.fileTurnitinBCTT : 'Click để chọn file Turnitin'}</div>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top:12px;font-size:12px;color:var(--text3)">
+          Lưu ý: GVHD chỉ chấm được khi đã có file Turnitin BCTT.
         </div>
         ${b.fileBC && b.fileXacNhan ? `<button class="btn btn-success" style="margin-top:16px;width:100%" onclick="hoanTatBCTT('${b.id}')">✅ Hoàn tất nộp hồ sơ BCTT</button>` : ''}
       </div>`;
@@ -1435,16 +1480,75 @@ function renderHuongDan() {
   const chamList = DB.bcttList.filter(b => b.gvEmail === u.email && b.trangThai === 'cho_cham');
   const el = document.getElementById('page-huongdan');
   let html = `<div class="page-header"><h1>✅ Hướng dẫn</h1><p>Duyệt BCTT và chấm BCTT theo quy trình</p></div>`;
-  
+
+  html += `<div class="card" style="margin-bottom:16px">
+    <div class="card-header">
+      <div class="card-title">🟡 BCTT chờ duyệt</div>
+      <div style="font-size:12px;color:var(--text3)">${list.length} hồ sơ</div>
+    </div>`;
   if (!list.length) {
-    html += `<div class="card"><div class="empty-state"><div class="empty-state-icon">✅</div><div class="empty-state-title">Không có đề tài chờ duyệt</div></div></div>`;
+    html += `<div class="empty-state"><div class="empty-state-icon">✅</div><div class="empty-state-title">Không có đề tài chờ duyệt</div></div>`;
   } else {
     list.forEach(b => {
+      const sv = getUser(b.svEmail);
       html += `<div class="card" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap">
-      <div style="flex:1;min-width:160px"><div style="font-weight:700;cursor:pointer;color:var(--primary)" onclick="viewBCTTDetail('${b.id}')">${escapeHtml(b.tenDeTai)}</div></div>
+      <div style="flex:1;min-width:160px">
+        <div style="font-weight:700;cursor:pointer;color:var(--primary)" onclick="viewBCTTDetail('${b.id}')">${escapeHtml(b.tenDeTai)}</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:4px">${escapeHtml(sv?.name || b.svEmail)} • ${escapeHtml(b.tenCongTy || '')}</div>
+      </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-ghost btn-sm" onclick="viewBCTTDetail('${b.id}')">👁 Chi tiết</button><button class="btn btn-success btn-sm" onclick="duyetBCTT('${b.id}',true)">Đồng ý</button> <button class="btn btn-danger btn-sm" onclick="duyetBCTT('${b.id}',false)">Không đồng ý</button></div></div></div>`;
     });
   }
+
+  html += `</div>`;
+
+  html += `<div class="card">
+    <div class="card-header">
+      <div class="card-title">🧑‍🏫 BCTT chờ chấm</div>
+      <div style="font-size:12px;color:var(--text3)">${chamList.length} hồ sơ</div>
+    </div>`;
+  if (!chamList.length) {
+    html += `<div class="empty-state"><div class="empty-state-icon">📝</div><div class="empty-state-title">Chưa có hồ sơ BCTT nào chờ chấm</div></div>`;
+  } else {
+    chamList.forEach(b => {
+      const sv = getUser(b.svEmail);
+      html += `<div class="card" style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap">
+          <div style="flex:1;min-width:220px">
+            <div style="font-weight:700;cursor:pointer;color:var(--primary)" onclick="viewBCTTDetail('${b.id}')">${escapeHtml(b.tenDeTai)}</div>
+            <div style="font-size:12px;color:var(--text3);margin-top:4px">${escapeHtml(sv?.name || b.svEmail)} • ${escapeHtml(b.mangDeTai || '')}</div>
+            <div style="font-size:12px;color:var(--text3);margin-top:4px">${escapeHtml(b.tenCongTy || '')}</div>
+            <div style="font-size:12px;color:var(--text2);margin-top:8px">
+              Báo cáo:
+              ${b.fileBC ? `<a href="${uploadFileHref(b.fileBC)}" target="_blank" rel="noopener">Mở file</a>` : "Chưa có"}
+              &nbsp;•&nbsp;
+              Xác nhận:
+              ${b.fileXacNhan ? `<a href="${uploadFileHref(b.fileXacNhan)}" target="_blank" rel="noopener">Mở file</a>` : "Chưa có"}
+              &nbsp;•&nbsp;
+              Turnitin:
+              ${b.fileTurnitinBCTT ? `<a href="${uploadFileHref(b.fileTurnitinBCTT)}" target="_blank" rel="noopener">Mở file</a>` : "Chưa có"}
+            </div>
+          </div>
+          <div style="width:320px;max-width:100%">
+            <div class="form-group">
+              <label>Điểm BCTT</label>
+              <input type="number" id="bctt-diem-${b.id}" min="0" max="10" step="0.1" value="${b.diemBCTT ?? ''}" placeholder="Nhập điểm từ 0 đến 10">
+            </div>
+            <div class="form-group">
+              <label>Nhận xét</label>
+              <textarea id="bctt-nhanxet-${b.id}" placeholder="Nhập nhận xét cho sinh viên" style="min-height:88px">${escapeHtml(b.nhanXetBCTT || '')}</textarea>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn btn-ghost btn-sm" onclick="viewBCTTDetail('${b.id}')">👁 Chi tiết</button>
+              <button class="btn btn-primary btn-sm" onclick="chamBCTT('${b.id}')">💾 Lưu điểm BCTT</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    });
+  }
+
+  html += `</div>`;
   el.innerHTML = html;
 }
 
