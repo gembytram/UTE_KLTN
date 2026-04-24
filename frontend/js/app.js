@@ -269,6 +269,20 @@ function criteriaInputId(recordId, vaiTro, index) {
   return `${vaiTro.toLowerCase()}-criterion-${index}-${recordId}`;
 }
 
+function normalizeCriterionInput(recordId, vaiTro, index, max) {
+  const el = document.getElementById(criteriaInputId(recordId, vaiTro, index));
+  if (!el) return;
+  const raw = String(el.value || '').trim();
+  if (raw === '') return;
+  let value = Number(raw);
+  if (Number.isNaN(value)) {
+    el.value = '';
+    return;
+  }
+  value = Math.max(0, Math.min(value, Number(max)));
+  el.value = value % 1 === 0 ? String(value) : value.toFixed(1).replace(/\.0$/, '');
+}
+
 function totalInputId(recordId, vaiTro) {
   return `${vaiTro.toLowerCase()}-score-${recordId}`;
 }
@@ -298,7 +312,8 @@ function recalcKLTNRoleTotal(recordId, vaiTro) {
   if (!record) return 0;
   const template = getScoreTemplate(record.topicType, vaiTro);
   let total = 0;
-  template.forEach((_, index) => {
+  template.forEach(([, max], index) => {
+    normalizeCriterionInput(record.id, vaiTro, index, max);
     const el = document.getElementById(criteriaInputId(record.id, vaiTro, index));
     const value = el ? Number(el.value) : 0;
     total += Number.isNaN(value) ? 0 : value;
@@ -313,6 +328,7 @@ function recalcKLTNRoleTotal(recordId, vaiTro) {
 function buildCriteriaPayload(record, vaiTro) {
   const template = getScoreTemplate(record.topicType, vaiTro);
   return template.map(([name, max], index) => {
+    normalizeCriterionInput(record.id, vaiTro, index, max);
     const el = document.getElementById(criteriaInputId(record.id, vaiTro, index));
     const raw = el ? el.value : '';
     const value = raw === '' ? null : Number(raw);
@@ -338,7 +354,7 @@ function renderKLTNScoreBlock(k, vaiTro, title, hint, options = {}) {
     return `<tr>
       <td style="font-size:13px">${index + 1}. ${escapeHtml(name)}</td>
       <td style="font-size:13px;text-align:center">${max}</td>
-      <td><input type="number" min="0" max="${max}" step="0.1" id="${criteriaInputId(k.id, vaiTro, index)}" value="${value}" oninput="recalcKLTNRoleTotal('${k.id}','${vaiTro}')"></td>
+      <td><input type="number" min="0" max="${max}" step="0.1" id="${criteriaInputId(k.id, vaiTro, index)}" value="${value}" oninput="normalizeCriterionInput('${k.id}','${vaiTro}',${index},${max});recalcKLTNRoleTotal('${k.id}','${vaiTro}')"></td>
     </tr>`;
   }).join('');
 
