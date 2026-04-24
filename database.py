@@ -27,6 +27,9 @@ def migrate_db(conn):
     gcols = _table_columns(conn, "gv_slot")
     if "he_dao_tao" not in gcols:
         cur.execute("ALTER TABLE gv_slot ADD COLUMN he_dao_tao TEXT DEFAULT 'DaiTra'")
+    ccols = _table_columns(conn, "cham_diem")
+    if "criteria_json" not in ccols:
+        cur.execute("ALTER TABLE cham_diem ADD COLUMN criteria_json TEXT DEFAULT ''")
     conn.commit()
 
 
@@ -99,6 +102,7 @@ def init_db():
             diem REAL,
             nhan_xet TEXT,
             cau_hoi TEXT,
+            criteria_json TEXT DEFAULT '',
             FOREIGN KEY(dang_ky_id) REFERENCES dang_ky(id),
             FOREIGN KEY(gv_id) REFERENCES users(id)
         );

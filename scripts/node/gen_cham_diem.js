@@ -6,6 +6,7 @@ const fs = require('fs');
 
 const data = JSON.parse(process.argv[2] || '{}');
 const {
+  title = '',
   tenDeTai = '',
   sinhVien = '',
   maSV = '',
@@ -64,6 +65,7 @@ const doc = new Document({
       properties: { page: { margin: { top: 850, right: 850, bottom: 850, left: 850 } } },
       children: [
         centerPara([bold('BÁO CÁO CHẤM ĐIỂM KHÓA LUẬN TỐT NGHIỆP')], { before: 200, after: 200 }),
+        ...(title ? [centerPara([bold(title)], { before: 0, after: 160 })] : []),
         leftPara([bold('Tên đề tài: '), txt(tenDeTai || '.......................................................')], { after: 120 }),
         leftPara([bold('Sinh viên: '), txt(sinhVien || '.......................................................')], { after: 120 }),
         leftPara([bold('MSSV: '), txt(maSV || '.......................................................')], { after: 120 }),

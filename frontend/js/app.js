@@ -187,7 +187,230 @@ function computeKLTNFinalAvg(k) {
   const hoiDongScores = [...tvs, Number(k.diemBB)];
   if (!hoiDongScores.length) return null;
   const avgHd = hoiDongScores.reduce((a, b) => a + b, 0) / hoiDongScores.length;
-  return Number(k.diemHD) * 0.2 + Number(k.diemPB) * 0.2 + avgHd * 0.6;
+  // Giới hạn mỗi điểm thành phần không quá 10
+  const diemHD = Math.min(Number(k.diemHD), 10);
+  const diemPB = Math.min(Number(k.diemPB), 10);
+  const avgHdLimited = Math.min(avgHd, 10);
+  const total = diemHD * 0.2 + diemPB * 0.2 + avgHdLimited * 0.6;
+  return Math.min(total, 10);
+}
+
+function parseStoredCriteria(criteria) {
+  return Array.isArray(criteria) ? criteria : [];
+}
+
+function criteriaInputId(recordId, vaiTro, index) {
+  return `${vaiTro.toLowerCase()}-criterion-${index}-${recordId}`;
+}
+
+function totalInputId(recordId, vaiTro) {
+  return `${vaiTro.toLowerCase()}-score-${recordId}`;
+}
+
+function noteInputId(recordId, vaiTro) {
+  return `${vaiTro.toLowerCase()}-note-${recordId}`;
+}
+
+function questionInputId(recordId, vaiTro) {
+  return `${vaiTro.toLowerCase()}-question-${recordId}`;
+}
+
+function getExistingCriteriaForRole(k, vaiTro) {
+  if (!k) return [];
+  if (vaiTro === 'HD') return parseStoredCriteria(k.hdCriteria);
+  if (vaiTro === 'PB') return parseStoredCriteria(k.pbCriteria);
+  if (vaiTro === 'CT') return parseStoredCriteria(k.ctCriteria);
+  if (vaiTro === 'TV') {
+    const current = getCurrentTVScore(k);
+    return parseStoredCriteria(current?.criteria);
+  }
+  return [];
+}
+
+function recalcKLTNRoleTotal(recordId, vaiTro) {
+  const record = findKltnRecord(recordId);
+  if (!record) return 0;
+  const template = getScoreTemplate(record.topicType, vaiTro);
+  let total = 0;
+  template.forEach((_, index) => {
+    const el = document.getElementById(criteriaInputId(record.id, vaiTro, index));
+    const value = el ? Number(el.value) : 0;
+    total += Number.isNaN(value) ? 0 : value;
+  });
+  // Giới hạn tổng điểm không quá 10
+  total = Math.min(total, 10);
+  const totalEl = document.getElementById(totalInputId(record.id, vaiTro));
+  if (totalEl) totalEl.value = total ? total.toFixed(2).replace(/\.00$/, '') : '';
+  return total;
+}
+
+function buildCriteriaPayload(record, vaiTro) {
+  const template = getScoreTemplate(record.topicType, vaiTro);
+  return template.map(([name, max], index) => {
+    const el = document.getElementById(criteriaInputId(record.id, vaiTro, index));
+    const raw = el ? el.value : '';
+    const value = raw === '' ? null : Number(raw);
+    return {
+      name,
+      max,
+      score: value == null || Number.isNaN(value) ? null : value,
+    };
+  });
+}
+
+function renderKLTNScoreBlock(k, vaiTro, title, hint, options = {}) {
+  const existingCriteria = getExistingCriteriaForRole(k, vaiTro);
+  const template = getScoreTemplate(k.topicType, vaiTro);
+  const existingScore = options.existingScore;
+  const noteValue = options.noteValue || '';
+  const questionValue = options.questionValue || '';
+  const showQuestion = Boolean(options.showQuestion);
+
+  const rows = template.map(([name, max], index) => {
+    const stored = existingCriteria[index];
+    const value = stored && stored.score != null ? stored.score : '';
+    return `<tr>
+      <td style="font-size:13px">${index + 1}. ${escapeHtml(name)}</td>
+      <td style="font-size:13px;text-align:center">${max}</td>
+      <td><input type="number" min="0" max="${max}" step="0.1" id="${criteriaInputId(k.id, vaiTro, index)}" value="${value}" oninput="recalcKLTNRoleTotal('${k.id}','${vaiTro}')"></td>
+    </tr>`;
+  }).join('');
+
+  return `<div style="font-size:16px;font-weight:800;color:var(--primary-dark);margin:12px 0 8px">${escapeHtml(getScoreSheetTitle(k.topicType, vaiTro))}</div>
+    <div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:8px">${escapeHtml(title)}</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px">${escapeHtml(hint)}</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:10px">Mẫu phiếu: ${escapeHtml(getTopicTypeLabel(k.topicType))} • ${escapeHtml(SCORE_ROLE_LABELS[vaiTro] || vaiTro)}</div>
+    <div class="table-wrap" style="margin-bottom:12px">
+      <table>
+        <thead><tr><th>Tiêu chí</th><th>Điểm tối đa</th><th>Điểm</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+    <div class="form-group"><label>Tổng điểm</label><input type="number" id="${totalInputId(k.id, vaiTro)}" value="${existingScore ?? ''}" readonly style="background:var(--bg)"></div>
+    <div class="form-group"><label>Nhận xét</label><textarea id="${noteInputId(k.id, vaiTro)}" style="min-height:110px" placeholder="Nhập nhận xét">${escapeHtml(noteValue)}</textarea></div>
+    ${showQuestion ? `<div class="form-group"><label>Câu hỏi / góp ý</label><textarea id="${questionInputId(k.id, vaiTro)}" style="min-height:110px" placeholder="Nhập câu hỏi hoặc góp ý cho sinh viên">${escapeHtml(questionValue)}</textarea></div>` : ''}
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-primary btn-sm" onclick="saveKLTNScore('${k.id}','${vaiTro}')">💾 Lưu phiếu chấm</button>
+      <button class="btn btn-ghost btn-sm" onclick="exportKLTNScoreDocx('${k.id}','${vaiTro}')">📄 Xuất phiếu DOCX</button>
+    </div>`;
+}
+
+function getCurrentTVScore(k) {
+  const u = DB.currentUser;
+  if (!u || !k || !Array.isArray(k.tvScores)) return null;
+  return k.tvScores.find((t) => t.email === u.email) || null;
+}
+
+async function saveKLTNScore(recordId, vaiTro) {
+  const record = findKltnRecord(recordId);
+  if (!record) {
+    toast("Không tìm thấy hồ sơ KLTN", "error");
+    return;
+  }
+
+  const dangKyId = record.dangKyId || extractId(record.id);
+  const criteriaPayload = buildCriteriaPayload(record, vaiTro);
+  const diem = recalcKLTNRoleTotal(record.id, vaiTro);
+  const nhanXetEl = document.getElementById(noteInputId(record.id, vaiTro));
+  const cauHoiEl = document.getElementById(questionInputId(record.id, vaiTro));
+  const nhan_xet = nhanXetEl ? nhanXetEl.value.trim() : "";
+  const cau_hoi = cauHoiEl ? cauHoiEl.value.trim() : "";
+  const criteriaInvalid = criteriaPayload.some((row) => row.score == null || row.score < 0 || row.score > row.max);
+
+  if (!criteriaPayload.length || criteriaInvalid) {
+    toast("Vui lòng nhập đầy đủ điểm từng tiêu chí hợp lệ", "error");
+    return;
+  }
+
+  try {
+    await apiRequest("/api/cham-diem", {
+      method: "POST",
+      body: JSON.stringify({
+        dang_ky_id: dangKyId,
+        vai_tro: vaiTro,
+        diem,
+        nhan_xet,
+        cau_hoi,
+        criteria_json: JSON.stringify(criteriaPayload),
+      }),
+    });
+    toast("Lưu điểm thành công");
+    await refreshCurrentView();
+  } catch (err) {
+    toast(err.message, "error");
+  }
+}
+
+async function saveScoreHD(recordId) {
+  await saveKLTNScore(recordId, "HD");
+}
+
+async function saveScoreTV(recordId) {
+  await saveKLTNScore(recordId, "TV");
+}
+
+async function exportKLTNScoreDocx(recordId, vaiTro) {
+  const record = findKltnRecord(recordId);
+  if (!record) {
+    toast("Không tìm thấy hồ sơ KLTN", "error");
+    return;
+  }
+
+  const criteriaPayload = buildCriteriaPayload(record, vaiTro);
+  const total = recalcKLTNRoleTotal(record.id, vaiTro);
+  const nhan_xet = document.getElementById(noteInputId(record.id, vaiTro))?.value.trim() || "";
+  const cau_hoi = document.getElementById(questionInputId(record.id, vaiTro))?.value.trim() || "";
+  const sv = getUser(record.svEmail);
+  const current = DB.currentUser || {};
+  const authHeaders = {};
+  if (current.id) authHeaders["X-User-Id"] = String(current.id);
+  if (current.role_raw || current.role) authHeaders["X-User-Role"] = String(current.role_raw || toApiRole(current.role));
+
+  if (!criteriaPayload.length) {
+    toast("Chưa có dữ liệu phiếu chấm để xuất", "error");
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/api/cham-diem/xuat-docx`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", ...authHeaders },
+      body: JSON.stringify({
+        title: getScoreSheetTitle(record.topicType, vaiTro),
+        tenDeTai: record.tenDeTai,
+        sinhVien: sv?.name || record.svEmail,
+        maSV: sv?.ma || sv?.mssv || "",
+        topicType: getTopicTypeLabel(record.topicType),
+        vaiTro,
+        roleLabel: SCORE_ROLE_LABELS[vaiTro] || vaiTro,
+        nguoiCham: current.name || "",
+        diem: total.toFixed(2),
+        nhanXet: nhan_xet,
+        cauHoi: cau_hoi,
+        criteria: criteriaPayload.map((row) => row.score ?? ""),
+        criteriaNames: criteriaPayload.map((row) => row.name),
+        criteriaMax: criteriaPayload.map((row) => row.max),
+        total: total.toFixed(2),
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ message: "Xuất DOCX thất bại" }));
+      throw new Error(body.message || "Xuất DOCX thất bại");
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `ChamDiem_${vaiTro}_${(sv?.ma || "SV")}_${record.id}.docx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toast("Đã xuất phiếu chấm DOCX");
+  } catch (err) {
+    toast(err.message, "error");
+  }
 }
 
 function gvKLTNListForNhapDiem(u) {
@@ -379,6 +602,170 @@ const NAV_CONFIG = {
 };
 
 const ROLE_LABELS = { sv: 'Sinh viên', gv: 'Giảng viên', bm: 'Trưởng Bộ Môn', admin: 'Quản trị viên' };
+const TOPIC_TYPE_LABELS = {
+  ung_dung: 'Đề tài ứng dụng',
+  nghien_cuu: 'Đề tài nghiên cứu',
+  default: 'Đề tài chung',
+};
+const SCORE_ROLE_LABELS = {
+  HD: 'Giảng viên hướng dẫn',
+  PB: 'Giảng viên phản biện',
+  CT: 'Chủ tịch hội đồng',
+  TV: 'Thành viên hội đồng',
+};
+const SCORE_TEMPLATE_MAP = {
+  default: {
+    HD: [
+      ['Đặt vấn đề-Lý do chọn đề tài', 1],
+      ['Nội dung – Cơ sở lý thuyết', 1],
+      ['Nội dung – Phân tích, đánh giá', 2],
+      ['Nội dung – Giải pháp', 2],
+      ['Hình thức - Cấu trúc, câu văn và từ ngữ', 2],
+      ['Hình thức-Trích dẫn và tài liệu tham khảo', 1],
+      ['Thái độ', 1],
+      ['Điểm cộng-Viết bằng tiếng Anh (Max 1đ), Viết bài báo khoa học (Max 1đ)', 2],
+    ],
+    PB: [
+      ['Đặt vấn đề-Lý do chọn đề tài', 1],
+      ['Nội dung – Cơ sở lý thuyết', 1],
+      ['Nội dung – Phân tích, đánh giá', 2],
+      ['Nội dung – Giải pháp', 2],
+      ['Hình thức - Cấu trúc, câu văn và từ ngữ', 2],
+      ['Hình thức-Trích dẫn và tài liệu tham khảo', 1],
+      ['Tính sáng tạo - tính mới', 1],
+      ['Điểm cộng-Viết bằng tiếng Anh (Max 1đ), Viết bài báo khoa học (Max 1đ)', 2],
+    ],
+    CT: [
+      ['Slide trình chiếu', 1],
+      ['Phong thái thuyết trình', 1.5],
+      ['Thời gian', 0.5],
+      ['Nội dung', 4],
+      ['Trả lời câu hỏi', 2],
+      ['Tính sáng tạo - tính mới', 1],
+      ['Điểm cộng-Viết bằng tiếng Anh (Max 1đ), Viết bài báo khoa học (Max 1đ)', 2],
+    ],
+    TV: [
+      ['Slide trình chiếu', 1],
+      ['Phong thái thuyết trình', 1.5],
+      ['Thời gian', 0.5],
+      ['Nội dung', 4],
+      ['Trả lời câu hỏi', 2],
+      ['Tính sáng tạo - tính mới', 1],
+      ['Điểm cộng-Viết bằng tiếng Anh (Max 1đ), Viết bài báo khoa học (Max 1đ)', 2],
+    ],
+  },
+  ung_dung: {
+    HD: [
+      ['Đặt vấn đề-Lý do chọn đề tài', 1],
+      ['Nội dung – Cơ sở lý thuyết', 1],
+      ['Nội dung – Phân tích, đánh giá', 2],
+      ['Nội dung – Giải pháp', 2],
+      ['Hình thức - Cấu trúc, câu văn và từ ngữ', 2],
+      ['Hình thức-Trích dẫn và tài liệu tham khảo', 1],
+      ['Thái độ', 1],
+      ['Điểm cộng-Viết bằng tiếng Anh (Max 1đ), Viết bài báo khoa học (Max 1đ)', 2],
+    ],
+    PB: [
+      ['Đặt vấn đề-Lý do chọn đề tài', 1],
+      ['Nội dung – Cơ sở lý thuyết', 1],
+      ['Nội dung – Phân tích, đánh giá', 2],
+      ['Nội dung – Giải pháp', 2],
+      ['Hình thức - Cấu trúc, câu văn và từ ngữ', 2],
+      ['Hình thức-Trích dẫn và tài liệu tham khảo', 1],
+      ['Tính sáng tạo - tính mới', 1],
+      ['Điểm cộng-Viết bằng tiếng Anh (Max 1đ), Viết bài báo khoa học (Max 1đ)', 2],
+    ],
+    CT: [
+      ['Slide trình chiếu', 1],
+      ['Phong thái thuyết trình', 1.5],
+      ['Thời gian', 0.5],
+      ['Nội dung', 4],
+      ['Trả lời câu hỏi', 2],
+      ['Tính sáng tạo - tính mới', 1],
+      ['Điểm cộng-Viết bằng tiếng Anh (Max 1đ), Viết bài báo khoa học (Max 1đ)', 2],
+    ],
+    TV: [
+      ['Slide trình chiếu', 1],
+      ['Phong thái thuyết trình', 1.5],
+      ['Thời gian', 0.5],
+      ['Nội dung', 4],
+      ['Trả lời câu hỏi', 2],
+      ['Tính sáng tạo - tính mới', 1],
+      ['Điểm cộng-Viết bằng tiếng Anh (Max 1đ), Viết bài báo khoa học (Max 1đ)', 2],
+    ],
+  },
+  nghien_cuu: {
+    HD: [
+      ['Tổng quan luận văn -Giới thiệu', 1],
+      ['Cơ sở lý thuyết -Lược khảo và mô hình NC', 2],
+      ['Phương pháp nghiên cứu', 1],
+      ['Kết quả nghiên cứu và thảo luận', 2],
+      ['Kết luận và hàm ý quản trị (chính sách)', 1],
+      ['Hình thức trình bày, Trích dẫn và tài liệu tham khảo', 2],
+      ['Tính sáng tạo - tính mới', 1],
+      ['Điểm cộng-Viết bằng tiếng Anh (Max 1đ), Viết bài báo khoa học (Max 1đ)', 2],
+    ],
+    PB: [
+      ['Tổng quan luận văn -Giới thiệu', 1],
+      ['Cơ sở lý thuyết -Lược khảo và mô hình NC', 2],
+      ['Phương pháp nghiên cứu', 1],
+      ['Kết quả nghiên cứu và thảo luận', 2],
+      ['Kết luận và hàm ý quản trị (chính sách)', 1],
+      ['Hình thức trình bày, Trích dẫn và tài liệu tham khảo', 2],
+      ['Thái độ', 1],
+      ['Điểm cộng-Viết bằng tiếng Anh (Max 1đ), Viết bài báo khoa học (Max 1đ)', 2],
+    ],
+    CT: [
+      ['Slide trình chiếu', 1],
+      ['Phong thái thuyết trình', 1.5],
+      ['Thời gian', 0.5],
+      ['Nội dung', 4],
+      ['Trả lời câu hỏi', 2],
+      ['Tính sáng tạo - tính mới', 1],
+      ['Điểm cộng-Viết bằng tiếng Anh (Max 1đ), Viết bài báo khoa học (Max 1đ)', 2],
+    ],
+    TV: [
+      ['Slide trình chiếu', 1],
+      ['Phong thái thuyết trình', 1.5],
+      ['Thời gian', 0.5],
+      ['Nội dung', 4],
+      ['Trả lời câu hỏi', 2],
+      ['Tính sáng tạo - tính mới', 1],
+      ['Điểm cộng-Viết bằng tiếng Anh (Max 1đ), Viết bài báo khoa học (Max 1đ)', 2],
+    ],
+  },
+};
+
+function normalizeTopicType(topicType) {
+  return topicType === 'ung_dung' || topicType === 'nghien_cuu' ? topicType : 'default';
+}
+
+function getTopicTypeLabel(topicType) {
+  return TOPIC_TYPE_LABELS[normalizeTopicType(topicType)] || TOPIC_TYPE_LABELS.default;
+}
+
+function getScoreTemplate(topicType, vaiTro) {
+  const normalized = normalizeTopicType(topicType);
+  return (SCORE_TEMPLATE_MAP[normalized] && SCORE_TEMPLATE_MAP[normalized][vaiTro]) || SCORE_TEMPLATE_MAP.default[vaiTro] || [];
+}
+
+function getScoreSheetTitle(topicType, vaiTro) {
+  const normalized = normalizeTopicType(topicType);
+  if (vaiTro === 'HD') {
+    return normalized === 'nghien_cuu'
+      ? 'BIÊN BẢN GIÁO VIÊN HƯỚNG DẪN'
+      : 'BIÊN BẢN GIÁO VIÊN HƯỚNG DẪN';
+  }
+  if (vaiTro === 'PB') {
+    return normalized === 'nghien_cuu'
+      ? 'BIÊN BẢN GIÁO VIÊN PHẢN BIỆN '
+      : 'BIÊN BẢN GIÁO VIÊN PHẢN BIỆN';
+  }
+  if (vaiTro === 'CT' || vaiTro === 'TV') {
+    return 'BIÊN BẢN HỘI ĐỒNG';
+  }
+  return 'BIÊN BẢN CHẤM ĐIỂM';
+}
 
 async function doLogin() {
   try {
@@ -584,16 +971,17 @@ async function submitBCTT() {
   const ten = (document.getElementById("f-tenDeTai")?.value || "").trim();
   const linh_vuc = (document.getElementById("f-mang")?.value || "").trim();
   const cong_ty = (document.getElementById("f-congty")?.value || "").trim();
+  const loai_de_tai = (document.getElementById("f-topicType")?.value || "").trim();
   const gv_id = document.getElementById("f-gv")?.value || "";
   const dot_id = document.getElementById("f-dot")?.value || "";
-  if (!ten || !linh_vuc || !cong_ty || !gv_id || !dot_id) {
+  if (!ten || !linh_vuc || !cong_ty || !loai_de_tai || !gv_id || !dot_id) {
     toast("Vui lòng nhập đủ thông tin đăng ký BCTT", "error");
     return;
   }
   try {
     await apiRequest("/api/bctt/register", {
       method: "POST",
-      body: JSON.stringify({ ten_de_tai: ten, linh_vuc, ten_cong_ty: cong_ty, gv_id, dot_id }),
+      body: JSON.stringify({ ten_de_tai: ten, linh_vuc, ten_cong_ty: cong_ty, loai_de_tai, gv_id, dot_id }),
     });
     toast("Gửi đăng ký BCTT thành công");
     await refreshCurrentView();
@@ -605,18 +993,19 @@ async function submitBCTT() {
 async function submitKLTN() {
   const ten = (document.getElementById("fk-ten")?.value || "").trim();
   const linh_vuc = (document.getElementById("fk-mang")?.value || "").trim();
+  const loai_de_tai = (document.getElementById("fk-topicType")?.value || "").trim();
   const gvEmail = document.getElementById("fk-gvhd")?.value || "";
   const dot_id = document.getElementById("fk-dot")?.value || "";
   const gv = getUser(gvEmail);
   const gv_id = gv ? gv.id : "";
-  if (!ten || !linh_vuc || !gv_id || !dot_id) {
+  if (!ten || !linh_vuc || !loai_de_tai || !gv_id || !dot_id) {
     toast("Vui lòng nhập đủ thông tin đăng ký KLTN", "error");
     return;
   }
   try {
     await apiRequest("/api/kltn/register", {
       method: "POST",
-      body: JSON.stringify({ ten_de_tai: ten, linh_vuc, gv_id, dot_id }),
+      body: JSON.stringify({ ten_de_tai: ten, linh_vuc, loai_de_tai, gv_id, dot_id }),
     });
     toast("Gửi đăng ký KLTN thành công");
     await refreshCurrentView();
@@ -960,6 +1349,7 @@ function renderBCTT() {
     html += `<div class="card" style="margin-bottom:20px">
       <div class="card-header"><div><div class="card-title">📋 Thông tin đăng ký BCTT</div></div>${statusBadge(b.trangThai)}</div>
       <div class="info-row"><span class="info-label">Tên đề tài:</span><span class="info-value" style="font-weight:700">${b.tenDeTai}</span></div>
+      <div class="info-row"><span class="info-label">Loại đề tài:</span><span class="info-value">${getTopicTypeLabel(b.topicType)}</span></div>
       <div class="info-row"><span class="info-label">Mảng đề tài:</span><span class="info-value">${b.mangDeTai}</span></div>
       <div class="info-row"><span class="info-label">Công ty:</span><span class="info-value">${b.tenCongTy}</span></div>
       <div class="info-row"><span class="info-label">Giảng viên HD:</span><span class="info-value">${gv?.name || b.gvEmail}</span></div>
@@ -1017,6 +1407,7 @@ function renderBCTT() {
       <div class="card-title" style="margin-bottom:20px">📋 Form đăng ký BCTT</div>
       <div class="grid-2">
         <div class="form-group"><label>Tên đề tài *</label><input type="text" id="f-tenDeTai" placeholder="Nhập tên đề tài thực tập..."></div>
+        <div class="form-group"><label>Loại đề tài *</label><select id="f-topicType"><option value="">-- Chọn loại đề tài --</option><option value="ung_dung">Đề tài ứng dụng</option><option value="nghien_cuu">Đề tài nghiên cứu</option></select></div>
         <div class="form-group"><label>Ngành *</label><input type="text" id="f-mang" value="${escapeHtml(svMajor)}" readonly style="background:var(--bg)"></div>
         <div class="form-group"><label>Tên công ty *</label><input type="text" id="f-congty" placeholder="Tên doanh nghiệp thực tập..."></div>
         <div class="form-group"><label>Giảng viên hướng dẫn *</label><select id="f-gv"><option value="">-- Chọn đợt — slot theo hệ của bạn (${normalizeStudentSlotHe(DB.currentUser)}) --</option></select></div>
@@ -1045,6 +1436,7 @@ function renderKLTN() {
     html += `<div class="card" style="margin-bottom:20px">
       <div class="card-header"><div><div class="card-title">📋 Thông tin KLTN</div></div>${statusBadge(k.trangThai)}</div>
       <div class="info-row"><span class="info-label">Tên đề tài:</span><span class="info-value" style="font-weight:700">${k.tenDeTai}</span></div>
+      <div class="info-row"><span class="info-label">Loại đề tài:</span><span class="info-value">${getTopicTypeLabel(k.topicType)}</span></div>
       <div class="info-row"><span class="info-label">Mảng đề tài:</span><span class="info-value">${k.mangDeTai}</span></div>
       <div class="info-row"><span class="info-label">GV Hướng dẫn:</span><span class="info-value">${gvHD?.name || k.gvHDEmail}</span></div>
       <div class="info-row"><span class="info-label">GV Phản biện:</span><span class="info-value">${gvPB ? gvPB.name : '<span style="color:var(--text3)">Chưa phân công</span>'}</span></div>
@@ -1085,7 +1477,7 @@ function renderKLTN() {
         ${tvLine ? `<div style="font-size:12px;color:var(--text2);margin-top:8px"><strong>Điểm TV:</strong> ${tvLine}</div>` : ''}
         <div class="score-total">
           <div class="score-total-label">Điểm tổng hợp (20% HD + 20% PB + 60% TB HĐ)</div>
-          <div class="score-total-value">${fa != null ? fa.toFixed(2) : '–'}</div>
+          <div class="score-total-value">${fa != null ? Math.min(fa, 10).toFixed(2) : '–'}</div>
         </div>
       </div>`;
     }
@@ -1144,6 +1536,7 @@ function renderKLTN() {
         <div class="card-title" style="margin-bottom:20px">📋 Form đăng ký KLTN</div>
         <div class="grid-2">
           <div class="form-group"><label>Tên đề tài *</label><input type="text" id="fk-ten" value="${myBCTT.tenDeTai}" placeholder="Tên đề tài KLTN..."></div>
+          <div class="form-group"><label>Loại đề tài *</label><select id="fk-topicType"><option value="">-- Chọn loại đề tài --</option><option value="ung_dung" ${normalizeTopicType(myBCTT.topicType) === 'ung_dung' ? 'selected' : ''}>Đề tài ứng dụng</option><option value="nghien_cuu" ${normalizeTopicType(myBCTT.topicType) === 'nghien_cuu' ? 'selected' : ''}>Đề tài nghiên cứu</option></select></div>
           <div class="form-group"><label>Ngành *</label><select id="fk-mang"><option value="">-- Chọn ngành --</option>${DB.mangDeTai.map(m=>`<option ${m===myBCTT.mangDeTai?'selected':''}>${m}</option>`).join('')}</select></div>
           <div class="form-group"><label>GV Hướng dẫn</label><input type="text" value="${getUser(myBCTT.gvEmail)?.name || myBCTT.gvEmail}" readonly style="background:var(--bg)" id="fk-gvhd-display"><input type="hidden" id="fk-gvhd" value="${myBCTT.gvEmail}"></div>
           <div class="form-group"><label>Đợt đăng ký *</label><select id="fk-dot"><option value="">-- Chọn đợt --</option>${DB.dotDangKy.filter(d => d.trangThai === 'dang_mo' && d.loai === 'KLTN' && dotMatchesStudentHeAndMajor(d)).map(d => `<option value="${d.id}">${d.ten}</option>`).join('')}</select></div>
@@ -1272,7 +1665,7 @@ function viewKLTNDetail(id) {
         <div class="kltn-score-box"><span class="kltn-score-label">Điểm GVHD</span><div class="kltn-score-val">${k.diemHD != null ? escapeHtml(String(k.diemHD)) : '–'}</div></div>
         <div class="kltn-score-box"><span class="kltn-score-label">Điểm GVPB</span><div class="kltn-score-val">${k.diemPB != null ? escapeHtml(String(k.diemPB)) : '–'}</div></div>
         <div class="kltn-score-box"><span class="kltn-score-label">Điểm CT.HĐ</span><div class="kltn-score-val">${k.diemBB != null ? escapeHtml(String(k.diemBB)) : '–'}</div></div>
-        ${faDetail != null ? `<div class="kltn-score-box" style="background: #fff1f2; border-color: #fecdd3;"><span class="kltn-score-label" style="color: #9f1239;">Tổng hợp</span><div class="kltn-score-val" style="color: #e11d48; font-size: 22px;">${faDetail.toFixed(2)}</div></div>` : ''}
+        ${faDetail != null ? `<div class="kltn-score-box" style="background: #fff1f2; border-color: #fecdd3;"><span class="kltn-score-label" style="color: #9f1239;">Tổng hợp</span><div class="kltn-score-val" style="color: #e11d48; font-size: 22px;">${Math.min(faDetail, 10).toFixed(2)}</div></div>` : ''}
        </div>`
     : '<div style="font-size:13.5px; color:var(--text3); font-style: italic; margin-bottom: 15px;">Chưa có điểm chấm.</div>';
 
@@ -1450,28 +1843,67 @@ function renderNhapDiem() {
     list.forEach((k) => {
       const sv = getUser(k.svEmail);
       const isBM = u.role === 'bm';
-      const storedBmRole = localStorage.getItem(`bmRole_${k.id}`);
-      if (storedBmRole && !window[`bmRole_${k.id}`]) window[`bmRole_${k.id}`] = storedBmRole;
-      const bmRole = isBM ? (window[`bmRole_${k.id}`] || 'summary') : null;
-      let isHD = !isBM && u.email === k.gvHDEmail;
-      let isPB = !isBM && u.email === k.gvPBEmail;
-      let isCT = !isBM && k.hoiDong && u.email === k.hoiDong.ct;
+      const isHD = !isBM && u.email === k.gvHDEmail;
+      const isPB = !isBM && u.email === k.gvPBEmail;
+      const isCT = !isBM && k.hoiDong && u.email === k.hoiDong.ct;
       const isTK = !isBM && k.hoiDong && u.email === k.hoiDong.tk;
-      let isTVMember = !isBM && k.hoiDong && Array.isArray(k.hoiDong.tv) && k.hoiDong.tv.includes(u.email) && !isCT && !isTK;
+      const isTVMember = !isBM && k.hoiDong && Array.isArray(k.hoiDong.tv) && k.hoiDong.tv.includes(u.email) && !isCT && !isTK;
 
       html += `<div class="card" style="margin-bottom:16px">
-        <div class="card-header"><div><div class="card-title" style="cursor:pointer;color:var(--primary)" onclick="viewKLTNDetail('${k.id}')">${escapeHtml(k.tenDeTai)}</div></div>${statusBadge(k.trangThai)}</div>`;
-        
+        <div class="card-header"><div><div class="card-title" style="cursor:pointer;color:var(--primary)" onclick="viewKLTNDetail('${k.id}')">${escapeHtml(k.tenDeTai)}</div><div style="font-size:12px;color:var(--text3);margin-top:4px">${escapeHtml(sv?.name || k.svEmail)} • ${escapeHtml(getTopicTypeLabel(k.topicType))}</div></div>${statusBadge(k.trangThai)}</div>`;
+
       if (isHD) {
-        html += `<div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:8px">🎯 GV hướng dẫn — chấm điểm</div>
-          <div class="form-group"><label>Điểm HD</label><input type="number" id="diem-hd-${k.id}" value="${k.diemHD ?? ''}"></div>
-          <button class="btn btn-primary btn-sm" onclick="saveScoreHD('${k.id}')">💾 Lưu điểm</button>`;
+        html += renderKLTNScoreBlock(
+          k,
+          'HD',
+          '🎯 Giảng viên hướng dẫn — phiếu chấm',
+          'Phiếu chấm thay đổi theo loại đề tài mà sinh viên đã đăng ký.',
+          { existingScore: k.diemHD, noteValue: k.hdNote || '' }
+        );
       }
-      
+
+      if (isPB) {
+        html += renderKLTNScoreBlock(
+          k,
+          'PB',
+          '🧾 Giảng viên phản biện — phiếu chấm',
+          'Vai trò phản biện cần nhập đủ nhận xét và câu hỏi để đưa vào biên bản.',
+          { existingScore: k.diemPB, noteValue: k.pbNote || '', questionValue: k.pbCauHoi || '', showQuestion: true }
+        );
+      }
+
+      if (isCT) {
+        html += renderKLTNScoreBlock(
+          k,
+          'CT',
+          '👨‍⚖️ Chủ tịch hội đồng — phiếu chấm',
+          'Điểm của Chủ tịch được dùng cùng với điểm các thành viên để tính trung bình hội đồng.',
+          { existingScore: k.diemBB, noteValue: k.ctNote || '', questionValue: k.ctCauHoi || '', showQuestion: true }
+        );
+      }
+
+      if (isTK) {
+        html += `<div style="font-size:13px;color:var(--text3);margin-top:12px">📝 Bạn đang là Thư ký hội đồng. Vai trò này không chấm điểm riêng, nhưng sẽ tổng hợp nội dung vào biên bản.</div>`;
+      }
+
+      if (isTVMember) {
+        const myTVScore = getCurrentTVScore(k);
+        html += renderKLTNScoreBlock(
+          k,
+          'TV',
+          '🏛️ Thành viên hội đồng — phiếu chấm riêng',
+          'Mỗi thành viên hội đồng có một phiếu chấm riêng theo loại đề tài.',
+          { existingScore: myTVScore?.diem, noteValue: myTVScore?.nhanXet || '' }
+        );
+      }
+
       html += `</div>`;
     });
   }
   el.innerHTML = html;
+  list.forEach((k) => {
+    ['HD', 'PB', 'CT', 'TV'].forEach((vaiTro) => recalcKLTNRoleTotal(k.id, vaiTro));
+  });
 }
 
 function renderHuongDan() {

@@ -19,11 +19,37 @@ def build_email(ma):
 
 def parse_linh_vuc(value):
     if not value:
-        return {"mangDeTai": "", "tenCongTy": ""}
+        return {"mangDeTai": "", "tenCongTy": "", "topicType": ""}
     if "||" not in value:
-        return {"mangDeTai": value, "tenCongTy": ""}
-    parts = value.split("||", 1)
-    return {"mangDeTai": parts[0], "tenCongTy": parts[1]}
+        return {"mangDeTai": value, "tenCongTy": "", "topicType": ""}
+
+    parts = [part.strip() for part in value.split("||")]
+    mang = parts[0] if len(parts) > 0 else ""
+    if len(parts) == 2:
+        second = parts[1]
+        if second in ("ung_dung", "nghien_cuu"):
+            return {"mangDeTai": mang, "tenCongTy": "", "topicType": second}
+        return {"mangDeTai": mang, "tenCongTy": second, "topicType": ""}
+    return {
+        "mangDeTai": mang,
+        "tenCongTy": parts[1] if len(parts) > 1 else "",
+        "topicType": parts[2] if len(parts) > 2 else "",
+    }
+
+
+def build_bctt_meta(linh_vuc, ten_cong_ty="", topic_type=""):
+    return "||".join([
+        (linh_vuc or "").strip(),
+        (ten_cong_ty or "").strip(),
+        (topic_type or "").strip(),
+    ])
+
+
+def build_kltn_meta(linh_vuc, topic_type=""):
+    topic = (topic_type or "").strip()
+    if not topic:
+        return (linh_vuc or "").strip()
+    return "||".join([(linh_vuc or "").strip(), topic])
 
 
 def _sv_majors_from_row(sv_row):

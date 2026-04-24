@@ -15,6 +15,8 @@ from services.bootstrap_service import fetch_bootstrap, serialize_user
 from services.kltn_service import _can_score_kltn, _hoi_dong_ids
 from utils.helpers import (
     assert_kltn_assignees_match_major,
+    build_bctt_meta,
+    build_kltn_meta,
     dot_matches_student,
     kltn_major_from_dang_ky,
     normalize_sv_slot_he,
@@ -131,10 +133,13 @@ def register_routes(app):
         ten = (data.get("ten_de_tai") or "").strip()
         linh_vuc = (data.get("linh_vuc") or "").strip()
         cong_ty = (data.get("ten_cong_ty") or "").strip()
+        loai_de_tai = (data.get("loai_de_tai") or "").strip()
         gv_id = data.get("gv_id")
         dot_id = data.get("dot_id")
-        if not all([ten, linh_vuc, cong_ty, gv_id, dot_id]):
+        if not all([ten, linh_vuc, cong_ty, loai_de_tai, gv_id, dot_id]):
             return fail("Thiếu thông tin đăng ký BCTT", 400)
+        if loai_de_tai not in ("ung_dung", "nghien_cuu"):
+            return fail("Loại đề tài BCTT không hợp lệ", 400)
 
         conn = get_db()
         sv = get_current_user(conn)
@@ -169,7 +174,7 @@ def register_routes(app):
             INSERT INTO dang_ky (sv_id, gv_id, dot_id, loai, ten_de_tai, linh_vuc, trang_thai)
             VALUES (?, ?, ?, 'BCTT', ?, ?, 'cho_duyet')
             """,
-            (sv["id"], gv_id, dot_id, ten, f"{linh_vuc}||{cong_ty}"),
+            (sv["id"], gv_id, dot_id, ten, build_bctt_meta(linh_vuc, cong_ty, loai_de_tai)),
         )
         conn.commit()
         conn.close()
@@ -181,10 +186,13 @@ def register_routes(app):
         data = request.json or {}
         ten = (data.get("ten_de_tai") or "").strip()
         linh_vuc = (data.get("linh_vuc") or "").strip()
+        loai_de_tai = (data.get("loai_de_tai") or "").strip()
         gv_id = data.get("gv_id")
         dot_id = data.get("dot_id")
-        if not all([ten, linh_vuc, gv_id, dot_id]):
+        if not all([ten, linh_vuc, loai_de_tai, gv_id, dot_id]):
             return fail("Thiếu thông tin đăng ký KLTN", 400)
+        if loai_de_tai not in ("ung_dung", "nghien_cuu"):
+            return fail("Loại đề tài KLTN không hợp lệ", 400)
 
         conn = get_db()
         sv = get_current_user(conn)
@@ -223,7 +231,7 @@ def register_routes(app):
             INSERT INTO dang_ky (sv_id, gv_id, dot_id, loai, ten_de_tai, linh_vuc, trang_thai)
             VALUES (?, ?, ?, 'KLTN', ?, ?, 'thuc_hien')
             """,
-            (sv["id"], gv_id, dot_id, ten, linh_vuc),
+            (sv["id"], gv_id, dot_id, ten, build_kltn_meta(linh_vuc, loai_de_tai)),
         )
         conn.commit()
         conn.close()
@@ -867,6 +875,7 @@ def register_routes(app):
         diem = data.get("diem")
         nhan_xet = data.get("nhan_xet", "")
         cau_hoi = data.get("cau_hoi", "")
+        criteria_json = data.get("criteria_json", "")
         if not all([dang_ky_id, vai_tro]) or diem is None:
             return fail("Thiếu dữ liệu chấm điểm", 400)
         try:
@@ -892,18 +901,18 @@ def register_routes(app):
             conn.execute(
                 """
                 UPDATE cham_diem
-                SET diem = ?, nhan_xet = ?, cau_hoi = ?
+                SET diem = ?, nhan_xet = ?, cau_hoi = ?, criteria_json = ?
                 WHERE id = ?
                 """,
-                (diem, nhan_xet, cau_hoi, old["id"]),
+                (diem, nhan_xet, cau_hoi, criteria_json, old["id"]),
             )
         else:
             conn.execute(
                 """
-                INSERT INTO cham_diem (dang_ky_id, gv_id, vai_tro, diem, nhan_xet, cau_hoi)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO cham_diem (dang_ky_id, gv_id, vai_tro, diem, nhan_xet, cau_hoi, criteria_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (dang_ky_id, gv["id"], vai_tro, diem, nhan_xet, cau_hoi),
+                (dang_ky_id, gv["id"], vai_tro, diem, nhan_xet, cau_hoi, criteria_json),
             )
         reg = conn.execute("SELECT loai FROM dang_ky WHERE id = ?", (dang_ky_id,)).fetchone()
         if reg and reg["loai"] == "KLTN":
