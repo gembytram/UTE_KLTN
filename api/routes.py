@@ -12,7 +12,7 @@ from config.settings import UPLOAD_FOLDER
 from database import get_db
 from services.auth import get_current_user, login_required, role_required
 from services.bootstrap_service import fetch_bootstrap, serialize_user
-from services.kltn_service import _can_score_kltn, _hoi_dong_ids
+from services.kltn_service import _can_score_kltn, _hoi_dong_ids, can_view_kltn
 from utils.helpers import (
     assert_kltn_assignees_match_major,
     build_bctt_meta,
@@ -111,8 +111,29 @@ def register_routes(app):
         data = fetch_bootstrap(conn)
 
         role = session.get("role") or request.headers.get("X-User-Role", "")
+        uid = session.get("user_id") or request.headers.get("X-User-Id")
+        try:
+            current_uid = int(uid) if uid is not None else None
+        except (TypeError, ValueError):
+            current_uid = None
+
+        if str(role).upper() == "GV" and current_uid is not None:
+            data["kltnList"] = [
+                k
+                for k in data["kltnList"]
+                if can_view_kltn(
+                    current_uid,
+                    {
+                        "advisor_id": k.get("advisorId"),
+                        "reviewer_id": k.get("reviewerId"),
+                        "chairman_id": k.get("chairmanId"),
+                        "secretary_id": k.get("secretaryId"),
+                        "committee_members": k.get("committeeMembers") or [],
+                    },
+                )
+            ]
+
         if str(role).upper() == "TBM":
-            uid = session.get("user_id") or request.headers.get("X-User-Id")
             tbm = conn.execute("SELECT linh_vuc FROM users WHERE id = ?", (uid,)).fetchone()
             if tbm and tbm["linh_vuc"]:
                 nganh_list = [x.strip() for x in tbm["linh_vuc"].split(",") if x.strip()]
@@ -871,13 +892,15 @@ def register_routes(app):
     def score():
         data = request.json or {}
         dang_ky_id = data.get("dang_ky_id")
-        vai_tro = data.get("vai_tro")
+        vai_tro = str(data.get("vai_tro") or "").upper()
         diem = data.get("diem")
         nhan_xet = data.get("nhan_xet", "")
         cau_hoi = data.get("cau_hoi", "")
         criteria_json = data.get("criteria_json", "")
         if not all([dang_ky_id, vai_tro]) or diem is None:
             return fail("Thiếu dữ liệu chấm điểm", 400)
+        if vai_tro not in ("HD", "PB", "TV"):
+            return fail("Vai trò chấm điểm không hợp lệ", 400)
         try:
             diem = float(diem)
         except ValueError:
@@ -888,8 +911,7 @@ def register_routes(app):
         conn = get_db()
         gv = get_current_user(conn)
         reg_chk = conn.execute("SELECT loai FROM dang_ky WHERE id = ?", (dang_ky_id,)).fetchone()
-        role_hdr = str(request.headers.get("X-User-Role") or session.get("role") or "").upper()
-        if reg_chk and reg_chk["loai"] == "KLTN" and role_hdr != "TBM":
+        if reg_chk and reg_chk["loai"] == "KLTN":
             if not _can_score_kltn(conn, dang_ky_id, gv["id"], vai_tro):
                 conn.close()
                 return fail("Bạn không được phân công chấm điểm với vai trò này", 403)
@@ -920,11 +942,18 @@ def register_routes(app):
                 if not str(nhan_xet or "").strip() or not str(cau_hoi or "").strip():
                     conn.close()
                     return fail("GV phản biện: bắt buộc nhập nhận xét và câu hỏi (Thư ký đưa vào biên bản)", 400)
-            cnt = conn.execute(
-                "SELECT COUNT(DISTINCT vai_tro) AS c FROM cham_diem WHERE dang_ky_id = ? AND vai_tro IN ('HD','PB','CT') AND diem IS NOT NULL",
+            required = conn.execute(
+                """
+                SELECT
+                    SUM(CASE WHEN vai_tro = 'HD' AND diem IS NOT NULL THEN 1 ELSE 0 END) AS has_hd,
+                    SUM(CASE WHEN vai_tro = 'PB' AND diem IS NOT NULL THEN 1 ELSE 0 END) AS has_pb,
+                    SUM(CASE WHEN vai_tro = 'TV' AND diem IS NOT NULL THEN 1 ELSE 0 END) AS tv_count
+                FROM cham_diem
+                WHERE dang_ky_id = ?
+                """,
                 (dang_ky_id,),
             ).fetchone()
-            if cnt and cnt["c"] == 3:
+            if required and required["has_hd"] and required["has_pb"] and required["tv_count"]:
                 conn.execute("UPDATE dang_ky SET trang_thai = 'bao_ve' WHERE id = ?", (dang_ky_id,))
         conn.commit()
         conn.close()

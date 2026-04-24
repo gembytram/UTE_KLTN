@@ -151,20 +151,77 @@ function isKLTNVisibleForCurrentUser(k) {
   const u = DB.currentUser;
   if (!u || !k) return false;
   if (u.role === 'sv') return k.svEmail === u.email;
-    if (u.role === 'bm') {
+  if (u.role === 'bm') {
     if (!u.chuyenMon || !u.chuyenMon.length) return true;
     return u.chuyenMon.some(n => (k.tenDot || '').includes(n));
   }
   if (u.role === 'gv') {
-    if (k.gvHDEmail === u.email || k.gvPBEmail === u.email) return true;
-    if (k.hoiDong) {
-      const h = k.hoiDong;
-      if (h.ct === u.email || h.tk === u.email) return true;
-      if (Array.isArray(h.tv) && h.tv.includes(u.email)) return true;
-    }
-    return false;
+    return getKLTNAssignment(u, k).canView;
   }
   return true;
+}
+
+function getKLTNAssignment(user, student) {
+  if (!user || !student) {
+    return {
+      isAdvisor: false,
+      isReviewer: false,
+      isCommitteeMember: false,
+      isChair: false,
+      isSecretary: false,
+      canGrade: false,
+      canView: false,
+    };
+  }
+
+  const userId = Number(user.id);
+  const committeeIds = Array.isArray(student.committeeMembers)
+    ? student.committeeMembers.map((id) => Number(id)).filter((id) => !Number.isNaN(id))
+    : [];
+  const committeeEmails = Array.isArray(student.committeeMemberEmails) ? student.committeeMemberEmails : [];
+
+  const isAdvisor =
+    (student.advisorId != null && Number(student.advisorId) === userId) ||
+    (student.gvHDEmail && student.gvHDEmail === user.email);
+  const isReviewer =
+    (student.reviewerId != null && Number(student.reviewerId) === userId) ||
+    (student.gvPBEmail && student.gvPBEmail === user.email);
+  const isChair =
+    (student.chairmanId != null && Number(student.chairmanId) === userId) ||
+    (student.hoiDong && student.hoiDong.ct === user.email);
+  const isSecretary =
+    (student.secretaryId != null && Number(student.secretaryId) === userId) ||
+    (student.hoiDong && student.hoiDong.tk === user.email);
+  const isCommitteeMember =
+    committeeIds.includes(userId) ||
+    committeeEmails.includes(user.email) ||
+    (student.hoiDong && Array.isArray(student.hoiDong.tv) && student.hoiDong.tv.includes(user.email));
+
+  return {
+    isAdvisor,
+    isReviewer,
+    isCommitteeMember,
+    isChair,
+    isSecretary,
+    canGrade: isAdvisor || isReviewer || isCommitteeMember,
+    canView: isAdvisor || isReviewer || isCommitteeMember || isChair || isSecretary,
+  };
+}
+
+function canGrade(user, student) {
+  return getKLTNAssignment(user, student).canGrade;
+}
+
+function can_grade(user, student) {
+  return canGrade(user, student);
+}
+
+function canGradeRole(user, student, vaiTro) {
+  const assignment = getKLTNAssignment(user, student);
+  if (vaiTro === 'HD') return assignment.isAdvisor;
+  if (vaiTro === 'PB') return assignment.isReviewer;
+  if (vaiTro === 'TV') return assignment.isCommitteeMember;
+  return false;
 }
 
 function escapeHtml(s) {
@@ -181,10 +238,19 @@ function escapeForTextarea(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
 }
 
+function getKLTNCouncilScores(k) {
+  if (!k) return [];
+  const tvs = (k.tvScores || [])
+    .map((t) => Number(t.diem))
+    .filter((d) => !Number.isNaN(d));
+  if (tvs.length) return tvs;
+  if (k.diemBB == null || Number.isNaN(Number(k.diemBB))) return [];
+  return [Number(k.diemBB)];
+}
+
 function computeKLTNFinalAvg(k) {
-  if (!k || k.diemHD == null || k.diemPB == null || k.diemBB == null) return null;
-  const tvs = (k.tvScores || []).map((t) => t.diem).filter((d) => d != null && !Number.isNaN(Number(d)));
-  const hoiDongScores = [...tvs, Number(k.diemBB)];
+  if (!k || k.diemHD == null || k.diemPB == null) return null;
+  const hoiDongScores = getKLTNCouncilScores(k);
   if (!hoiDongScores.length) return null;
   const avgHd = hoiDongScores.reduce((a, b) => a + b, 0) / hoiDongScores.length;
   // Giới hạn mỗi điểm thành phần không quá 10
@@ -307,6 +373,10 @@ async function saveKLTNScore(recordId, vaiTro) {
     toast("Không tìm thấy hồ sơ KLTN", "error");
     return;
   }
+  if (!canGradeRole(DB.currentUser, record, vaiTro)) {
+    toast("Bạn không có quyền chấm điểm hồ sơ này", "error");
+    return;
+  }
 
   const dangKyId = record.dangKyId || extractId(record.id);
   const criteriaPayload = buildCriteriaPayload(record, vaiTro);
@@ -353,6 +423,10 @@ async function exportKLTNScoreDocx(recordId, vaiTro) {
   const record = findKltnRecord(recordId);
   if (!record) {
     toast("Không tìm thấy hồ sơ KLTN", "error");
+    return;
+  }
+  if (!canGradeRole(DB.currentUser, record, vaiTro)) {
+    toast("Bạn không có quyền xuất phiếu chấm cho hồ sơ này", "error");
     return;
   }
 
@@ -417,13 +491,15 @@ function gvKLTNListForNhapDiem(u) {
   return DB.kltnList.filter((k) => {
     const st = k.trangThai;
     if (st !== 'cham_diem' && st !== 'bao_ve') return false;
-    const isHD = k.gvHDEmail === u.email;
-    const isPB = k.gvPBEmail === u.email;
-    const isCT = k.hoiDong && k.hoiDong.ct === u.email;
-    const isTK = k.hoiDong && k.hoiDong.tk === u.email;
-    const isTV = k.hoiDong && Array.isArray(k.hoiDong.tv) && k.hoiDong.tv.includes(u.email);
+    const assignment = getKLTNAssignment(u, k);
+    const isHD = assignment.isAdvisor;
+    const isPB = assignment.isReviewer;
+    const isCT = assignment.isChair;
+    const isTK = assignment.isSecretary;
+    const isTV = assignment.isCommitteeMember;
     if (!(isHD || isPB || isCT || isTK || isTV)) return false;
-    if (st === 'bao_ve' && (isPB || isTV)) return false;
+    // TV được chấm điểm cả khi đã bảo vệ
+    if (st === 'bao_ve' && isPB) return false;
     return true;
   });
 }
@@ -853,6 +929,12 @@ function navigateTo(page) {
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
   const navEl = document.getElementById('nav-' + page);
   if (navEl) navEl.classList.add('active');
+  ['page-nhapDiem', 'page-phanbien', 'page-hoidong'].forEach((id) => {
+    if (id !== `page-${page}`) {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = '';
+    }
+  });
   // Hide all pages
   document.querySelectorAll('[id^="page-"]').forEach(el => el.style.display = 'none');
   const pageEl = document.getElementById('page-' + page);
@@ -1198,6 +1280,139 @@ async function duyetBCTT(recordId, dongY) {
   }
 }
 
+function getAssignableLecturersForKltn(record) {
+  const base = gvListMatchingKltnMajor(record);
+  return (base && base.length ? base : DB.users.filter((u) => u.role === 'gv' || u.role === 'bm'))
+    .filter((u) => u && u.id != null);
+}
+
+function renderLecturerOptions(list, selectedId, options = {}) {
+  const excludeIds = new Set((options.excludeIds || []).map((id) => Number(id)));
+  const filtered = list.filter((u) => !excludeIds.has(Number(u.id)));
+  const placeholder = options.placeholder || '-- Chọn giảng viên --';
+  return [`<option value="">${placeholder}</option>`]
+    .concat(filtered.map((u) => `<option value="${u.id}" ${Number(selectedId) === Number(u.id) ? 'selected' : ''}>${escapeHtml(u.name)}${u.chuyenMon?.length ? ` - ${escapeHtml(u.chuyenMon.join(', '))}` : ''}</option>`))
+    .join('');
+}
+
+function phanCongPBKLTN(recordId) {
+  const record = findKltnRecord(recordId);
+  if (!record) return toast('Không tìm thấy hồ sơ KLTN', 'error');
+
+  const allLecturers = getAssignableLecturersForKltn(record);
+  const currentMembers = Array.isArray(record.committeeMembers) ? record.committeeMembers.map((id) => Number(id)) : [];
+  const chairId = record.chairmanId != null ? Number(record.chairmanId) : null;
+  const secretaryId = record.secretaryId != null ? Number(record.secretaryId) : null;
+  const reviewerId = record.reviewerId != null ? Number(record.reviewerId) : null;
+
+  const memberCheckboxes = allLecturers
+    .filter((u) => Number(u.id) !== chairId && Number(u.id) !== secretaryId)
+    .map((u) => {
+      const checked = currentMembers.includes(Number(u.id)) ? 'checked' : '';
+      return `<label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px">
+        <input type="checkbox" class="pc-tv-item" value="${u.id}" ${checked}>
+        <span>${escapeHtml(u.name)}</span>
+      </label>`;
+    })
+    .join('');
+
+  showModal(`
+    <div class="modal-header">
+      <div class="modal-title">👥 Phân công PB & Hội đồng KLTN</div>
+      <button class="modal-close" onclick="closeModalForce()">✕</button>
+    </div>
+    <div style="font-size:14px;font-weight:700;color:var(--primary);margin-bottom:8px">${escapeHtml(record.tenDeTai)}</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:16px">${escapeHtml(record.mangDeTai || '')}</div>
+
+    <div class="form-group">
+      <label>GV phản biện</label>
+      <select id="pc-gvpb">${renderLecturerOptions(allLecturers, reviewerId, { placeholder: '-- Chọn GV phản biện --' })}</select>
+    </div>
+
+    <div class="grid-2">
+      <div class="form-group">
+        <label>Chủ tịch hội đồng</label>
+        <select id="pc-ct">${renderLecturerOptions(allLecturers, chairId, { placeholder: '-- Chọn Chủ tịch --' })}</select>
+      </div>
+      <div class="form-group">
+        <label>Thư ký hội đồng</label>
+        <select id="pc-tk">${renderLecturerOptions(allLecturers, secretaryId, { placeholder: '-- Chọn Thư ký --' })}</select>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Thành viên hội đồng</label>
+      <div style="max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:10px 12px;background:var(--bg)">
+        ${memberCheckboxes || '<div style="font-size:13px;color:var(--text3)">Không có giảng viên để chọn</div>'}
+      </div>
+      <div style="font-size:12px;color:var(--text3);margin-top:6px">Chọn ít nhất 1 thành viên hội đồng.</div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModalForce()">Đóng</button>
+      <button class="btn btn-primary" onclick="savePhanCongPBKLTN('${record.id}')">Lưu phân công</button>
+    </div>
+  `);
+}
+
+async function savePhanCongPBKLTN(recordId) {
+  const record = findKltnRecord(recordId);
+  if (!record) return toast('Không tìm thấy hồ sơ KLTN', 'error');
+
+  const dangKyId = record.dangKyId || extractId(record.id);
+  const gv_pb_id = document.getElementById('pc-gvpb')?.value || '';
+  const ct_id = document.getElementById('pc-ct')?.value || '';
+  const tk_id = document.getElementById('pc-tk')?.value || '';
+  const tv_ids = Array.from(document.querySelectorAll('.pc-tv-item:checked')).map((el) => Number(el.value));
+
+  if (!gv_pb_id) {
+    toast('Vui lòng chọn GV phản biện', 'error');
+    return;
+  }
+  if (!ct_id || !tk_id) {
+    toast('Vui lòng chọn Chủ tịch và Thư ký', 'error');
+    return;
+  }
+  if (Number(ct_id) === Number(tk_id)) {
+    toast('Chủ tịch và Thư ký phải là 2 người khác nhau', 'error');
+    return;
+  }
+  if (!tv_ids.length) {
+    toast('Vui lòng chọn ít nhất 1 thành viên hội đồng', 'error');
+    return;
+  }
+  if (tv_ids.includes(Number(ct_id)) || tv_ids.includes(Number(tk_id))) {
+    toast('Chủ tịch/Thư ký không được đồng thời là thành viên hội đồng', 'error');
+    return;
+  }
+
+  try {
+    await apiRequest('/api/phan-cong', {
+      method: 'POST',
+      body: JSON.stringify({
+        dang_ky_id: dangKyId,
+        gv_pb_id: Number(gv_pb_id),
+      }),
+    });
+
+    await apiRequest('/api/phan-cong/hoi-dong', {
+      method: 'POST',
+      body: JSON.stringify({
+        dang_ky_id: dangKyId,
+        ct_id: Number(ct_id),
+        tk_id: Number(tk_id),
+        tv_ids,
+      }),
+    });
+
+    closeModalForce();
+    toast('Đã phân công phản biện và hội đồng');
+    await refreshCurrentView();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
 async function chamBCTT(recordId) {
   const record = findBcttRecord(recordId);
   if (!record) {
@@ -1462,8 +1677,10 @@ function renderKLTN() {
       </div>`;
     }
 
-    if (k.diemHD !== null && k.diemPB !== null && k.diemBB !== null) {
+    const hoiDongScores = getKLTNCouncilScores(k);
+    if (k.diemHD !== null && k.diemPB !== null && hoiDongScores.length) {
       const fa = computeKLTNFinalAvg(k);
+      const avgHoiDong = hoiDongScores.reduce((sum, score) => sum + score, 0) / hoiDongScores.length;
       const tvLine =
         k.tvScores && k.tvScores.length
           ? k.tvScores.map((t) => `${escapeHtml(getUser(t.email)?.name || t.email)}: ${t.diem ?? '–'}`).join(' • ')
@@ -1472,7 +1689,7 @@ function renderKLTN() {
         <div class="score-grid">
           <div class="score-item"><label>Điểm GV HD (20%)</label><input type="text" value="${k.diemHD ?? '–'}" readonly style="background:var(--bg)"></div>
           <div class="score-item"><label>Điểm GV PB (20%)</label><input type="text" value="${k.diemPB ?? '–'}" readonly style="background:var(--bg)"></div>
-          <div class="score-item"><label>Điểm Chủ tịch HĐ (vào TB HĐ 60%)</label><input type="text" value="${k.diemBB ?? '–'}" readonly style="background:var(--bg)"></div>
+          <div class="score-item"><label>Điểm trung bình Hội đồng (60%)</label><input type="text" value="${avgHoiDong.toFixed(2)}" readonly style="background:var(--bg)"></div>
         </div>
         ${tvLine ? `<div style="font-size:12px;color:var(--text2);margin-top:8px"><strong>Điểm TV:</strong> ${tvLine}</div>` : ''}
         <div class="score-total">
@@ -1657,14 +1874,18 @@ function viewKLTNDetail(id) {
       </div>`;
   }
 
-  const hasAnyScore = k.diemHD != null || k.diemPB != null || k.diemBB != null;
+  const councilScores = getKLTNCouncilScores(k);
+  const hasAnyScore = k.diemHD != null || k.diemPB != null || councilScores.length > 0;
+  const avgHoiDongDetail = councilScores.length
+    ? (councilScores.reduce((sum, score) => sum + score, 0) / councilScores.length)
+    : null;
   const faDetail = computeKLTNFinalAvg(k);
  
   const scoreBlock = hasAnyScore
     ? `<div style="display: flex; gap: 12px; margin-bottom: 20px;">
         <div class="kltn-score-box"><span class="kltn-score-label">Điểm GVHD</span><div class="kltn-score-val">${k.diemHD != null ? escapeHtml(String(k.diemHD)) : '–'}</div></div>
         <div class="kltn-score-box"><span class="kltn-score-label">Điểm GVPB</span><div class="kltn-score-val">${k.diemPB != null ? escapeHtml(String(k.diemPB)) : '–'}</div></div>
-        <div class="kltn-score-box"><span class="kltn-score-label">Điểm CT.HĐ</span><div class="kltn-score-val">${k.diemBB != null ? escapeHtml(String(k.diemBB)) : '–'}</div></div>
+        <div class="kltn-score-box"><span class="kltn-score-label">TB Hội đồng</span><div class="kltn-score-val">${avgHoiDongDetail != null ? escapeHtml(avgHoiDongDetail.toFixed(2)) : '–'}</div></div>
         ${faDetail != null ? `<div class="kltn-score-box" style="background: #fff1f2; border-color: #fecdd3;"><span class="kltn-score-label" style="color: #9f1239;">Tổng hợp</span><div class="kltn-score-val" style="color: #e11d48; font-size: 22px;">${Math.min(faDetail, 10).toFixed(2)}</div></div>` : ''}
        </div>`
     : '<div style="font-size:13.5px; color:var(--text3); font-style: italic; margin-bottom: 15px;">Chưa có điểm chấm.</div>';
@@ -1842,12 +2063,12 @@ function renderNhapDiem() {
   } else {
     list.forEach((k) => {
       const sv = getUser(k.svEmail);
-      const isBM = u.role === 'bm';
-      const isHD = !isBM && u.email === k.gvHDEmail;
-      const isPB = !isBM && u.email === k.gvPBEmail;
-      const isCT = !isBM && k.hoiDong && u.email === k.hoiDong.ct;
-      const isTK = !isBM && k.hoiDong && u.email === k.hoiDong.tk;
-      const isTVMember = !isBM && k.hoiDong && Array.isArray(k.hoiDong.tv) && k.hoiDong.tv.includes(u.email) && !isCT && !isTK;
+      const assignment = getKLTNAssignment(u, k);
+      const isHD = Boolean(assignment.isAdvisor);
+      const isPB = Boolean(assignment.isReviewer);
+      const isCT = Boolean(assignment.isChair);
+      const isTK = Boolean(assignment.isSecretary);
+      const isTVMember = Boolean(assignment.isCommitteeMember);
 
       html += `<div class="card" style="margin-bottom:16px">
         <div class="card-header"><div><div class="card-title" style="cursor:pointer;color:var(--primary)" onclick="viewKLTNDetail('${k.id}')">${escapeHtml(k.tenDeTai)}</div><div style="font-size:12px;color:var(--text3);margin-top:4px">${escapeHtml(sv?.name || k.svEmail)} • ${escapeHtml(getTopicTypeLabel(k.topicType))}</div></div>${statusBadge(k.trangThai)}</div>`;
@@ -1872,18 +2093,12 @@ function renderNhapDiem() {
         );
       }
 
-      if (isCT) {
-        html += renderKLTNScoreBlock(
-          k,
-          'CT',
-          '👨‍⚖️ Chủ tịch hội đồng — phiếu chấm',
-          'Điểm của Chủ tịch được dùng cùng với điểm các thành viên để tính trung bình hội đồng.',
-          { existingScore: k.diemBB, noteValue: k.ctNote || '', questionValue: k.ctCauHoi || '', showQuestion: true }
-        );
-      }
-
       if (isTK) {
         html += `<div style="font-size:13px;color:var(--text3);margin-top:12px">📝 Bạn đang là Thư ký hội đồng. Vai trò này không chấm điểm riêng, nhưng sẽ tổng hợp nội dung vào biên bản.</div>`;
+      }
+
+      if (isCT) {
+        html += `<div style="font-size:13px;color:var(--text3);margin-top:12px">👨‍⚖️ Bạn đang là Chủ tịch hội đồng. Vai trò này chỉ xem và tổng hợp, không có phiếu chấm riêng.</div>`;
       }
 
       if (isTVMember) {
@@ -1902,7 +2117,7 @@ function renderNhapDiem() {
   }
   el.innerHTML = html;
   list.forEach((k) => {
-    ['HD', 'PB', 'CT', 'TV'].forEach((vaiTro) => recalcKLTNRoleTotal(k.id, vaiTro));
+    ['HD', 'PB', 'TV'].forEach((vaiTro) => recalcKLTNRoleTotal(k.id, vaiTro));
   });
 }
 
@@ -2033,10 +2248,374 @@ function renderProfile() {
 // ============================================================
 // CÁC HÀM XỬ LÝ KHÁC (Phản biện, Thống kê, Gợi ý, Theo dõi)
 // ============================================================
-function renderPhanBien() { document.getElementById('page-phanbien').innerHTML = `<div class="page-header"><h1>🧾 Phản biện</h1></div>`; }
-function renderHoiDong() { document.getElementById('page-hoidong').innerHTML = `<div class="page-header"><h1>🏛️ Hội đồng</h1></div>`; }
-function renderChuTich() { document.getElementById('page-chutich').innerHTML = `<div class="page-header"><h1>👨‍⚖️ Chủ tịch</h1></div>`; }
-function renderThuKy() { document.getElementById('page-thuky').innerHTML = `<div class="page-header"><h1>📝 Thư ký</h1></div>`; }
+function isUploadPath(value) {
+  return /^uploads[\\/]/i.test(String(value || ''));
+}
+
+function getSecretaryDraftValue(k) {
+  return isUploadPath(k?.tkBienBan) ? '' : (k?.tkBienBan || '');
+}
+
+function getKLTNRoleRecords(selector) {
+  const u = DB.currentUser;
+  if (!u) return [];
+  return DB.kltnList
+    .filter((k) => selector(getKLTNAssignment(u, k), k))
+    .sort((a, b) => Number(b.dangKyId || 0) - Number(a.dangKyId || 0));
+}
+
+function renderKLTNRoleHeader(title, subtitle, count) {
+  return `<div class="page-header"><h1>${title}</h1><p>${count} đề tài ${subtitle}</p></div>`;
+}
+
+function renderKLTNFileLinks(k, options = {}) {
+  const items = [
+    { label: 'Bài PDF', path: k.fileBai },
+    { label: 'Bài Word', path: k.fileBaiWord },
+    { label: 'Turnitin', path: k.fileTurnitin },
+    { label: 'Biên bản HĐ', path: isUploadPath(k.tkBienBan) ? k.tkBienBan : '' },
+    { label: 'Bài chỉnh sửa', path: k.fileBaiChinhSua },
+    { label: 'Giải trình', path: k.fileGiaiTrinh },
+  ].filter((item) => item.path || !options.onlyAvailable);
+
+  return `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+    ${items.map((item) => item.path
+      ? `<a class="btn btn-ghost btn-sm" href="${uploadFileHref(item.path)}" target="_blank" rel="noopener">📎 ${escapeHtml(item.label)}</a>`
+      : `<span class="badge badge-gray">${escapeHtml(item.label)}: chưa có</span>`).join('')}
+  </div>`;
+}
+
+function renderKLTNRoleMeta(k) {
+  const sv = getUser(k.svEmail);
+  const avg = computeKLTNFinalAvg(k);
+  return `<div style="font-size:12px;color:var(--text3);margin-top:4px">
+    ${escapeHtml(sv?.name || k.svEmail)} • ${escapeHtml(sv?.mssv || sv?.ma || '')}
+    ${k.hoiDong ? ` • HĐ: ${escapeHtml(getUser(k.hoiDong.ct)?.name || k.hoiDong.ct || '')}` : ''}
+    ${avg != null ? ` • Điểm TB: ${avg.toFixed(2)}` : ''}
+  </div>`;
+}
+
+function renderKLTNRoleCardStart(k) {
+  return `<div class="card" style="margin-bottom:16px">
+    <div class="card-header">
+      <div>
+        <div class="card-title" style="cursor:pointer;color:var(--primary)" onclick="viewKLTNDetail('${k.id}')">${escapeHtml(k.tenDeTai)}</div>
+        ${renderKLTNRoleMeta(k)}
+      </div>
+      ${statusBadge(k.trangThai)}
+    </div>
+    ${renderKLTNFileLinks(k, { onlyAvailable: false })}`;
+}
+
+function renderKLTNRoleCardEnd() {
+  return `</div>`;
+}
+
+function buildSecretaryCouncilNotes(k) {
+  const reviewerSection = k.pbNote || k.pbCauHoi
+    ? [`Nhận xét phản biện: ${k.pbNote || ''}`, k.pbCauHoi ? `Câu hỏi phản biện: ${k.pbCauHoi}` : ''].filter(Boolean).join('\n')
+    : '';
+  const memberSection = (k.tvScores || [])
+    .map((row) => {
+      const name = getUser(row.email)?.name || row.email;
+      return row.nhanXet ? `${name}: ${row.nhanXet}` : '';
+    })
+    .filter(Boolean)
+    .join('\n');
+  return [reviewerSection, memberSection].filter(Boolean).join('\n\n');
+}
+
+function buildBienBanPayload(k, extraNotes) {
+  const sv = getUser(k.svEmail) || {};
+  const today = new Date();
+  const tvNotes = (k.tvScores || [])
+    .map((row) => {
+      const name = getUser(row.email)?.name || row.email;
+      return row.nhanXet ? `${name}: ${row.nhanXet}` : '';
+    })
+    .filter(Boolean)
+    .join('\n');
+
+  return {
+    dangKyId: k.dangKyId || extractId(k.id),
+    tenKhoa: k.mangDeTai || '',
+    tenDeTai: k.tenDeTai || '',
+    sinhVien: sv.name || k.svEmail,
+    maSV: sv.ma || sv.mssv || '',
+    nhanXetCT: k.ctNote || '',
+    nhanXetTV: [k.pbNote ? `GV phản biện: ${k.pbNote}` : '', k.pbCauHoi ? `Câu hỏi PB: ${k.pbCauHoi}` : '', tvNotes].filter(Boolean).join('\n\n'),
+    yeuCauChinhSua: extraNotes || '',
+    chuTichHD: getUser(k.hoiDong?.ct)?.name || k.hoiDong?.ct || '',
+    thuKy: getUser(k.hoiDong?.tk)?.name || k.hoiDong?.tk || '',
+    chuTichSauChinhSua: getUser(k.hoiDong?.ct)?.name || k.hoiDong?.ct || '',
+    ngay: String(today.getDate()).padStart(2, '0'),
+    thang: String(today.getMonth() + 1).padStart(2, '0'),
+    nam: String(today.getFullYear()),
+    ngay2: String(today.getDate()).padStart(2, '0'),
+    thang2: String(today.getMonth() + 1).padStart(2, '0'),
+    nam2: String(today.getFullYear()),
+    khoaHoc: '',
+  };
+}
+
+async function blobToBase64(blob) {
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onloadend = () => {
+      const result = String(reader.result || '');
+      const base64 = result.includes(',') ? result.split(',')[1] : result;
+      resolve(base64);
+    };
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function acceptPhanBienKLTN(recordId) {
+  const record = findKltnRecord(recordId);
+  if (!record) return toast('Không tìm thấy hồ sơ KLTN', 'error');
+  try {
+    await apiRequest('/api/kltn/pb-accept', {
+      method: 'POST',
+      body: JSON.stringify({ dang_ky_id: record.dangKyId || extractId(record.id) }),
+    });
+    toast('Đã xác nhận vai trò phản biện');
+    await refreshCurrentView();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+async function approveKLTNRevision(recordId, step, dongY) {
+  const record = findKltnRecord(recordId);
+  if (!record) return toast('Không tìm thấy hồ sơ KLTN', 'error');
+  let ly_do = '';
+  if (!dongY) {
+    ly_do = window.prompt('Nhập lý do từ chối chỉnh sửa', '') || '';
+  }
+  try {
+    await apiRequest('/api/kltn/revision-approve', {
+      method: 'POST',
+      body: JSON.stringify({
+        dang_ky_id: record.dangKyId || extractId(record.id),
+        step,
+        dong_y: Boolean(dongY),
+        ly_do,
+      }),
+    });
+    toast(dongY ? 'Đã duyệt chỉnh sửa' : 'Đã từ chối chỉnh sửa');
+    await refreshCurrentView();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+async function finalizeKLTNResult(recordId) {
+  const record = findKltnRecord(recordId);
+  if (!record) return toast('Không tìm thấy hồ sơ KLTN', 'error');
+  if (computeKLTNFinalAvg(record) == null) {
+    return toast('Chưa đủ điểm để kết thúc KLTN', 'error');
+  }
+  if (!window.confirm('Xác nhận kết thúc KLTN và chốt kết quả pass/fail?')) return;
+  try {
+    const res = await apiRequest('/api/kltn/finalize', {
+      method: 'POST',
+      body: JSON.stringify({ dang_ky_id: record.dangKyId || extractId(record.id) }),
+    });
+    const data = res.data || {};
+    toast(`Đã kết thúc KLTN (${data.result || 'xong'})`);
+    await refreshCurrentView();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+async function exportSecretaryBienBan(recordId, saveToServer = false) {
+  const record = findKltnRecord(recordId);
+  if (!record) return toast('Không tìm thấy hồ sơ KLTN', 'error');
+  const extraNotes = (document.getElementById(`tk-note-${record.id}`)?.value || '').trim();
+  const payload = buildBienBanPayload(record, extraNotes);
+  const sv = getUser(record.svEmail);
+
+  try {
+    const res = await fetch(`${API_BASE}/api/bien-ban/xuat-docx`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ message: 'Xuất biên bản thất bại' }));
+      throw new Error(body.message || 'Xuất biên bản thất bại');
+    }
+    const blob = await res.blob();
+
+    if (saveToServer) {
+      const fileBase64 = await blobToBase64(blob);
+      await apiRequest('/api/bien-ban/luu', {
+        method: 'POST',
+        body: JSON.stringify({
+          dangKyId: payload.dangKyId,
+          maSV: payload.maSV,
+          filename: `BienBan_${payload.maSV || 'SV'}_${record.id}.docx`,
+          fileBase64,
+        }),
+      });
+    }
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `BienBan_${sv?.ma || 'SV'}_${record.id}.docx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+
+    if (saveToServer) {
+      toast('Đã xuất và lưu biên bản hội đồng');
+      await refreshCurrentView();
+      return;
+    }
+    toast('Đã xuất biên bản hội đồng');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+function renderPhanBien() {
+  const el = document.getElementById('page-phanbien');
+  const list = getKLTNRoleRecords((assignment) => assignment.isReviewer);
+  let html = renderKLTNRoleHeader('🧾 Phản biện', 'được phân công phản biện', list.length);
+
+  if (!list.length) {
+    el.innerHTML = `${html}<div class="card"><div class="empty-state"><div class="empty-state-icon">🧾</div><div class="empty-state-title">Bạn chưa được phân công phản biện KLTN nào</div></div></div>`;
+    return;
+  }
+
+  list.forEach((k) => {
+    html += renderKLTNRoleCardStart(k);
+    html += `<div style="margin-top:12px;font-size:13px;color:var(--text2)">
+      ${k.pbAccepted ? '<span class="badge badge-green">Đã xác nhận phản biện</span>' : '<span class="badge badge-orange">Chưa xác nhận phản biện</span>'}
+    </div>`;
+    if (!k.pbAccepted) {
+      html += `<div style="margin-top:10px"><button class="btn btn-primary btn-sm" onclick="acceptPhanBienKLTN('${k.id}')">Xác nhận nhận phản biện</button></div>`;
+    }
+    html += renderKLTNScoreBlock(
+      k,
+      'PB',
+      '🧾 Giảng viên phản biện — phiếu chấm',
+      'Xem bài làm, Turnitin, nhập nhận xét và câu hỏi để thư ký tổng hợp vào biên bản.',
+      { existingScore: k.diemPB, noteValue: k.pbNote || '', questionValue: k.pbCauHoi || '', showQuestion: true }
+    );
+    html += renderKLTNRoleCardEnd();
+  });
+
+  el.innerHTML = html;
+  list.forEach((k) => recalcKLTNRoleTotal(k.id, 'PB'));
+}
+
+function renderHoiDong() {
+  const el = document.getElementById('page-hoidong');
+  const list = getKLTNRoleRecords((assignment) => assignment.isCommitteeMember);
+  let html = renderKLTNRoleHeader('🏛️ Hội đồng', 'thuộc hội đồng bạn tham gia', list.length);
+
+  if (!list.length) {
+    el.innerHTML = `${html}<div class="card"><div class="empty-state"><div class="empty-state-icon">🏛️</div><div class="empty-state-title">Bạn chưa là thành viên hội đồng của KLTN nào</div></div></div>`;
+    return;
+  }
+
+  list.forEach((k) => {
+    const myTVScore = getCurrentTVScore(k);
+    html += renderKLTNRoleCardStart(k);
+    html += `<div style="font-size:12px;color:var(--text3);margin-top:10px">Mỗi thành viên hội đồng có một phiếu chấm riêng. Hệ thống sẽ lưu điểm theo chính tài khoản của bạn.</div>`;
+    html += renderKLTNScoreBlock(
+      k,
+      'TV',
+      '🏛️ Thành viên hội đồng — phiếu chấm riêng',
+      'Bạn có thể xem bài KLTN, Turnitin và chấm điểm độc lập với các thành viên khác.',
+      { existingScore: myTVScore?.diem, noteValue: myTVScore?.nhanXet || '' }
+    );
+    html += renderKLTNRoleCardEnd();
+  });
+
+  el.innerHTML = html;
+  list.forEach((k) => recalcKLTNRoleTotal(k.id, 'TV'));
+}
+
+function renderChuTich() {
+  const el = document.getElementById('page-chutich');
+  const list = getKLTNRoleRecords((assignment) => assignment.isChair);
+  let html = renderKLTNRoleHeader('👨‍⚖️ Chủ tịch', 'do bạn làm Chủ tịch hội đồng', list.length);
+
+  if (!list.length) {
+    el.innerHTML = `${html}<div class="card"><div class="empty-state"><div class="empty-state-icon">👨‍⚖️</div><div class="empty-state-title">Bạn chưa được phân công làm Chủ tịch hội đồng</div></div></div>`;
+    return;
+  }
+
+  list.forEach((k) => {
+    const finalAvg = computeKLTNFinalAvg(k);
+    const canReviewRevision = Boolean(k.fileBaiChinhSua && k.fileGiaiTrinh);
+    html += renderKLTNRoleCardStart(k);
+    html += `<div style="margin-top:12px;font-size:13px;color:var(--text2)">
+      Chủ tịch không chấm điểm riêng. Vai trò này xem hồ sơ, tổng hợp kết quả và duyệt chỉnh sửa sau bảo vệ.
+    </div>`;
+    html += `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+      ${finalAvg != null ? `<div class="badge badge-purple">Điểm tổng hợp: ${finalAvg.toFixed(2)}</div>` : `<div class="badge badge-orange">Chưa đủ điểm để tổng hợp</div>`}
+      <div class="badge badge-blue">GVHD: ${k.xacNhanGVHD ? 'Đã duyệt sửa' : 'Chưa duyệt sửa'}</div>
+      <div class="badge badge-blue">CT.HĐ: ${k.xacNhanCTHD ? 'Đã duyệt sửa' : 'Chưa duyệt sửa'}</div>
+    </div>`;
+    html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+      <button class="btn btn-ghost btn-sm" onclick="viewKLTNDetail('${k.id}')">👁 Chi tiết</button>
+      <button class="btn btn-primary btn-sm" onclick="finalizeKLTNResult('${k.id}')">🏁 Kết thúc KLTN</button>
+      ${canReviewRevision ? `<button class="btn btn-success btn-sm" onclick="approveKLTNRevision('${k.id}','cthd',true)">Duyệt chỉnh sửa</button>` : ''}
+      ${canReviewRevision ? `<button class="btn btn-danger btn-sm" onclick="approveKLTNRevision('${k.id}','cthd',false)">Từ chối chỉnh sửa</button>` : ''}
+    </div>`;
+    if (k.pbNote || k.pbCauHoi || buildSecretaryCouncilNotes(k)) {
+      html += `<div class="form-group" style="margin-top:12px"><label>Nhận xét để tham chiếu khi duyệt</label><textarea readonly style="min-height:120px;background:var(--bg)">${escapeHtml([k.pbNote ? `Nhận xét PB: ${k.pbNote}` : '', k.pbCauHoi ? `Câu hỏi PB: ${k.pbCauHoi}` : '', buildSecretaryCouncilNotes(k)].filter(Boolean).join('\n\n'))}</textarea></div>`;
+    }
+    html += renderKLTNRoleCardEnd();
+  });
+
+  el.innerHTML = html;
+}
+
+function renderThuKy() {
+  const el = document.getElementById('page-thuky');
+  const list = getKLTNRoleRecords((assignment) => assignment.isSecretary);
+  let html = renderKLTNRoleHeader('📝 Thư ký', 'do bạn làm Thư ký hội đồng', list.length);
+
+  if (!list.length) {
+    el.innerHTML = `${html}<div class="card"><div class="empty-state"><div class="empty-state-icon">📝</div><div class="empty-state-title">Bạn chưa được phân công làm Thư ký hội đồng</div></div></div>`;
+    return;
+  }
+
+  list.forEach((k) => {
+    const finalAvg = computeKLTNFinalAvg(k);
+    const councilScores = getKLTNCouncilScores(k);
+    const councilAvg = councilScores.length ? (councilScores.reduce((a, b) => a + b, 0) / councilScores.length) : null;
+    html += renderKLTNRoleCardStart(k);
+    html += `<div style="margin-top:12px;font-size:13px;color:var(--text2)">
+      Thư ký không chấm điểm. Bạn có thể xem điểm HD/PB/HĐ, tổng hợp góp ý và xuất biên bản hội đồng cho từng sinh viên.
+    </div>`;
+    html += `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px">
+      <div class="kltn-score-box" style="min-width:130px"><span class="kltn-score-label">GVHD</span><div class="kltn-score-val">${k.diemHD != null ? escapeHtml(String(k.diemHD)) : '–'}</div></div>
+      <div class="kltn-score-box" style="min-width:130px"><span class="kltn-score-label">GVPB</span><div class="kltn-score-val">${k.diemPB != null ? escapeHtml(String(k.diemPB)) : '–'}</div></div>
+      <div class="kltn-score-box" style="min-width:130px"><span class="kltn-score-label">TB Hội đồng</span><div class="kltn-score-val">${councilAvg != null ? escapeHtml(councilAvg.toFixed(2).replace(/\.00$/, '')) : '–'}</div></div>
+      <div class="kltn-score-box" style="min-width:130px;background:#fff1f2;border-color:#fecdd3"><span class="kltn-score-label" style="color:#9f1239">Tổng hợp</span><div class="kltn-score-val" style="color:#e11d48">${finalAvg != null ? finalAvg.toFixed(2) : '–'}</div></div>
+    </div>`;
+    html += `<div class="form-group" style="margin-top:12px"><label>Góp ý phản biện và hội đồng</label><textarea readonly style="min-height:120px;background:var(--bg)">${escapeHtml(buildSecretaryCouncilNotes(k))}</textarea></div>`;
+    html += `<div class="form-group"><label>Nội dung yêu cầu chỉnh sửa / tổng hợp biên bản</label><textarea id="tk-note-${k.id}" style="min-height:120px" placeholder="Nhập thêm góp ý của hội đồng để đưa vào biên bản">${escapeHtml(getSecretaryDraftValue(k))}</textarea></div>`;
+    html += `<div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-ghost btn-sm" onclick="viewKLTNDetail('${k.id}')">👁 Chi tiết</button>
+      <button class="btn btn-primary btn-sm" onclick="exportSecretaryBienBan('${k.id}', false)">📄 Xuất biên bản DOCX</button>
+      <button class="btn btn-success btn-sm" onclick="exportSecretaryBienBan('${k.id}', true)">💾 Xuất và lưu biên bản</button>
+    </div>`;
+    html += renderKLTNRoleCardEnd();
+  });
+
+  el.innerHTML = html;
+}
 function renderGoiY() { document.getElementById('page-goiy').innerHTML = `<div class="page-header"><h1>💡 Gợi ý đề tài</h1></div>`; }
 function renderThongKe() { document.getElementById('page-thongke').innerHTML = `<div class="page-header"><h1>📈 Thống kê</h1></div>`; }
 function renderTheoDoi() { document.getElementById('page-theodoi').innerHTML = `<div class="page-header"><h1>⏱️ Theo dõi trạng thái</h1></div>`; }
