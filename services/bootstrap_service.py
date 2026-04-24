@@ -155,7 +155,8 @@ def fetch_bootstrap(conn):
             record["bbNote"] = record["ctNote"]
             record["tkBienBan"] = upload_map.get(r["id"], {}).get("bien_ban_tk") or ""
             record["bienBanChamDiem"] = upload_map.get(r["id"], {}).get("bien_ban_cham_diem") or ""
-            record["hdNote"] = sc["HD"]["nhan_xet"] if sc.get("HD") else ""
+            # Loại bỏ nhận xét từ GVHD theo yêu cầu refactor
+            # record["hdNote"] = sc["HD"]["nhan_xet"] if sc.get("HD") else ""
             record["xacNhanGVHD"] = bool(upload_map.get(r["id"], {}).get("xac_nhan_gvhd"))
             record["xacNhanCTHD"] = bool(upload_map.get(r["id"], {}).get("xac_nhan_cthd"))
             record["tuChoiGVHD"] = upload_map.get(r["id"], {}).get("tu_choi_gvhd")

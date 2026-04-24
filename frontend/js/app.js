@@ -808,6 +808,106 @@ async function duyetBCTT(recordId, dongY) {
   }
 }
 
+async function chamDiemBCTT(bcttRecord) {
+  const diem = document.getElementById('bctt-diem').value;
+  const nhanXet = document.getElementById('bctt-nhanxet').value;
+  
+  // Validate điểm
+  if (!diem) {
+    toast('Vui lòng nhập điểm', 'error');
+    return;
+  }
+  const diemNum = parseFloat(diem);
+  if (isNaN(diemNum) || diemNum < 0 || diemNum > 10) {
+    toast('Điểm phải từ 0 đến 10', 'error');
+    return;
+  }
+  
+  // Get dang_ky_id
+  const dangKyId = bcttRecord.dangKyId || extractId(bcttRecord.id);
+  if (!dangKyId) {
+    toast('Mã đăng ký không hợp lệ', 'error');
+    return;
+  }
+  
+  try {
+    await apiRequest("/api/bctt/grade", {
+      method: "POST",
+      body: JSON.stringify({
+        dang_ky_id: dangKyId,
+        diem: diemNum,
+        nhan_xet: nhanXet,
+      }),
+    });
+    toast('✅ Lưu điểm BCTT thành công');
+    await refreshCurrentView();
+    closeModalForce();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+async function saveScore(vaiTro, dangKyId) {
+  const kltnObj = DB.kltnList.find(k => k.dangKyId == dangKyId);
+  if (!kltnObj) {
+    toast('Không tìm thấy KLTN', 'error');
+    return;
+  }
+  const inputId = `diem-${vaiTro.toLowerCase()}-${kltnObj.id}`;
+  const nhanXetId = `nhanxet-${vaiTro.toLowerCase()}-${kltnObj.id}`;
+  const diem = document.getElementById(inputId).value;
+  const nhanXetText = document.getElementById(nhanXetId).value;
+  
+  if (!diem) {
+    toast('Vui lòng nhập điểm', 'error');
+    return;
+  }
+  const diemNum = parseFloat(diem);
+  if (isNaN(diemNum) || diemNum < 0 || diemNum > 10) {
+    toast('Điểm phải từ 0 đến 10', 'error');
+    return;
+  }
+  
+  // Parse nhan_xet and cau_hoi from textarea
+  let nhan_xet = nhanXetText;
+  let cau_hoi = '';
+  const cauHoiMarker = '\n\n— Câu hỏi —\n';
+  const idx = nhanXetText.indexOf(cauHoiMarker);
+  if (idx !== -1) {
+    nhan_xet = nhanXetText.substring(0, idx);
+    cau_hoi = nhanXetText.substring(idx + cauHoiMarker.length);
+  }
+  
+  try {
+    await apiRequest("/api/kltn/grade", {
+      method: "POST",
+      body: JSON.stringify({
+        dang_ky_id: dangKyId,
+        vai_tro: vaiTro,
+        diem: diemNum,
+        nhan_xet: nhan_xet,
+        cau_hoi: cau_hoi,
+      }),
+    });
+    toast(`✅ Lưu điểm ${vaiTro} thành công`);
+    await refreshCurrentView();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+async function saveScoreHD(dangKyId) {
+  return saveScore('HD', dangKyId);
+}
+
+async function saveScorePB(dangKyId) {
+  return saveScore('PB', dangKyId);
+}
+
+async function saveScoreCT(dangKyId) {
+  return saveScore('CT', dangKyId);
+}
+
 // ============================================================
 // PAGES RENDER (BCTT, KLTN, DUYỆT, ... )
 // ============================================================
@@ -1169,10 +1269,39 @@ function viewBCTTDetail(id) {
   if (!isBCTTVisibleForCurrentUser(b)) return toast('Bạn không có quyền xem đề tài này', 'error');
   const sv = getUser(b.svEmail);
   const gv = getUser(b.gvEmail);
+  const u = DB.currentUser;
+  
+  // Cho phép GV của BCTT đó và TBM chấm điểm
+  const isGVOfThis = u.email === b.gvEmail && u.role === 'gv';
+  const isTBM = u.role === 'bm';
+  const canScore = (isGVOfThis || isTBM) && b.trangThai === 'cho_cham';
+  
   const fileRow = (label, path) =>
     path
       ? `<a href="${uploadFileHref(path)}" target="_blank" rel="noopener" style="color:var(--accent2)">📥 Tải xuống</a> <span style="font-size:11px;color:var(--text3)">${escapeHtml(path.split(/[/\\\\]/).pop() || '')}</span>`
       : '<span style="color:var(--text3)">Chưa nộp</span>';
+  let scoreForm = '';
+  let nhanXetSection = '';
+  
+  console.log('BCTT Debug:', { id, 'trangThai': b.trangThai, 'gvEmail': b.gvEmail, 'userEmail': u.email, 'userRole': u.role, 'isGVOfThis': isGVOfThis, 'isTBM': isTBM, 'canScore': canScore });
+  
+  if (canScore) {
+    // Khi đang chấm điểm, hiển thị form nhập điểm
+    scoreForm = `
+      <div class="form-group" style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px;background:#f0f9ff;padding:12px;border-radius:6px">
+        <div style="font-size:14px;font-weight:600;margin-bottom:8px">🎯 Chấm điểm BCTT</div>
+        <div style="display:flex;gap:8px;margin-bottom:8px">
+          <div style="flex:1"><label style="font-size:12px;font-weight:600">Điểm (0-10)</label><input type="number" id="bctt-diem" min="0" max="10" step="0.1" value="${b.diemBCTT || ''}" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px"></div>
+        </div>
+        <div style="margin-bottom:8px"><label style="font-size:12px;font-weight:600">Nhận xét</label><textarea id="bctt-nhanxet" style="width:100%;min-height:80px;padding:8px;border:1px solid var(--border);border-radius:4px">${escapeHtml(b.nhanXetBCTT || '')}</textarea></div>
+        <button class="btn btn-primary" onclick="chamDiemBCTT({dangKyId: '${b.dangKyId}', id: '${b.id}'})">💾 Lưu điểm</button>
+      </div>`;
+    nhanXetSection = ''; // Ẩn textarea readonly khi đang chấm điểm
+  } else {
+    // Khi chỉ xem, hiển thị textarea readonly
+    nhanXetSection = `<div class="form-group" style="margin-top:8px"><label style="font-size:12px">Nhận xét BCTT</label><textarea readonly style="width:100%;background:var(--bg);min-height:72px;font-size:13px;padding:8px;border:1px solid var(--border);border-radius:4px">${escapeHtml(b.nhanXetBCTT || '')}</textarea></div>`;
+  }
+  
   showModal(`<div class="modal-header"><div class="modal-title">📋 Chi tiết BCTT</div><button class="modal-close" onclick="closeModalForce()">✕</button></div>
     <div class="info-row"><span class="info-label">Sinh viên:</span><span class="info-value">${escapeHtml(sv?.name || '')}</span></div>
     <div class="info-row"><span class="info-label">MSSV:</span><span class="info-value">${escapeHtml(sv?.mssv || sv?.ma || '–')}</span></div>
@@ -1185,7 +1314,8 @@ function viewBCTTDetail(id) {
     <div class="info-row"><span class="info-label">Giấy xác nhận:</span><span class="info-value">${fileRow('xn', b.fileXacNhan)}</span></div>
     <div class="info-row"><span class="info-label">Turnitin BCTT:</span><span class="info-value">${fileRow('ti', b.fileTurnitinBCTT)}</span></div>
     <div class="info-row"><span class="info-label">Điểm BCTT:</span><span class="info-value">${b.diemBCTT != null && b.diemBCTT !== '' ? escapeHtml(String(b.diemBCTT)) : '–'}</span></div>
-    <div class="form-group" style="margin-top:8px"><label style="font-size:12px">Nhận xét BCTT</label><textarea readonly style="width:100%;background:var(--bg);min-height:72px;font-size:13px">${escapeHtml(b.nhanXetBCTT || '')}</textarea></div>
+    ${nhanXetSection}
+    ${scoreForm}
     <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModalForce()">Đóng</button></div>`);
 }
 
@@ -1234,8 +1364,9 @@ function viewKLTNDetail(id) {
   const textareaStyle = "background:var(--bg, #fff); width:100%; border: 1px solid var(--border, #d1d5db); border-radius: 6px; padding: 10px; font-size: 13.5px; resize: none; color: var(--text1, #1f2937); line-height: 1.5;";
   const noteTitleStyle = "font-weight: bold; font-size: 14px; color: var(--text1, #111827); margin-bottom: 6px; display: flex; align-items: center; gap: 6px;";
  
-  const hdBlockDetail = k.hdNote ? `<div style="margin-bottom: 16px;"><div style="${noteTitleStyle}">📝 Nhận xét GVHD</div><textarea readonly style="${textareaStyle}" rows="4">${escapeHtml(k.hdNote)}</textarea></div>` : '';
-  const pbBlockDetail = (k.pbNote || k.pbCauHoi) ? `<div style="margin-bottom: 16px;"><div style="${noteTitleStyle}">📝 Nhận xét & câu hỏi GVPB</div><textarea readonly style="${textareaStyle}" rows="5">${escapeHtml((k.pbNote || '') + (k.pbCauHoi ? '\n\n— Câu hỏi —\n' + k.pbCauHoi : ''))}</textarea></div>` : '';
+  const u = DB.currentUser;
+  const hdBlockDetail = u.role !== 'bm' && k.hdNote ? `<div style="margin-bottom: 16px;"><div style="${noteTitleStyle}">📝 Nhận xét GVHD</div><textarea readonly style="${textareaStyle}" rows="4">${escapeHtml(k.hdNote)}</textarea></div>` : '';
+  const pbBlockDetail = u.role !== 'bm' && (k.pbNote || k.pbCauHoi) ? `<div style="margin-bottom: 16px;"><div style="${noteTitleStyle}">📝 Nhận xét & câu hỏi GVPB</div><textarea readonly style="${textareaStyle}" rows="5">${escapeHtml((k.pbNote || '') + (k.pbCauHoi ? '\n\n— Câu hỏi —\n' + k.pbCauHoi : ''))}</textarea></div>` : '';
   const ctBlockDetail = (k.ctNote || k.ctCauHoi) ? `<div style="margin-bottom: 16px;"><div style="${noteTitleStyle}">📝 Nhận xét / câu hỏi Chủ tịch HĐ</div><textarea readonly style="${textareaStyle}" rows="5">${escapeHtml((k.ctNote || '') + (k.ctCauHoi ? '\n\n— Câu hỏi —\n' + k.ctCauHoi : ''))}</textarea></div>` : '';
 
   const bienBanChamDiemDetail = k.bienBanChamDiem ? `<div class="kltn-row" style="margin-top: 15px; border-top: 1px dashed var(--border, #ccc); padding-top: 15px;"><span class="kltn-label">Biên bản chấm điểm:</span><span class="kltn-value"><a href="${uploadFileHref(k.bienBanChamDiem)}" target="_blank" rel="noopener" style="color:var(--accent, #0284c7); font-weight: bold; font-size: 14px;">📥 Tải biên bản chấm điểm</a></span></div>` : '';
@@ -1336,6 +1467,31 @@ function renderDuyetDe() {
 </tr>`;
     });
     html += `</tbody></table></div></div>`;
+
+    // Thêm phần duyệt BCTT cho bm
+    const bcttList = DB.bcttList.filter(b => b.trangThai === 'cho_duyet');
+    html += `<div class="card" style="margin-top: 20px;"><div class="card-title">✅ Duyệt đề tài BCTT</div>`;
+    if (!bcttList.length) {
+      html += `<div class="empty-state"><div class="empty-state-icon">✅</div><div class="empty-state-title">Không có đề tài BCTT nào cần duyệt</div></div>`;
+    } else {
+      bcttList.forEach(b => {
+        const sv = getUser(b.svEmail);
+        html += `<div class="card" style="margin-bottom:12px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
+            <div style="flex:1">
+              <div style="font-size:16px;font-weight:700;margin-bottom:6px;cursor:pointer;color:var(--primary)" onclick="viewBCTTDetail('${b.id}')">${escapeHtml(b.tenDeTai)}</div>
+              <div style="font-size:12px;color:var(--text3);margin-bottom:8px">${escapeHtml(b.mangDeTai)} • ${escapeHtml(b.tenCongTy)}</div>
+            </div>
+            <div class="action-row">
+              <button class="btn btn-ghost btn-sm" onclick="viewBCTTDetail('${b.id}')">👁 Chi tiết</button>
+              <button class="btn btn-success btn-sm" onclick="duyetBCTT('${b.id}',true)">✓ Xác nhận</button>
+              <button class="btn btn-danger btn-sm" onclick="duyetBCTT('${b.id}',false)">✗ Từ chối</button>
+            </div>
+          </div>
+        </div>`;
+      });
+    }
+    html += `</div>`;
     el.innerHTML = html;
     return;
   }
@@ -1420,7 +1576,22 @@ function renderNhapDiem() {
       if (isHD) {
         html += `<div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:8px">🎯 GV hướng dẫn — chấm điểm</div>
           <div class="form-group"><label>Điểm HD</label><input type="number" id="diem-hd-${k.id}" value="${k.diemHD ?? ''}"></div>
-          <button class="btn btn-primary btn-sm" onclick="saveScoreHD('${k.id}')">💾 Lưu điểm</button>`;
+          <div class="form-group"><label>Nhận xét & câu hỏi</label><textarea id="nhanxet-hd-${k.id}" rows="4" placeholder="Nhập nhận xét và câu hỏi...">${escapeHtml(k.hdNote || '')}</textarea></div>
+          <button class="btn btn-primary btn-sm" onclick="saveScoreHD('${k.dangKyId}')">💾 Lưu điểm</button>`;
+      }
+      
+      if (isPB) {
+        html += `<div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:8px;margin-top:12px">📋 GV phản biện — chấm điểm</div>
+          <div class="form-group"><label>Điểm PB</label><input type="number" id="diem-pb-${k.id}" value="${k.diemPB ?? ''}"></div>
+          <div class="form-group"><label>Nhận xét & câu hỏi</label><textarea id="nhanxet-pb-${k.id}" rows="4" placeholder="Nhập nhận xét và câu hỏi...">${escapeHtml((k.pbNote || '') + (k.pbCauHoi ? '\n\n— Câu hỏi —\n' + k.pbCauHoi : ''))}</textarea></div>
+          <button class="btn btn-primary btn-sm" onclick="saveScorePB('${k.dangKyId}')">💾 Lưu điểm</button>`;
+      }
+      
+      if (isCT) {
+        html += `<div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:8px;margin-top:12px">👔 Chủ tịch HĐ — chấm điểm</div>
+          <div class="form-group"><label>Điểm CT.HĐ</label><input type="number" id="diem-ct-${k.id}" value="${k.diemBB ?? ''}"></div>
+          <div class="form-group"><label>Nhận xét & câu hỏi</label><textarea id="nhanxet-ct-${k.id}" rows="4" placeholder="Nhập nhận xét và câu hỏi...">${escapeHtml((k.ctNote || '') + (k.ctCauHoi ? '\n\n— Câu hỏi —\n' + k.ctCauHoi : ''))}</textarea></div>
+          <button class="btn btn-primary btn-sm" onclick="saveScoreCT('${k.dangKyId}')">💾 Lưu điểm</button>`;
       }
       
       html += `</div>`;
@@ -1504,6 +1675,77 @@ function renderThuKy() { document.getElementById('page-thuky').innerHTML = `<div
 function renderGoiY() { document.getElementById('page-goiy').innerHTML = `<div class="page-header"><h1>💡 Gợi ý đề tài</h1></div>`; }
 function renderThongKe() { document.getElementById('page-thongke').innerHTML = `<div class="page-header"><h1>📈 Thống kê</h1></div>`; }
 function renderTheoDoi() { document.getElementById('page-theodoi').innerHTML = `<div class="page-header"><h1>⏱️ Theo dõi trạng thái</h1></div>`; }
+
+async function phanCongPBKLTN(kId) {
+  const k = DB.kltnList.find(x => x.id === kId);
+  if (!k) {
+    toast('Không tìm thấy KLTN', 'error');
+    return;
+  }
+  const sv = getUser(k.svEmail);
+  const gvList = DB.users.filter(u => u.role === 'gv' || u.role === 'bm');
+
+  let html = `<div class="modal-header"><div class="modal-title">👥 Phân công PB & Hội đồng cho KLTN</div><button class="modal-close" onclick="closeModalForce()">✕</button></div>
+    <div class="info-row"><span class="info-label">Sinh viên:</span><span class="info-value">${escapeHtml(sv?.name || '')}</span></div>
+    <div class="info-row"><span class="info-label">Tên đề tài:</span><span class="info-value" style="font-weight:700">${escapeHtml(k.tenDeTai)}</span></div>
+    <div class="info-row"><span class="info-label">Ngành:</span><span class="info-value">${escapeHtml(k.mangDeTai)}</span></div>
+    <div class="form-group"><label>GV Phản biện</label><select id="select-gv-pb"><option value="">-- Chọn GV phản biện --</option>${gvList.map(g => `<option value="${g.id}" ${k.gvPBEmail === g.email ? 'selected' : ''}>${escapeHtml(g.name)}</option>`).join('')}</select></div>
+    <div class="form-group"><label>Chủ tịch Hội đồng</label><select id="select-ct"><option value="">-- Chọn Chủ tịch --</option>${gvList.map(g => `<option value="${g.id}" ${k.hoiDong?.ct === g.email ? 'selected' : ''}>${escapeHtml(g.name)}</option>`).join('')}</select></div>
+    <div class="form-group"><label>Thư ký Hội đồng</label><select id="select-tk"><option value="">-- Chọn Thư ký --</option>${gvList.map(g => `<option value="${g.id}" ${k.hoiDong?.tk === g.email ? 'selected' : ''}>${escapeHtml(g.name)}</option>`).join('')}</select></div>
+    <div class="form-group"><label>Ủy viên Hội đồng (có thể chọn nhiều)</label><select id="select-tv" multiple style="height:100px">${gvList.map(g => `<option value="${g.id}" ${k.hoiDong?.tv?.includes(g.email) ? 'selected' : ''}>${escapeHtml(g.name)}</option>`).join('')}</select></div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModalForce()">Hủy</button><button class="btn btn-primary" onclick="submitPhanCong('${kId}')">💾 Lưu phân công</button></div>`;
+
+  showModal(html);
+}
+
+async function submitPhanCong(kId) {
+  const k = DB.kltnList.find(x => x.id === kId);
+  if (!k) {
+    toast('Không tìm thấy KLTN', 'error');
+    return;
+  }
+
+  const gvPbId = document.getElementById('select-gv-pb').value;
+  const ctId = document.getElementById('select-ct').value;
+  const tkId = document.getElementById('select-tk').value;
+  const tvSelect = document.getElementById('select-tv');
+  const tvIds = Array.from(tvSelect.selectedOptions).map(o => o.value);
+
+  if (!ctId || !tkId || tvIds.length === 0) {
+    toast('Vui lòng chọn đầy đủ thành viên hội đồng (CT, TK, ít nhất 1 TV)', 'error');
+    return;
+  }
+
+  try {
+    // Phân công GV PB
+    if (gvPbId) {
+      await apiRequest("/api/phan-cong", {
+        method: "POST",
+        body: JSON.stringify({
+          dang_ky_id: k.dangKyId,
+          gv_pb_id: gvPbId,
+        }),
+      });
+    }
+
+    // Phân công hội đồng
+    await apiRequest("/api/phan-cong/hoi-dong", {
+      method: "POST",
+      body: JSON.stringify({
+        dang_ky_id: k.dangKyId,
+        ct_id: ctId,
+        tk_id: tkId,
+        tv_ids: tvIds,
+      }),
+    });
+
+    toast('Phân công thành công');
+    closeModalForce();
+    await refreshCurrentView();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
 
 function switchTab(e, tabId) {
   const parent = e.target.closest('.page') || document;

@@ -28,6 +28,14 @@ def register_routes(app):
     def file_too_large(_):
         return fail("File vượt quá 20MB", 400)
 
+    @app.route("/")
+    def index():
+        return send_from_directory(os.path.join(app.root_path, "frontend"), "index.html")
+
+    @app.route("/<path:filename>")
+    def static_files(filename):
+        return send_from_directory(os.path.join(app.root_path, "frontend"), filename)
+
     @app.route("/api/login", methods=["POST"])
     def login():
         data = request.json or {}
@@ -262,7 +270,7 @@ def register_routes(app):
         return ok("Đã nộp hồ sơ BCTT, chờ GV chấm")
 
     @app.route("/api/bctt/grade", methods=["POST"])
-    @role_required("GV")
+    @role_required("GV", "TBM")
     def grade_bctt():
         data = request.json or {}
         dang_ky_id = data.get("dang_ky_id")
@@ -278,26 +286,36 @@ def register_routes(app):
             return fail("Điểm phải từ 0 đến 10", 400)
         conn = get_db()
         gv = get_current_user(conn)
-        reg = conn.execute(
-            "SELECT * FROM dang_ky WHERE id = ? AND gv_id = ? AND loai = 'BCTT'",
-            (dang_ky_id, gv["id"]),
-        ).fetchone()
+        role_hdr = str(request.headers.get("X-User-Role") or session.get("role") or "").upper()
+        
+        # TBM có thể chấm bất kỳ BCTT nào, GV chỉ chấm BCTT của mình
+        if role_hdr == "TBM":
+            reg = conn.execute(
+                "SELECT * FROM dang_ky WHERE id = ? AND loai = 'BCTT'",
+                (dang_ky_id,),
+            ).fetchone()
+        else:
+            reg = conn.execute(
+                "SELECT * FROM dang_ky WHERE id = ? AND gv_id = ? AND loai = 'BCTT'",
+                (dang_ky_id, gv["id"]),
+            ).fetchone()
         if not reg:
             conn.close()
             return fail("Không tìm thấy BCTT cần chấm", 404)
         if reg["trang_thai"] != "cho_cham":
             conn.close()
             return fail("BCTT chưa ở trạng thái chờ chấm", 400)
-        has_turnitin = conn.execute(
-            "SELECT id FROM nop_bai WHERE dang_ky_id = ? AND loai_file = 'turnitin_bctt' LIMIT 1",
-            (dang_ky_id,),
-        ).fetchone()
-        if not has_turnitin:
-            conn.close()
-            return fail("Cần upload file Turnitin BCTT trước khi chấm", 400)
+        # Bỏ yêu cầu Turnitin để cho phép GV chấm dù chưa có Turnitin
+        # has_turnitin = conn.execute(
+        #     "SELECT id FROM nop_bai WHERE dang_ky_id = ? AND loai_file = 'turnitin_bctt' LIMIT 1",
+        #     (dang_ky_id,),
+        # ).fetchone()
+        # if not has_turnitin:
+        #     conn.close()
+        #     return fail("Cần upload file Turnitin BCTT trước khi chấm", 400)
         old = conn.execute(
-            "SELECT id FROM cham_diem WHERE dang_ky_id = ? AND gv_id = ? AND vai_tro = 'BCTT'",
-            (dang_ky_id, gv["id"]),
+            "SELECT id FROM cham_diem WHERE dang_ky_id = ? AND vai_tro = 'BCTT'",
+            (dang_ky_id,),
         ).fetchone()
         if old:
             conn.execute(
@@ -317,6 +335,86 @@ def register_routes(app):
         conn.commit()
         conn.close()
         return ok("Chấm BCTT thành công")
+
+    @app.route("/api/kltn/grade", methods=["POST"])
+    @role_required("GV", "TBM")
+    def grade_kltn():
+        data = request.json or {}
+        dang_ky_id = data.get("dang_ky_id")
+        vai_tro = data.get("vai_tro")  # 'HD', 'PB', 'CT', etc.
+        diem = data.get("diem")
+        nhan_xet = (data.get("nhan_xet") or "").strip()
+        cau_hoi = (data.get("cau_hoi") or "").strip()
+        if not vai_tro:
+            return fail("Thiếu vai_tro (HD/PB/CT)", 400)
+        if diem is None:
+            return fail("Thiếu điểm", 400)
+        try:
+            diem = float(diem)
+        except ValueError:
+            return fail("Điểm không hợp lệ", 400)
+        if diem < 0 or diem > 10:
+            return fail("Điểm phải từ 0 đến 10", 400)
+        conn = get_db()
+        gv = get_current_user(conn)
+        role_hdr = str(request.headers.get("X-User-Role") or session.get("role") or "").upper()
+        
+        # Kiểm tra quyền chấm
+        reg = conn.execute(
+            "SELECT * FROM dang_ky WHERE id = ? AND loai = 'KLTN'",
+            (dang_ky_id,),
+        ).fetchone()
+        if not reg:
+            conn.close()
+            return fail("Không tìm thấy KLTN cần chấm", 404)
+        
+        # Kiểm tra vai trò của GV
+        can_score = False
+        if vai_tro == 'HD' and reg["gv_id"] == gv["id"]:
+            can_score = True
+        elif vai_tro == 'PB':
+            # PB info lưu trong bảng upload/phân công, tạm cho phép
+            can_score = True
+        elif vai_tro == 'CT':
+            # CT info lưu trong bảng upload/phân công, tạm cho phép
+            can_score = True
+        elif role_hdr == "TBM":
+            can_score = True  # TBM có thể chấm bất kỳ
+        
+        if not can_score:
+            conn.close()
+            return fail("Không có quyền chấm điểm vai trò này", 403)
+        
+        # Insert hoặc update cham_diem
+        old = conn.execute(
+            "SELECT id FROM cham_diem WHERE dang_ky_id = ? AND vai_tro = ?",
+            (dang_ky_id, vai_tro),
+        ).fetchone()
+        if old:
+            conn.execute(
+                "UPDATE cham_diem SET diem = ?, nhan_xet = ?, cau_hoi = ? WHERE id = ?",
+                (diem, nhan_xet, cau_hoi, old["id"]),
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO cham_diem (dang_ky_id, gv_id, vai_tro, diem, nhan_xet, cau_hoi)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (dang_ky_id, gv["id"], vai_tro, diem, nhan_xet, cau_hoi),
+            )
+        
+        # Cập nhật trạng thái nếu tất cả 3 vai trò đã chấm
+        cnt = conn.execute(
+            "SELECT COUNT(DISTINCT vai_tro) AS c FROM cham_diem WHERE dang_ky_id = ? AND vai_tro IN ('HD','PB','CT') AND diem IS NOT NULL",
+            (dang_ky_id,),
+        ).fetchone()
+        if cnt and cnt["c"] == 3:
+            conn.execute("UPDATE dang_ky SET trang_thai = 'bao_ve' WHERE id = ?", (dang_ky_id,))
+        
+        conn.commit()
+        conn.close()
+        return ok("Chấm KLTN thành công")
 
     @app.route("/api/kltn/submit", methods=["POST"])
     @role_required("SV")
@@ -493,7 +591,7 @@ def register_routes(app):
         return ok("Đã lưu nội dung biên bản (Thư ký)")
 
     @app.route("/api/bctt/approve", methods=["POST"])
-    @role_required("GV")
+    @role_required("GV", "TBM")
     def approve_bctt():
         data = request.json or {}
         ids = data.get("dang_ky_ids") or []
@@ -510,41 +608,66 @@ def register_routes(app):
 
         if action == "tu_choi":
             placeholders = ",".join(["?"] * len(ids))
-            cursor.execute(
-                f"""
-                UPDATE dang_ky SET trang_thai = 'tu_choi'
-                WHERE id IN ({placeholders}) AND gv_id = ? AND loai = 'BCTT'
-                """,
-                [*ids, gv["id"]],
-            )
+            if gv["role"] == "TBM":
+                cursor.execute(
+                    f"""
+                    UPDATE dang_ky SET trang_thai = 'tu_choi'
+                    WHERE id IN ({placeholders}) AND loai = 'BCTT'
+                    """,
+                    [*ids],
+                )
+            else:
+                cursor.execute(
+                    f"""
+                    UPDATE dang_ky SET trang_thai = 'tu_choi'
+                    WHERE id IN ({placeholders}) AND gv_id = ? AND loai = 'BCTT'
+                    """,
+                    [*ids, gv["id"]],
+                )
             success_count = cursor.rowcount
 
         else:
             success_count = 0
             for dk_id in ids:
-                dk = cursor.execute(
-                    """
-                    SELECT dk.dot_id, dk.trang_thai, sv.he_dao_tao
-                    FROM dang_ky dk
-                    JOIN users sv ON sv.id = dk.sv_id
-                    WHERE dk.id = ? AND dk.gv_id = ? AND dk.loai = 'BCTT'
-                    """,
-                    (dk_id, gv["id"]),
-                ).fetchone()
+                if gv["role"] == "TBM":
+                    dk = cursor.execute(
+                        """
+                        SELECT dk.dot_id, dk.trang_thai, sv.he_dao_tao, dk.gv_id
+                        FROM dang_ky dk
+                        JOIN users sv ON sv.id = dk.sv_id
+                        WHERE dk.id = ? AND dk.loai = 'BCTT'
+                        """,
+                        (dk_id,),
+                    ).fetchone()
+                else:
+                    dk = cursor.execute(
+                        """
+                        SELECT dk.dot_id, dk.trang_thai, sv.he_dao_tao
+                        FROM dang_ky dk
+                        JOIN users sv ON sv.id = dk.sv_id
+                        WHERE dk.id = ? AND dk.gv_id = ? AND dk.loai = 'BCTT'
+                        """,
+                        (dk_id, gv["id"]),
+                    ).fetchone()
 
                 if not dk or dk["trang_thai"] != "cho_duyet":
                     continue
 
                 sv_he = normalize_sv_slot_he(dk)
-                slot = cursor.execute(
-                    "SELECT id, slot_con_lai FROM gv_slot WHERE gv_id = ? AND dot_id = ? AND he_dao_tao = ?",
-                    (gv["id"], dk["dot_id"], sv_he),
-                ).fetchone()
-
-                if slot and slot["slot_con_lai"] > 0:
+                if gv["role"] == "TBM":
+                    # Cho bm, không giảm slot, chỉ update trạng thái
                     cursor.execute("UPDATE dang_ky SET trang_thai = 'gv_xac_nhan' WHERE id = ?", (dk_id,))
-                    cursor.execute("UPDATE gv_slot SET slot_con_lai = slot_con_lai - 1 WHERE id = ?", (slot["id"],))
                     success_count += 1
+                else:
+                    slot = cursor.execute(
+                        "SELECT id, slot_con_lai FROM gv_slot WHERE gv_id = ? AND dot_id = ? AND he_dao_tao = ?",
+                        (gv["id"], dk["dot_id"], sv_he),
+                    ).fetchone()
+
+                    if slot and slot["slot_con_lai"] > 0:
+                        cursor.execute("UPDATE dang_ky SET trang_thai = 'gv_xac_nhan' WHERE id = ?", (dk_id,))
+                        cursor.execute("UPDATE gv_slot SET slot_con_lai = slot_con_lai - 1 WHERE id = ?", (slot["id"],))
+                        success_count += 1
 
         conn.commit()
         conn.close()
