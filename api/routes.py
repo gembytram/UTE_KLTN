@@ -12,9 +12,11 @@ from config.settings import UPLOAD_FOLDER
 from database import get_db
 from services.auth import get_current_user, login_required, role_required
 from services.bootstrap_service import fetch_bootstrap, serialize_user
-from services.kltn_service import _can_score_kltn, _hoi_dong_ids
+from services.kltn_service import _can_score_kltn, _hoi_dong_ids, can_view_kltn
 from utils.helpers import (
     assert_kltn_assignees_match_major,
+    build_bctt_meta,
+    build_kltn_meta,
     dot_matches_student,
     kltn_major_from_dang_ky,
     normalize_sv_slot_he,
@@ -117,8 +119,29 @@ def register_routes(app):
         data = fetch_bootstrap(conn)
 
         role = session.get("role") or request.headers.get("X-User-Role", "")
+        uid = session.get("user_id") or request.headers.get("X-User-Id")
+        try:
+            current_uid = int(uid) if uid is not None else None
+        except (TypeError, ValueError):
+            current_uid = None
+
+        if str(role).upper() == "GV" and current_uid is not None:
+            data["kltnList"] = [
+                k
+                for k in data["kltnList"]
+                if can_view_kltn(
+                    current_uid,
+                    {
+                        "advisor_id": k.get("advisorId"),
+                        "reviewer_id": k.get("reviewerId"),
+                        "chairman_id": k.get("chairmanId"),
+                        "secretary_id": k.get("secretaryId"),
+                        "committee_members": k.get("committeeMembers") or [],
+                    },
+                )
+            ]
+
         if str(role).upper() == "TBM":
-            uid = session.get("user_id") or request.headers.get("X-User-Id")
             tbm = conn.execute("SELECT linh_vuc FROM users WHERE id = ?", (uid,)).fetchone()
             if tbm and tbm["linh_vuc"]:
                 nganh_list = [x.strip() for x in tbm["linh_vuc"].split(",") if x.strip()]
@@ -139,10 +162,13 @@ def register_routes(app):
         ten = (data.get("ten_de_tai") or "").strip()
         linh_vuc = (data.get("linh_vuc") or "").strip()
         cong_ty = (data.get("ten_cong_ty") or "").strip()
+        loai_de_tai = (data.get("loai_de_tai") or "").strip()
         gv_id = data.get("gv_id")
         dot_id = data.get("dot_id")
-        if not all([ten, linh_vuc, cong_ty, gv_id, dot_id]):
+        if not all([ten, linh_vuc, cong_ty, loai_de_tai, gv_id, dot_id]):
             return fail("Thiếu thông tin đăng ký BCTT", 400)
+        if loai_de_tai not in ("ung_dung", "nghien_cuu"):
+            return fail("Loại đề tài BCTT không hợp lệ", 400)
 
         conn = get_db()
         sv = get_current_user(conn)
@@ -177,7 +203,7 @@ def register_routes(app):
             INSERT INTO dang_ky (sv_id, gv_id, dot_id, loai, ten_de_tai, linh_vuc, trang_thai)
             VALUES (?, ?, ?, 'BCTT', ?, ?, 'cho_duyet')
             """,
-            (sv["id"], gv_id, dot_id, ten, f"{linh_vuc}||{cong_ty}"),
+            (sv["id"], gv_id, dot_id, ten, build_bctt_meta(linh_vuc, cong_ty, loai_de_tai)),
         )
         conn.commit()
         conn.close()
@@ -189,10 +215,13 @@ def register_routes(app):
         data = request.json or {}
         ten = (data.get("ten_de_tai") or "").strip()
         linh_vuc = (data.get("linh_vuc") or "").strip()
+        loai_de_tai = (data.get("loai_de_tai") or "").strip()
         gv_id = data.get("gv_id")
         dot_id = data.get("dot_id")
-        if not all([ten, linh_vuc, gv_id, dot_id]):
+        if not all([ten, linh_vuc, loai_de_tai, gv_id, dot_id]):
             return fail("Thiếu thông tin đăng ký KLTN", 400)
+        if loai_de_tai not in ("ung_dung", "nghien_cuu"):
+            return fail("Loại đề tài KLTN không hợp lệ", 400)
 
         conn = get_db()
         sv = get_current_user(conn)
@@ -231,7 +260,7 @@ def register_routes(app):
             INSERT INTO dang_ky (sv_id, gv_id, dot_id, loai, ten_de_tai, linh_vuc, trang_thai)
             VALUES (?, ?, ?, 'KLTN', ?, ?, 'thuc_hien')
             """,
-            (sv["id"], gv_id, dot_id, ten, linh_vuc),
+            (sv["id"], gv_id, dot_id, ten, build_kltn_meta(linh_vuc, loai_de_tai)),
         )
         conn.commit()
         conn.close()
@@ -986,12 +1015,15 @@ def register_routes(app):
     def score():
         data = request.json or {}
         dang_ky_id = data.get("dang_ky_id")
-        vai_tro = data.get("vai_tro")
+        vai_tro = str(data.get("vai_tro") or "").upper()
         diem = data.get("diem")
         nhan_xet = data.get("nhan_xet", "")
         cau_hoi = data.get("cau_hoi", "")
+        criteria_json = data.get("criteria_json", "")
         if not all([dang_ky_id, vai_tro]) or diem is None:
             return fail("Thiếu dữ liệu chấm điểm", 400)
+        if vai_tro not in ("HD", "PB", "TV"):
+            return fail("Vai trò chấm điểm không hợp lệ", 400)
         try:
             diem = float(diem)
         except ValueError:
@@ -1002,8 +1034,7 @@ def register_routes(app):
         conn = get_db()
         gv = get_current_user(conn)
         reg_chk = conn.execute("SELECT loai FROM dang_ky WHERE id = ?", (dang_ky_id,)).fetchone()
-        role_hdr = str(request.headers.get("X-User-Role") or session.get("role") or "").upper()
-        if reg_chk and reg_chk["loai"] == "KLTN" and role_hdr != "TBM":
+        if reg_chk and reg_chk["loai"] == "KLTN":
             if not _can_score_kltn(conn, dang_ky_id, gv["id"], vai_tro):
                 conn.close()
                 return fail("Bạn không được phân công chấm điểm với vai trò này", 403)
@@ -1015,18 +1046,18 @@ def register_routes(app):
             conn.execute(
                 """
                 UPDATE cham_diem
-                SET diem = ?, nhan_xet = ?, cau_hoi = ?
+                SET diem = ?, nhan_xet = ?, cau_hoi = ?, criteria_json = ?
                 WHERE id = ?
                 """,
-                (diem, nhan_xet, cau_hoi, old["id"]),
+                (diem, nhan_xet, cau_hoi, criteria_json, old["id"]),
             )
         else:
             conn.execute(
                 """
-                INSERT INTO cham_diem (dang_ky_id, gv_id, vai_tro, diem, nhan_xet, cau_hoi)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO cham_diem (dang_ky_id, gv_id, vai_tro, diem, nhan_xet, cau_hoi, criteria_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (dang_ky_id, gv["id"], vai_tro, diem, nhan_xet, cau_hoi),
+                (dang_ky_id, gv["id"], vai_tro, diem, nhan_xet, cau_hoi, criteria_json),
             )
         reg = conn.execute("SELECT loai FROM dang_ky WHERE id = ?", (dang_ky_id,)).fetchone()
         if reg and reg["loai"] == "KLTN":
@@ -1034,11 +1065,18 @@ def register_routes(app):
                 if not str(nhan_xet or "").strip() or not str(cau_hoi or "").strip():
                     conn.close()
                     return fail("GV phản biện: bắt buộc nhập nhận xét và câu hỏi (Thư ký đưa vào biên bản)", 400)
-            cnt = conn.execute(
-                "SELECT COUNT(DISTINCT vai_tro) AS c FROM cham_diem WHERE dang_ky_id = ? AND vai_tro IN ('HD','PB','CT') AND diem IS NOT NULL",
+            required = conn.execute(
+                """
+                SELECT
+                    SUM(CASE WHEN vai_tro = 'HD' AND diem IS NOT NULL THEN 1 ELSE 0 END) AS has_hd,
+                    SUM(CASE WHEN vai_tro = 'PB' AND diem IS NOT NULL THEN 1 ELSE 0 END) AS has_pb,
+                    SUM(CASE WHEN vai_tro = 'TV' AND diem IS NOT NULL THEN 1 ELSE 0 END) AS tv_count
+                FROM cham_diem
+                WHERE dang_ky_id = ?
+                """,
                 (dang_ky_id,),
             ).fetchone()
-            if cnt and cnt["c"] == 3:
+            if required and required["has_hd"] and required["has_pb"] and required["tv_count"]:
                 conn.execute("UPDATE dang_ky SET trang_thai = 'bao_ve' WHERE id = ?", (dang_ky_id,))
         conn.commit()
         conn.close()

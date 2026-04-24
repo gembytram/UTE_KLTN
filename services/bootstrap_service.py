@@ -5,6 +5,7 @@ from utils.helpers import (
     now_date_string,
     parse_linh_vuc,
 )
+from services.kltn_service import _kltn_assignment
 
 
 def serialize_user(row):
@@ -112,6 +113,7 @@ def fetch_bootstrap(conn):
             bctt_list.append(record)
         else:
             sc = score_map.get(r["id"], {})
+            assignment = _kltn_assignment(conn, r["id"]) or {}
             pb_raw = upload_map.get(r["id"], {}).get("phanbien_gv")
             gv_pb_email = None
             if pb_raw:
@@ -135,6 +137,14 @@ def fetch_bootstrap(conn):
                             "tv": [u["email"] for u in tv_users],
                         }
             record["gvPBEmail"] = gv_pb_email
+            record["advisorId"] = assignment.get("advisor_id")
+            record["reviewerId"] = assignment.get("reviewer_id")
+            record["chairmanId"] = assignment.get("chairman_id")
+            record["secretaryId"] = assignment.get("secretary_id")
+            record["committeeMembers"] = assignment.get("committee_members") or []
+            record["committeeMemberEmails"] = [
+                user_map[uid]["email"] for uid in record["committeeMembers"] if uid in user_map
+            ]
             record["pbAccepted"] = bool(upload_map.get(r["id"], {}).get("pb_accepted"))
             record["hoiDong"] = hoi_dong
             file_map = upload_map.get(r["id"], {})
