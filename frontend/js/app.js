@@ -47,6 +47,16 @@ function hasCommonMajor(a, b) {
     return majorsA.length && majorsB.length && majorsA.some((m) => majorsB.includes(m));
 }
 
+function normalizeMajorName(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw === 'logistic' || raw === 'log') return 'log';
+  return raw;
+}
+
+function majorMatches(a, b) {
+  return normalizeMajorName(a) && normalizeMajorName(a) === normalizeMajorName(b);
+}
+
 function getApiBaseUrl() {
   if (typeof window !== 'undefined' && window.API_BASE) return String(window.API_BASE).replace(/\/$/, '');
   return 'http://127.0.0.1:5000';
@@ -617,7 +627,12 @@ async function apiRequest(path, options = {}) {
 async function syncFromServer() {
   const out = await apiRequest("/api/bootstrap", { method: "GET" });
   const data = out.data || {};
-  DB.users = (data.users || []).map(u => ({...u, chuyenMon: u.linh_vuc ? u.linh_vuc.split(',').map(s => s.trim()) : []}));
+  DB.users = (data.users || []).map(u => ({
+    ...u,
+    chuyenMon: Array.isArray(u.chuyenMon)
+      ? u.chuyenMon
+      : (u.linh_vuc ? u.linh_vuc.split(',').map(s => s.trim()) : []),
+  }));
   DB.dotDangKy = data.dotDangKy || [];
   DB.bcttList = data.bcttList || [];
   DB.kltnList = data.kltnList || [];
@@ -1995,38 +2010,109 @@ function viewKLTNDetail(id) {
 function renderDuyetDe() {
   const u = DB.currentUser;
   if (u.role === 'bm') {
-    const gvList = DB.users.filter(x => x.role === 'gv' || x.role === 'bm').filter((g) => hasCommonMajor(u, g));
     const el = document.getElementById('page-duyetde');
-    let html = `<div class="page-header"><h1>🎯 Mở slot GV hướng dẫn theo đợt</h1><p>Duyệt quota để sinh viên có thể đăng ký.</p></div>`;
-    if (!gvList.length) {
-      html += `<div class="card"><div class="empty-state"><div class="empty-state-icon">⚠️</div><div class="empty-state-title">Không có giảng viên cùng ngành</div></div></div>`;
-      el.innerHTML = html;
-      return;
-    }
-    html += `<div class="card"><div class="table-wrap"><table><thead><tr><th>Giảng viên</th><th>Quota</th><th>Slot mở</th><th>Thao tác</th></tr></thead><tbody>`;
-    gvList.forEach(g => {
-      g.slotOpen = g.slotOpen !== false;
-      html += `<tr><td>${g.name}</td>
-  <td><strong>${g.quota || 0}</strong> / ${g.quota_max || g.quota || 0}</td>
-  <td>${g.slotOpen ? '<span class="badge badge-green">Đang mở</span>' : '<span class="badge badge-red">Đã khóa</span>'}</td>
-  <td><button class="btn btn-sm ${g.slotOpen ? 'btn-danger' : 'btn-success'}" onclick="toggleSlot('${g.email}')">${g.slotOpen ? 'Khóa slot' : 'Mở slot'}</button></td>
-</tr>`;
-    });
-    html += `</tbody></table></div></div>`;
+    const managedMajors = (u.chuyenMon || []).filter(Boolean);
+    const managedDots = DB.dotDangKy
+      .filter((d) => !managedMajors.length || managedMajors.some((major) => majorMatches(major, d.nganh)))
+      .sort((a, b) => Number(a.id) - Number(b.id));
+    const selectedDotId = managedDots.some((d) => String(d.id) === String(DB.tbmSelectedDotId))
+      ? String(DB.tbmSelectedDotId)
+      : (managedDots[0]?.id || '');
+    DB.tbmSelectedDotId = selectedDotId;
+    const selectedDot = managedDots.find((d) => String(d.id) === String(selectedDotId));
+    const gvList = DB.users
+      .filter((g) => (g.role === 'gv' || g.role === 'bm') && (!selectedDot?.nganh || (g.chuyenMon || []).some((major) => majorMatches(major, selectedDot.nganh))))
+      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
 
-    // Thêm phần duyệt BCTT cho bm
-    const bcttList = DB.bcttList.filter(b => b.trangThai === 'cho_duyet');
+    let html = `<div class="page-header"><h1>🎯 Quản lý đợt đăng ký và slot GVHD</h1><p>TBM có thể mở đồng thời nhiều đợt, thêm/xóa đợt và chỉnh slot giảng viên theo từng đợt.</p></div>`;
+
+    html += `<div class="grid-2">
+      <div class="card">
+        <div class="card-title" style="margin-bottom:16px">➕ Thêm đợt mới</div>
+        <div class="grid-2">
+          <div class="form-group"><label>Tên đợt *</label><input id="tbm-dot-ten" type="text" placeholder="Ví dụ: Đợt 3 HK1 26-27 - TMĐT"></div>
+          <div class="form-group"><label>Loại *</label><select id="tbm-dot-loai"><option value="BCTT">BCTT</option><option value="KLTN">KLTN</option></select></div>
+          <div class="form-group"><label>Ngành *</label><select id="tbm-dot-nganh">${managedMajors.map((major) => `<option value="${escapeHtml(major)}">${escapeHtml(major)}</option>`).join('')}</select></div>
+          <div class="form-group"><label>Hệ đào tạo</label><select id="tbm-dot-he"><option value="">Tất cả</option><option value="DaiTra">Đại trà</option><option value="CLC">CLC</option></select></div>
+          <div class="form-group"><label>Hạn đăng ký</label><input id="tbm-dot-han-dk" type="date"></div>
+          <div class="form-group"><label>Hạn nộp</label><input id="tbm-dot-han-nop" type="date"></div>
+          <div class="form-group"><label>Trạng thái</label><select id="tbm-dot-status"><option value="dong">Đóng</option><option value="mo">Mở</option></select></div>
+          <div class="form-group"><label>Copy slot từ đợt cũ</label><select id="tbm-dot-copy"><option value="">Không copy</option>${managedDots.map((d) => `<option value="${d.id}">${escapeHtml(d.ten)} (${escapeHtml(d.loai)})</option>`).join('')}</select></div>
+        </div>
+        <div class="action-row" style="margin-top:12px"><button class="btn btn-primary" onclick="createManagedDot()">Tạo đợt</button></div>
+      </div>
+      <div class="card">
+        <div class="card-title" style="margin-bottom:16px">🗂️ Chọn đợt để chỉnh slot</div>
+        ${managedDots.length ? `<div class="form-group"><label>Đợt đang thao tác</label><select id="tbm-selected-dot" onchange="selectDotForSlotAdmin(this.value)">${managedDots.map((d) => `<option value="${d.id}" ${String(d.id) === String(selectedDotId) ? 'selected' : ''}>${escapeHtml(d.ten)} • ${escapeHtml(d.loai)} • ${d.trangThai === 'dang_mo' ? 'Đang mở' : 'Đang đóng'}</option>`).join('')}</select></div>` : `<div class="empty-state"><div class="empty-state-title">Chưa có đợt nào trong ngành bạn quản lý</div></div>`}
+        <div class="form-note" style="font-size:13px;color:var(--text3);line-height:1.5">Mỗi đợt có bộ slot riêng cho từng giảng viên theo Đại trà và CLC. Khi tạo đợt mới, hệ thống có thể copy toàn bộ slot từ một đợt cũ để tránh phải sửa tay trong database.</div>
+      </div>
+    </div>`;
+
+    html += `<div class="card" style="margin-top:20px"><div class="card-title" style="margin-bottom:12px">📅 Danh sách đợt đang quản lý</div>`;
+    if (!managedDots.length) {
+      html += `<div class="empty-state"><div class="empty-state-icon">📭</div><div class="empty-state-title">Chưa có đợt nào</div></div>`;
+    } else {
+      html += `<div class="table-wrap"><table><thead><tr><th>Tên đợt</th><th>Loại</th><th>Ngành</th><th>Hệ</th><th>Hạn đăng ký</th><th>Hạn nộp</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>`;
+      managedDots.forEach((d) => {
+        const isOpen = d.trangThai === 'dang_mo';
+        html += `<tr>
+          <td><div style="font-weight:700">${escapeHtml(d.ten)}</div></td>
+          <td>${escapeHtml(d.loai)}</td>
+          <td>${escapeHtml(d.nganh || '')}</td>
+          <td>${escapeHtml(d.heDaoTao || 'Tất cả')}</td>
+          <td>${escapeHtml(d.batDau || '')}</td>
+          <td>${escapeHtml(d.ketThuc || '')}</td>
+          <td>${isOpen ? '<span class="badge badge-green">Đang mở</span>' : '<span class="badge badge-red">Đang đóng</span>'}</td>
+          <td><div class="action-row">
+            <button class="btn btn-ghost btn-sm" onclick="selectDotForSlotAdmin('${d.id}')">Chỉnh slot</button>
+            <button class="btn btn-sm ${isOpen ? 'btn-danger' : 'btn-success'}" onclick="toggleManagedDotStatus('${d.id}','${isOpen ? 'dong' : 'mo'}')">${isOpen ? 'Khóa đợt' : 'Mở đợt'}</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteManagedDot('${d.id}')">Xóa</button>
+          </div></td>
+        </tr>`;
+      });
+      html += `</tbody></table></div>`;
+    }
+    html += `</div>`;
+
+    html += `<div class="card" style="margin-top:20px"><div class="card-title" style="margin-bottom:12px">👨‍🏫 Slot giảng viên theo đợt${selectedDot ? `: ${escapeHtml(selectedDot.ten)}` : ''}</div>`;
+    if (!selectedDot) {
+      html += `<div class="empty-state"><div class="empty-state-title">Chọn hoặc tạo đợt để chỉnh slot</div></div>`;
+    } else if (!gvList.length) {
+      html += `<div class="empty-state"><div class="empty-state-title">Không có giảng viên cùng ngành với đợt này</div></div>`;
+    } else {
+      html += `<div class="table-wrap"><table><thead><tr><th>Giảng viên</th><th>Hệ</th><th>Quota</th><th>Slot còn lại</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>`;
+      gvList.forEach((g) => {
+        ['DaiTra', 'CLC'].forEach((he) => {
+          const slot = (DB.gvSlots || []).find((s) => Number(s.gvId) === Number(g.id) && String(s.dotId) === String(selectedDot.id) && String(s.heDaoTao || 'DaiTra') === he);
+          if (!slot) return;
+          html += `<tr>
+            <td><div style="font-weight:600">${escapeHtml(g.name)}</div><div style="font-size:12px;color:var(--text3)">${escapeHtml((g.chuyenMon || []).join(', '))}</div></td>
+            <td>${he === 'DaiTra' ? 'Đại trà' : 'CLC'}</td>
+            <td><input id="slot-quota-${slot.id}" type="number" min="0" value="${Number(slot.quota || 0)}" style="width:90px"></td>
+            <td><input id="slot-conlai-${slot.id}" type="number" min="0" value="${Number(slot.slotConLai || 0)}" style="width:90px"></td>
+            <td>${slot.duyetTbm ? '<span class="badge badge-green">Đang mở</span>' : '<span class="badge badge-red">Đang khóa</span>'}</td>
+            <td><div class="action-row">
+              <button class="btn btn-primary btn-sm" onclick="saveGVSlotForDot('${g.id}','${selectedDot.id}','${he}','${slot.id}')">Lưu slot</button>
+              <button class="btn btn-sm ${slot.duyetTbm ? 'btn-danger' : 'btn-success'}" onclick="toggleGVSlotForDot('${slot.id}', ${slot.duyetTbm ? 'false' : 'true'})">${slot.duyetTbm ? 'Khóa' : 'Mở'}</button>
+            </div></td>
+          </tr>`;
+        });
+      });
+      html += `</tbody></table></div>`;
+    }
+    html += `</div>`;
+
+    const bcttList = DB.bcttList.filter((b) => b.trangThai === 'cho_duyet' && (!managedMajors.length || managedMajors.some((major) => (b.tenDot || '').includes(major))));
     html += `<div class="card" style="margin-top: 20px;"><div class="card-title">✅ Duyệt đề tài BCTT</div>`;
     if (!bcttList.length) {
       html += `<div class="empty-state"><div class="empty-state-icon">✅</div><div class="empty-state-title">Không có đề tài BCTT nào cần duyệt</div></div>`;
     } else {
       bcttList.forEach(b => {
-        const sv = getUser(b.svEmail);
         html += `<div class="card" style="margin-bottom:12px">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
             <div style="flex:1">
               <div style="font-size:16px;font-weight:700;margin-bottom:6px;cursor:pointer;color:var(--primary)" onclick="viewBCTTDetail('${b.id}')">${escapeHtml(b.tenDeTai)}</div>
-              <div style="font-size:12px;color:var(--text3);margin-bottom:8px">${escapeHtml(b.mangDeTai)} • ${escapeHtml(b.tenCongTy)}</div>
+              <div style="font-size:12px;color:var(--text3);margin-bottom:8px">${escapeHtml(b.mangDeTai)} • ${escapeHtml(b.tenCongTy)} • ${escapeHtml(b.tenDot || '')}</div>
             </div>
             <div class="action-row">
               <button class="btn btn-ghost btn-sm" onclick="viewBCTTDetail('${b.id}')">👁 Chi tiết</button>
@@ -2067,6 +2153,112 @@ function renderDuyetDe() {
     });
   }
   el.innerHTML = html;
+}
+
+function selectDotForSlotAdmin(dotId) {
+  DB.tbmSelectedDotId = String(dotId || '');
+  renderDuyetDe();
+}
+
+async function createManagedDot() {
+  const ten_dot = document.getElementById('tbm-dot-ten')?.value.trim();
+  const loai = document.getElementById('tbm-dot-loai')?.value || 'BCTT';
+  const nganh = document.getElementById('tbm-dot-nganh')?.value || '';
+  const he_dao_tao = document.getElementById('tbm-dot-he')?.value || '';
+  const han_dang_ky = document.getElementById('tbm-dot-han-dk')?.value || '';
+  const han_nop = document.getElementById('tbm-dot-han-nop')?.value || '';
+  const trang_thai = document.getElementById('tbm-dot-status')?.value || 'dong';
+  const copy_from_dot_id = document.getElementById('tbm-dot-copy')?.value || '';
+  if (!ten_dot || !nganh) {
+    toast('Vui lòng nhập tên đợt và ngành', 'error');
+    return;
+  }
+  try {
+    await apiRequest('/api/dot/create', {
+      method: 'POST',
+      body: JSON.stringify({
+        ten_dot,
+        loai,
+        nganh,
+        he_dao_tao,
+        han_dang_ky,
+        han_nop,
+        trang_thai,
+        copy_from_dot_id: copy_from_dot_id || null,
+      }),
+    });
+    toast('Tạo đợt thành công');
+    await refreshCurrentView();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+async function toggleManagedDotStatus(dotId, trang_thai) {
+  try {
+    await apiRequest('/api/dot/update-status', {
+      method: 'POST',
+      body: JSON.stringify({ dot_id: dotId, trang_thai }),
+    });
+    toast(trang_thai === 'mo' ? 'Đã mở đợt' : 'Đã khóa đợt');
+    await refreshCurrentView();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+async function deleteManagedDot(dotId) {
+  if (!window.confirm('Xóa đợt này? Hệ thống sẽ xóa cả cấu hình slot của đợt nếu chưa có sinh viên đăng ký.')) return;
+  try {
+    await apiRequest('/api/dot/delete', {
+      method: 'POST',
+      body: JSON.stringify({ dot_id: dotId }),
+    });
+    toast('Đã xóa đợt');
+    if (String(DB.tbmSelectedDotId) === String(dotId)) DB.tbmSelectedDotId = '';
+    await refreshCurrentView();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+async function saveGVSlotForDot(gvId, dotId, heDaoTao, slotId) {
+  const quota = Number(document.getElementById(`slot-quota-${slotId}`)?.value || 0);
+  const slot_con_lai = Number(document.getElementById(`slot-conlai-${slotId}`)?.value || 0);
+  if (Number.isNaN(quota) || Number.isNaN(slot_con_lai)) {
+    toast('Quota hoặc slot còn lại không hợp lệ', 'error');
+    return;
+  }
+  try {
+    await apiRequest('/api/gv-slot/update', {
+      method: 'POST',
+      body: JSON.stringify({
+        slot_id: slotId,
+        gv_id: gvId,
+        dot_id: dotId,
+        he_dao_tao: heDaoTao,
+        quota,
+        slot_con_lai,
+      }),
+    });
+    toast('Đã cập nhật slot giảng viên');
+    await refreshCurrentView();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+async function toggleGVSlotForDot(slotId, duyet) {
+  try {
+    await apiRequest('/api/gv-slot/duyet', {
+      method: 'POST',
+      body: JSON.stringify({ slot_id: slotId, duyet }),
+    });
+    toast(duyet ? 'Đã mở slot' : 'Đã khóa slot');
+    await refreshCurrentView();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
 }
 // Phân công hội đồng 
 function renderPhanCong() {
