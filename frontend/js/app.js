@@ -1500,6 +1500,35 @@ function renderDashboard() {
     </div>`).join('');
     html += `</div></div>`;
 
+    if (kltn && ['bao_ve', 'hoan_thanh', 'pass', 'fail'].includes(kltn.trangThai)) {
+      const gvhdStatus = kltn.xacNhanGVHD
+        ? '<span style="color:#16a34a;font-weight:700">✅ Đã đồng ý</span>'
+        : '<span style="color:#d97706;font-weight:700">⏳ Chưa đồng ý</span>';
+      const cthdStatus = kltn.xacNhanCTHD
+        ? '<span style="color:#16a34a;font-weight:700">✅ Đã đồng ý</span>'
+        : '<span style="color:#d97706;font-weight:700">⏳ Chưa đồng ý</span>';
+      html += `<div class="card" style="margin-top:20px">
+        <div class="card-header"><div><div class="card-title">🛠️ Trạng thái duyệt chỉnh sửa KLTN</div></div><button class="btn btn-ghost btn-sm" onclick="navigateTo('kltn')">Xem chi tiết</button></div>
+        <div class="grid-2" style="margin-top:8px">
+          <div style="padding:14px 16px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg)">
+            <div style="font-size:12px;color:var(--text3);margin-bottom:6px">GVHD</div>
+            <div style="font-size:15px">${gvhdStatus}</div>
+          </div>
+          <div style="padding:14px 16px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg)">
+            <div style="font-size:12px;color:var(--text3);margin-bottom:6px">Chủ tịch hội đồng</div>
+            <div style="font-size:15px">${cthdStatus}</div>
+          </div>
+        </div>
+        ${(kltn.tuChoiGVHD !== undefined && kltn.tuChoiGVHD !== null) || (kltn.tuChoiCTHD !== undefined && kltn.tuChoiCTHD !== null) ? `
+          <div style="margin-top:14px;padding:12px 16px;border-radius:var(--radius);background:#FFF7D6;border:1px solid #F5CD47">
+            <div style="font-size:13px;font-weight:700;color:#974F0C;margin-bottom:6px">Yêu cầu chỉnh sửa hiện tại</div>
+            ${kltn.tuChoiGVHD !== undefined && kltn.tuChoiGVHD !== null ? `<div style="font-size:13px;color:#974F0C;margin-bottom:4px">GVHD: ${escapeHtml(kltn.tuChoiGVHD || 'Cần chỉnh sửa và nộp lại.')}</div>` : ''}
+            ${kltn.tuChoiCTHD !== undefined && kltn.tuChoiCTHD !== null ? `<div style="font-size:13px;color:#974F0C">Chủ tịch HĐ: ${escapeHtml(kltn.tuChoiCTHD || 'Cần chỉnh sửa và nộp lại.')}</div>` : ''}
+          </div>
+        ` : ''}
+      </div>`;
+    }
+
   } else if (u.role === 'gv') {
     const pending = DB.bcttList.filter(b => b.gvEmail === u.email && b.trangThai === 'cho_duyet').length;
     const total = DB.bcttList.filter(b => b.gvEmail === u.email).length;
@@ -1802,14 +1831,22 @@ function renderDeTai() {
   html += `</div><div id="tab-kltn-list" class="tab-content ${activeTab === 'tab-kltn-list' ? 'active' : ''}">`;
 
   if (kltnData.length) {
-    html += `<div class="table-wrap"><table><thead><tr><th>Sinh viên</th><th>Đề tài</th><th>GV HD</th><th>GV PB</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>`;
+    html += `<div class="table-wrap"><table><thead><tr><th>Sinh viên</th><th>Đề tài</th><th>GV HD</th><th>GV PB</th><th>GVHD duyệt sửa</th><th>CT.HĐ duyệt sửa</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>`;
     kltnData.forEach(k => {
       const sv = getUser(k.svEmail); const gvhd = getUser(k.gvHDEmail); const gvpb = k.gvPBEmail ? getUser(k.gvPBEmail) : null;
+      const gvhdApprove = k.xacNhanGVHD
+        ? '<span class="badge badge-green">Đã đồng ý</span>'
+        : '<span class="badge badge-orange">Chưa đồng ý</span>';
+      const cthdApprove = k.xacNhanCTHD
+        ? '<span class="badge badge-green">Đã đồng ý</span>'
+        : '<span class="badge badge-orange">Chưa đồng ý</span>';
       html += `<tr>
         <td><div style="font-weight:600">${sv?.name || k.svEmail}</div><div style="font-size:11px;color:var(--text3)">${k.svEmail}</div></td>
         <td style="max-width:220px"><div style="font-weight:500;cursor:pointer;color:var(--primary)" title="Xem chi tiết" onclick="viewKLTNDetail('${k.id}')">${escapeHtml(k.tenDeTai)}</div></td>
         <td style="font-size:12px">${gvhd?.name || k.gvHDEmail}</td>
         <td style="font-size:12px">${gvpb ? gvpb.name : '<span style="color:var(--text3)">Chưa PB</span>'}</td>
+        <td>${gvhdApprove}</td>
+        <td>${cthdApprove}</td>
         <td>${statusBadge(k.trangThai)}</td>
         <td><button class="btn btn-ghost btn-sm" onclick="viewKLTNDetail('${k.id}')">👁 Chi tiết</button></td>
       </tr>`;
@@ -2667,6 +2704,7 @@ function renderNhapDiem() {
       const isCT = Boolean(assignment.isChair);
       const isTK = Boolean(assignment.isSecretary);
       const isTVMember = Boolean(assignment.isCommitteeMember);
+      const canReviewRevision = Boolean(k.fileBaiChinhSua && k.fileGiaiTrinh);
 
       html += `<div class="card" style="margin-bottom:16px">
         <div class="card-header"><div><div class="card-title" style="cursor:pointer;color:var(--primary)" onclick="viewKLTNDetail('${k.id}')">${escapeHtml(k.tenDeTai)}</div><div style="font-size:12px;color:var(--text3);margin-top:4px">${escapeHtml(sv?.name || k.svEmail)} • ${escapeHtml(getTopicTypeLabel(k.topicType))}</div></div>${statusBadge(k.trangThai)}</div>`;
@@ -2676,6 +2714,20 @@ function renderNhapDiem() {
           <div class="form-group"><label>Điểm HD</label><input type="number" id="diem-hd-${k.id}" value="${k.diemHD ?? ''}"></div>
           <div class="form-group"><label>Nhận xét & câu hỏi</label><textarea id="nhanxet-hd-${k.id}" rows="4" placeholder="Nhập nhận xét và câu hỏi...">${escapeHtml(k.hdNote || '')}</textarea></div>
           <button class="btn btn-primary btn-sm" onclick="saveScoreHD('${k.dangKyId}')">💾 Lưu điểm</button>`;
+        html += `<div style="margin-top:12px;padding:12px 14px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg)">
+          <div style="font-size:13px;font-weight:700;color:var(--primary-dark);margin-bottom:6px">🛠️ Duyệt chỉnh sửa sau bảo vệ</div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:8px">
+            Trạng thái hiện tại: ${k.xacNhanGVHD ? '<span style="color:#16a34a;font-weight:700">✅ Đã duyệt</span>' : '<span style="color:#d97706;font-weight:700">⏳ Chưa duyệt</span>'}
+          </div>
+          <div style="font-size:12px;color:var(--text2);margin-bottom:10px">
+            ${canReviewRevision ? 'Sinh viên đã nộp đủ bài chỉnh sửa và biên bản giải trình. GVHD có thể duyệt hoặc từ chối.' : 'Nút duyệt chỉ hiện khi sinh viên đã nộp đủ bài chỉnh sửa và biên bản giải trình.'}
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            ${canReviewRevision ? `<button class="btn btn-success btn-sm" onclick="approveKLTNRevision('${k.id}','gvhd',true)">Duyệt chỉnh sửa</button>` : ''}
+            ${canReviewRevision ? `<button class="btn btn-danger btn-sm" onclick="approveKLTNRevision('${k.id}','gvhd',false)">Từ chối chỉnh sửa</button>` : ''}
+            ${canReviewRevision ? `<button class="btn btn-ghost btn-sm" onclick="viewKLTNDetail('${k.id}')">Xem file chỉnh sửa</button>` : ''}
+          </div>
+        </div>`;
       }
 
       if (isPB) {
