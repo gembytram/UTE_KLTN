@@ -190,6 +190,8 @@ def fetch_bootstrap(conn):
             # record["hdNote"] = sc["HD"]["nhan_xet"] if sc.get("HD") else ""
             record["xacNhanGVHD"] = bool(upload_map.get(r["id"], {}).get("xac_nhan_gvhd"))
             record["xacNhanCTHD"] = bool(upload_map.get(r["id"], {}).get("xac_nhan_cthd"))
+            record["gvhdApproved"] = record["xacNhanGVHD"]
+            record["cthdApproved"] = record["xacNhanCTHD"]
             record["tuChoiGVHD"] = upload_map.get(r["id"], {}).get("tu_choi_gvhd")
             record["tuChoiCTHD"] = upload_map.get(r["id"], {}).get("tu_choi_cthd")
             record["tvScores"] = []

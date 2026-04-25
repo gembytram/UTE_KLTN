@@ -161,6 +161,62 @@ body { font-family: 'Be Vietnam Pro', sans-serif; background: var(--bg); color: 
 .card-title { font-size: 15px; font-weight: 700; }
 .card-subtitle { font-size: 12px; color: var(--text3); margin-top: 2px; }
 
+.kltn-role-meta { margin-top: 8px; }
+.kltn-role-meta-main {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text2);
+  line-height: 1.35;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.kltn-role-meta-code {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f5f8fc;
+  border: 1px solid #e3eaf4;
+  color: #6b7a90;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.kltn-role-meta-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.kltn-role-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #eef4ff;
+  border: 1px solid #cfe0ff;
+  color: #1e4fa8;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.kltn-role-chip-advisor {
+  background: #e3efff;
+  border-color: #bdd5ff;
+  color: #003e99;
+}
+.kltn-role-chip-score {
+  background: #dbeafe;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+
 /* Stats grid */
 .stats-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; margin-bottom: 24px; }
 .stat-card {
@@ -182,6 +238,17 @@ th { background: var(--bg); padding: 10px 14px; text-align: left; font-size: 11p
 td { padding: 12px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
 tr:last-child td { border-bottom: none; }
 tr:hover td { background: var(--bg); }
+
+.secretary-score-head th {
+  background: linear-gradient(180deg, #f8fbff 0%, #edf4ff 100%);
+  color: #47607f;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid #d8e3f2;
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
 
 /* Badge/Status */
 .badge {
