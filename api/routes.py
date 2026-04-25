@@ -165,9 +165,9 @@ def register_routes(app):
         loai_de_tai = (data.get("loai_de_tai") or "").strip()
         gv_id = data.get("gv_id")
         dot_id = data.get("dot_id")
-        if not all([ten, linh_vuc, cong_ty, loai_de_tai, gv_id, dot_id]):
+        if not all([ten, cong_ty, gv_id, dot_id]):
             return fail("Thiếu thông tin đăng ký BCTT", 400)
-        if loai_de_tai not in ("ung_dung", "nghien_cuu"):
+        if loai_de_tai and loai_de_tai not in ("ung_dung", "nghien_cuu"):
             return fail("Loại đề tài BCTT không hợp lệ", 400)
 
         conn = get_db()

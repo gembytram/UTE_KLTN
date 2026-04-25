@@ -1077,19 +1077,17 @@ async function refreshCurrentView() {
 
 async function submitBCTT() {
   const ten = (document.getElementById("f-tenDeTai")?.value || "").trim();
-  const linh_vuc = (document.getElementById("f-mang")?.value || "").trim();
   const cong_ty = (document.getElementById("f-congty")?.value || "").trim();
-  const loai_de_tai = (document.getElementById("f-topicType")?.value || "").trim();
   const gv_id = document.getElementById("f-gv")?.value || "";
   const dot_id = document.getElementById("f-dot")?.value || "";
-  if (!ten || !linh_vuc || !cong_ty || !loai_de_tai || !gv_id || !dot_id) {
+  if (!ten || !cong_ty || !gv_id || !dot_id) {
     toast("Vui lòng nhập đủ thông tin đăng ký BCTT", "error");
     return;
   }
   try {
     await apiRequest("/api/bctt/register", {
       method: "POST",
-      body: JSON.stringify({ ten_de_tai: ten, linh_vuc, ten_cong_ty: cong_ty, loai_de_tai, gv_id, dot_id }),
+      body: JSON.stringify({ ten_de_tai: ten, ten_cong_ty: cong_ty, gv_id, dot_id }),
     });
     toast("Gửi đăng ký BCTT thành công");
     await refreshCurrentView();
@@ -1554,8 +1552,6 @@ function renderBCTT() {
     html += `<div class="card" style="margin-bottom:20px">
       <div class="card-header"><div><div class="card-title">📋 Thông tin đăng ký BCTT</div></div>${statusBadge(b.trangThai)}</div>
       <div class="info-row"><span class="info-label">Tên đề tài:</span><span class="info-value" style="font-weight:700">${b.tenDeTai}</span></div>
-      <div class="info-row"><span class="info-label">Loại đề tài:</span><span class="info-value">${getTopicTypeLabel(b.topicType)}</span></div>
-      <div class="info-row"><span class="info-label">Mảng đề tài:</span><span class="info-value">${b.mangDeTai}</span></div>
       <div class="info-row"><span class="info-label">Công ty:</span><span class="info-value">${b.tenCongTy}</span></div>
       <div class="info-row"><span class="info-label">Giảng viên HD:</span><span class="info-value">${gv?.name || b.gvEmail}</span></div>
       <div class="info-row"><span class="info-label">Đợt đăng ký:</span><span class="info-value">${DB.dotDangKy.find(d=>d.id===b.dotId)?.ten || b.dotId}</span></div>
@@ -1616,9 +1612,6 @@ function renderBCTT() {
         <div class="form-group"><label>Tên công ty *</label><input type="text" id="f-congty" placeholder="Tên doanh nghiệp thực tập..."></div>
         <div class="form-group"><label>Ngành *</label><select id="f-nganh" disabled><option value="TMĐT">Thương mại điện tử</option></select></div>
         <div class="form-group"><label>Giảng viên hướng dẫn *</label><select id="f-gv"><option value="">-- Chọn giảng viên hướng dẫn --</option></select></div>
-        <div class="form-group"><label>Lĩnh vực *</label><select id="f-mang" onchange="renderTopicTypesByField(); renderGVOptionsByField();"><option value="">-- Chọn lĩnh vực --</option>${fieldOptions.map((field) => `<option value="${escapeHtml(field)}">${escapeHtml(field)}</option>`).join('')}</select></div>
-        <div class="form-group"><label>Loại đề tài *</label><select id="f-topicType"><option value="">-- Chọn loại đề tài --</option></select></div>
-        <div class="form-note" style="grid-column:1/-1;font-size:13px;color:var(--text3);margin-top:6px;margin-bottom:0;line-height:1.5">*Ghi chú: Lĩnh vực AI có thể chọn cả đề tài ứng dụng và nghiên cứu; Chất lượng, Mô phỏng, Quản lý công nghiệp ưu tiên đề tài nghiên cứu; các lĩnh vực kinh doanh và kỹ thuật ứng dụng ưu tiên đề tài ứng dụng.</div>
       </div>
       <button class="btn btn-primary" style="margin-top:20px;min-width:200px" onclick="submitBCTT()">Gửi đăng ký</button>
     </div>`;
