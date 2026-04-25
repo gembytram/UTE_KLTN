@@ -475,6 +475,10 @@ def register_routes(app):
         if "kltn_bai_pdf" not in types or "kltn_bai_word" not in types:
             conn.close()
             return fail("Cần upload đủ file Word và PDF của bài KLTN trước khi nộp", 400)
+        # Validate that reviewer and committee have been assigned by TBM
+        if not reg["gv_pb_id"] or not reg["chu_tich_id"] or not reg["thu_ky_id"] or not reg["uy_vien_ids"]:
+            conn.close()
+            return fail("Cần trưởng bộ môn phân công phản biện và hội đồng trước khi nộp KLTN", 400)
         conn.execute("UPDATE dang_ky SET trang_thai = 'cham_diem' WHERE id = ?", (dang_ky_id,))
         conn.commit()
         conn.close()
@@ -929,11 +933,9 @@ def register_routes(app):
                 conn.close()
                 return fail("Chỉ phân công phản biện cho KLTN", 400)
 
+            conn.execute("UPDATE dang_ky SET gv_pb_id = ? WHERE id = ?", (gv_pb_id, dang_ky_id))
+            # Remove old assignment if any
             conn.execute("DELETE FROM nop_bai WHERE dang_ky_id = ? AND loai_file = 'phanbien_gv'", (dang_ky_id,))
-            conn.execute(
-                "INSERT INTO nop_bai (dang_ky_id, loai_file, file_path) VALUES (?, 'phanbien_gv', ?)",
-                (dang_ky_id, str(gv_pb_id)),
-            )
 
         conn.commit()
         conn.close()
@@ -947,8 +949,8 @@ def register_routes(app):
         conn = get_db()
         gv = get_current_user(conn)
         assigned = conn.execute(
-            "SELECT id FROM nop_bai WHERE dang_ky_id = ? AND loai_file = 'phanbien_gv' AND file_path = ? LIMIT 1",
-            (dang_ky_id, str(gv["id"])),
+            "SELECT id FROM dang_ky WHERE id = ? AND gv_pb_id = ? LIMIT 1",
+            (dang_ky_id, gv["id"]),
         ).fetchone()
         if not assigned:
             conn.close()
@@ -975,6 +977,12 @@ def register_routes(app):
         single_tv = data.get("tv_id")
         if tv_ids is None:
             tv_ids = [single_tv] if single_tv else []
+        try:
+            ct_id = int(ct_id)
+            tk_id = int(tk_id)
+            tv_ids = [int(v) for v in tv_ids]
+        except (TypeError, ValueError):
+            return fail("ID hội đồng không hợp lệ", 400)
         if not all([dang_ky_id, ct_id, tk_id]) or not tv_ids:
             return fail("Thiếu thông tin hội đồng (cần CT, TK và ít nhất 1 TV)", 400)
 
@@ -996,6 +1004,12 @@ def register_routes(app):
 
         all_member_ids = [str(ct_id), str(tk_id), *[str(tv_id) for tv_id in tv_ids]]
         hoi_dong_path = "|".join(all_member_ids)
+
+        # Update dang_ky table with committee assignments
+        conn.execute(
+            "UPDATE dang_ky SET chu_tich_id = ?, thu_ky_id = ?, uy_vien_ids = ? WHERE id = ?",
+            (ct_id, tk_id, _json_mod.dumps(tv_ids), dang_ky_id),
+        )
 
         conn.execute(
             "DELETE FROM nop_bai WHERE dang_ky_id = ? AND loai_file = 'hoi_dong'",
@@ -1043,14 +1057,8 @@ def register_routes(app):
             (dang_ky_id, gv["id"], vai_tro),
         ).fetchone()
         if old:
-            conn.execute(
-                """
-                UPDATE cham_diem
-                SET diem = ?, nhan_xet = ?, cau_hoi = ?, criteria_json = ?
-                WHERE id = ?
-                """,
-                (diem, nhan_xet, cau_hoi, criteria_json, old["id"]),
-            )
+            conn.close()
+            return fail("Bạn đã chấm điểm đề tài này rồi. Không thể thay đổi điểm sau khi lưu", 400)
         else:
             conn.execute(
                 """

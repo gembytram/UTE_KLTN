@@ -348,21 +348,28 @@ function renderKLTNScoreBlock(k, vaiTro, title, hint, options = {}) {
   const noteValue = options.noteValue || '';
   const questionValue = options.questionValue || '';
   const showQuestion = Boolean(options.showQuestion);
+  const isLocked = existingScore != null && existingScore !== '';
 
   const rows = template.map(([name, max], index) => {
     const stored = existingCriteria[index];
     const value = stored && stored.score != null ? stored.score : '';
+    const inputAttrs = isLocked ? 'disabled style="opacity:0.6"' : '';
     return `<tr>
       <td style="font-size:13px">${index + 1}. ${escapeHtml(name)}</td>
       <td style="font-size:13px;text-align:center">${max}</td>
-      <td><input type="number" min="0" max="${max}" step="0.1" id="${criteriaInputId(k.id, vaiTro, index)}" value="${value}" oninput="normalizeCriterionInput('${k.id}','${vaiTro}',${index},${max});recalcKLTNRoleTotal('${k.id}','${vaiTro}')"></td>
+      <td><input type="number" min="0" max="${max}" step="0.1" id="${criteriaInputId(k.id, vaiTro, index)}" value="${value}" ${inputAttrs} oninput="normalizeCriterionInput('${k.id}','${vaiTro}',${index},${max});recalcKLTNRoleTotal('${k.id}','${vaiTro}')"></td>
     </tr>`;
   }).join('');
+
+  const lockedMessage = isLocked ? `<div style="background:#FFF7D6;border:1px solid var(--accent3);border-radius:var(--radius);padding:12px 16px;margin-bottom:12px;font-size:13px;color:#974F0C">Bạn đã lưu điểm. Không thể thay đổi.</div>` : '';
+  const textareaAttrs = isLocked ? 'readonly style="opacity:0.6;background:var(--bg)"' : '';
+  const buttonAttrs = isLocked ? 'disabled style="opacity:0.5;cursor:not-allowed"' : '';
 
   return `<div style="font-size:16px;font-weight:800;color:var(--primary-dark);margin:12px 0 8px">${escapeHtml(getScoreSheetTitle(k.topicType, vaiTro))}</div>
     <div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:8px">${escapeHtml(title)}</div>
     <div style="font-size:12px;color:var(--text3);margin-bottom:10px">${escapeHtml(hint)}</div>
     <div style="font-size:12px;color:var(--text2);margin-bottom:10px">Mẫu phiếu: ${escapeHtml(getTopicTypeLabel(k.topicType))} • ${escapeHtml(SCORE_ROLE_LABELS[vaiTro] || vaiTro)}</div>
+    ${lockedMessage}
     <div class="table-wrap" style="margin-bottom:12px">
       <table>
         <thead><tr><th>Tiêu chí</th><th>Điểm tối đa</th><th>Điểm</th></tr></thead>
@@ -370,10 +377,10 @@ function renderKLTNScoreBlock(k, vaiTro, title, hint, options = {}) {
       </table>
     </div>
     <div class="form-group"><label>Tổng điểm</label><input type="number" id="${totalInputId(k.id, vaiTro)}" value="${existingScore ?? ''}" readonly style="background:var(--bg)"></div>
-    <div class="form-group"><label>Nhận xét</label><textarea id="${noteInputId(k.id, vaiTro)}" style="min-height:110px" placeholder="Nhập nhận xét">${escapeHtml(noteValue)}</textarea></div>
-    ${showQuestion ? `<div class="form-group"><label>Câu hỏi / góp ý</label><textarea id="${questionInputId(k.id, vaiTro)}" style="min-height:110px" placeholder="Nhập câu hỏi hoặc góp ý cho sinh viên">${escapeHtml(questionValue)}</textarea></div>` : ''}
+    <div class="form-group"><label>Nhận xét</label><textarea id="${noteInputId(k.id, vaiTro)}" style="min-height:110px" ${textareaAttrs} placeholder="Nhập nhận xét">${escapeHtml(noteValue)}</textarea></div>
+    ${showQuestion ? `<div class="form-group"><label>Câu hỏi / góp ý</label><textarea id="${questionInputId(k.id, vaiTro)}" style="min-height:110px" ${textareaAttrs} placeholder="Nhập câu hỏi hoặc góp ý cho sinh viên">${escapeHtml(questionValue)}</textarea></div>` : ''}
     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn btn-primary btn-sm" onclick="saveKLTNScore('${k.id}','${vaiTro}')">💾 Lưu phiếu chấm</button>
+      <button class="btn btn-primary btn-sm" ${buttonAttrs} onclick="saveKLTNScore('${k.id}','${vaiTro}')">💾 Lưu phiếu chấm</button>
       <button class="btn btn-ghost btn-sm" onclick="exportKLTNScoreDocx('${k.id}','${vaiTro}')">📄 Xuất phiếu DOCX</button>
     </div>`;
 }
@@ -1640,11 +1647,19 @@ function renderKLTN() {
       <div class="info-row"><span class="info-label">Mảng đề tài:</span><span class="info-value">${k.mangDeTai}</span></div>
       <div class="info-row"><span class="info-label">GV Hướng dẫn:</span><span class="info-value">${gvHD?.name || k.gvHDEmail}</span></div>
       <div class="info-row"><span class="info-label">GV Phản biện:</span><span class="info-value">${gvPB ? gvPB.name : '<span style="color:var(--text3)">Chưa phân công</span>'}</span></div>
-      ${k.hoiDong ? `<div class="info-row"><span class="info-label">Chủ tịch HĐ:</span><span class="info-value">${getUser(k.hoiDong.ct)?.name || k.hoiDong.ct}</span></div>` : ''}
+      ${k.hoiDong ? `
+      <div class="info-row"><span class="info-label">Chủ tịch HĐ:</span><span class="info-value">${getUser(k.hoiDong.ct)?.name || k.hoiDong.ct}</span></div>
+      <div class="info-row"><span class="info-label">Thư ký HĐ:</span><span class="info-value">${getUser(k.hoiDong.tk)?.name || k.hoiDong.tk}</span></div>
+      <div class="info-row"><span class="info-label">Ủy viên HĐ:</span><span class="info-value">${k.hoiDong.tv.map(email => getUser(email)?.name || email).join(', ')}</span></div>
+      ` : '<div class="info-row"><span class="info-label">Hội đồng:</span><span class="info-value" style="color:var(--text3)">Chưa phân công</span></div>'}
     </div>`;
 
     if (k.trangThai === 'thuc_hien') {
+      const hasAssignments = k.gvPBEmail && k.hoiDong;
       html += `<div class="card"><div class="card-title" style="margin-bottom:16px">📤 Nộp bài KLTN</div>
+        ${!hasAssignments ? `<div style="background:#FFF7D6;border:1px solid var(--accent3);border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;font-size:13px;color:#974F0C">
+            ⏳ Vui lòng chờ Trưởng bộ môn phân công Giảng viên phản biện và Hội đồng trước khi nộp bài.
+           </div>` : ''}
         <div class="grid-2">
           <div><label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">📄 File bài KLTN (PDF/ZIP)</label>
         <div class="upload-area ${k.fileBaiWord ? 'has-file' : ''}" onclick="fakeUploadKLTN('${k.id}','fileBaiWord')">
@@ -1658,7 +1673,7 @@ function renderKLTN() {
           </div>
           <div><label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">📅 Hạn nộp</label><div class="uploaded-file">Hạn nộp KLTN: 23:59 ngày 15/06/2026</div></div>
         </div>
-        ${k.fileBai ? `<button class="btn btn-success" style="margin-top:16px;width:100%" onclick="hoanTatKLTN('${k.id}')">✅ Hoàn tất nộp KLTN</button>` : ''}
+        ${k.fileBai && hasAssignments ? `<button class="btn btn-success" style="margin-top:16px;width:100%" onclick="hoanTatKLTN('${k.id}')">✅ Hoàn tất nộp KLTN</button>` : ''}
       </div>`;
     }
 
@@ -1768,14 +1783,13 @@ function renderDeTai() {
     <div id="tab-bctt-list" class="tab-content ${activeTab === 'tab-bctt-list' ? 'active' : ''}">`;
 
   if (bcttData.length) {
-    html += `<div class="table-wrap"><table><thead><tr><th>Sinh viên</th><th>Đề tài</th><th>Mảng</th><th>Công ty</th><th>GV HD</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>`;
+    html += `<div class="table-wrap"><table><thead><tr><th>Sinh viên</th><th>Đề tài</th><th>Lĩnh vực</th><th>Giảng viên hướng dẫn</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>`;
     bcttData.forEach(b => {
       const sv = getUser(b.svEmail); const gv = getUser(b.gvEmail);
       html += `<tr>
         <td><div style="font-weight:600">${sv?.name || b.svEmail}</div><div style="font-size:11px;color:var(--text3)">${b.svEmail}</div></td>
         <td style="max-width:200px"><div style="font-weight:500;cursor:pointer;color:var(--primary)" title="Xem chi tiết" onclick="viewBCTTDetail('${b.id}')">${escapeHtml(b.tenDeTai)}</div></td>
         <td><span class="badge badge-blue" style="white-space:nowrap">${b.mangDeTai}</span></td>
-        <td style="font-size:12px">${b.tenCongTy}</td>
         <td style="font-size:12px">${gv?.name || b.gvEmail}</td>
         <td>${statusBadge(b.trangThai)}</td>
         <td><button class="btn btn-ghost btn-sm" onclick="viewBCTTDetail('${b.id}')">👁 Chi tiết</button></td>
@@ -1935,7 +1949,7 @@ function viewKLTNDetail(id) {
   showModal(`
     ${customStyles}
     <div class="modal-header">
-      <div class="modal-title">📄 Chi tiết Khóa Luận Tốt Nghiệp</div>
+      <div class="modal-title">Chi tiết Khóa Luận Tốt Nghiệp</div>
       <button class="modal-close" onclick="closeModalForce()">✕</button>
     </div>
    
@@ -1944,7 +1958,8 @@ function viewKLTNDetail(id) {
       <div class="kltn-row"><span class="kltn-label">MSSV:</span><span class="kltn-value" style="font-weight: 600;">${escapeHtml(mssv)}</span></div>
       <div class="kltn-row"><span class="kltn-label">Sinh viên:</span><span class="kltn-value">${escapeHtml(sv?.name || '')}</span></div>
       <div class="kltn-row"><span class="kltn-label">Tên đề tài:</span><span class="kltn-value" style="font-weight:700; color: var(--accent, #0284c7); font-size: 15px;">${escapeHtml(k.tenDeTai)}</span></div>
-      <div class="kltn-row"><span class="kltn-label">Ngành:</span><span class="kltn-value">${escapeHtml(k.mangDeTai)}</span></div>
+      <div class="kltn-row"><span class="kltn-label">Ngành:</span><span class="kltn-value">Thương mại Điện tử</span></div>
+      <div class="kltn-row"><span class="kltn-label">Lĩnh vực:</span><span class="kltn-value">${escapeHtml(k.mangDeTai)}</span></div>
       <div class="kltn-row"><span class="kltn-label">Trạng thái:</span><span class="kltn-value">${statusBadge(k.trangThai)}</span></div>
     </div>
 
@@ -2070,6 +2085,11 @@ function renderDuyetDe() {
 }
 // Phân công hội đồng 
 function renderPhanCong() {
+  const u = DB.currentUser;
+  if (u.role !== 'bm') {
+    document.getElementById('page-phancong').innerHTML = `<div class="page-header"><h1>🚫 Truy cập bị từ chối</h1><p>Chỉ trưởng bộ môn mới có quyền phân công.</p></div>`;
+    return;
+  }
   const el = document.getElementById('page-phancong');
   const needPB = DB.kltnList.filter(k => !k.gvPBEmail);
   const needHD = DB.kltnList.filter(k => !k.hoiDong);
@@ -2462,51 +2482,28 @@ function renderNhapDiem() {
   if (u.role === 'gv') list = gvKLTNListForNhapDiem(u);
   else if (u.role === 'bm') list = DB.kltnList.filter((k) => ['cham_diem', 'bao_ve'].includes(k.trangThai));
 
-  let html = `<div class="page-header"><h1>📊 Nhập điểm & sau bảo vệ KLTN</h1><p>${list.length} đề tài</p></div>`;
+  let html = `<div class="page-header"><h1>Nhập điểm & sau bảo vệ KLTN</h1><p>${list.length} đề tài</p></div>`;
 
   if (!list.length) {
     html += `<div class="card"><div class="empty-state"><div class="empty-state-icon">📊</div><div class="empty-state-title">Không có KLTN nào trong giai đoạn này</div></div></div>`;
   } else {
+    html += `<div class="card"><div class="table-wrap"><table><thead><tr><th>Sinh viên</th><th>Đề tài</th><th>Lĩnh vực</th><th>GV HD</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>`;
     list.forEach((k) => {
       const sv = getUser(k.svEmail);
-      const assignment = getKLTNAssignment(u, k);
-      const isHD = Boolean(assignment.isAdvisor);
-      const isPB = Boolean(assignment.isReviewer);
-      const isCT = Boolean(assignment.isChair);
-      const isTK = Boolean(assignment.isSecretary);
-      const isTVMember = Boolean(assignment.isCommitteeMember);
-
-      html += `<div class="card" style="margin-bottom:16px">
-        <div class="card-header"><div><div class="card-title" style="cursor:pointer;color:var(--primary)" onclick="viewKLTNDetail('${k.id}')">${escapeHtml(k.tenDeTai)}</div><div style="font-size:12px;color:var(--text3);margin-top:4px">${escapeHtml(sv?.name || k.svEmail)} • ${escapeHtml(getTopicTypeLabel(k.topicType))}</div></div>${statusBadge(k.trangThai)}</div>`;
-
-      if (isHD) {
-        html += `<div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:8px">🎯 GV hướng dẫn — chấm điểm</div>
-          <div class="form-group"><label>Điểm HD</label><input type="number" id="diem-hd-${k.id}" value="${k.diemHD ?? ''}"></div>
-          <div class="form-group"><label>Nhận xét & câu hỏi</label><textarea id="nhanxet-hd-${k.id}" rows="4" placeholder="Nhập nhận xét và câu hỏi...">${escapeHtml(k.hdNote || '')}</textarea></div>
-          <button class="btn btn-primary btn-sm" onclick="saveScoreHD('${k.dangKyId}')">💾 Lưu điểm</button>`;
-      }
-
-      if (isPB) {
-        html += `<div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:8px;margin-top:12px">📋 GV phản biện — chấm điểm</div>
-          <div class="form-group"><label>Điểm PB</label><input type="number" id="diem-pb-${k.id}" value="${k.diemPB ?? ''}"></div>
-          <div class="form-group"><label>Nhận xét & câu hỏi</label><textarea id="nhanxet-pb-${k.id}" rows="4" placeholder="Nhập nhận xét và câu hỏi...">${escapeHtml((k.pbNote || '') + (k.pbCauHoi ? '\n\n— Câu hỏi —\n' + k.pbCauHoi : ''))}</textarea></div>
-          <button class="btn btn-primary btn-sm" onclick="saveScorePB('${k.dangKyId}')">💾 Lưu điểm</button>`;
-      }
-
-      if (isCT) {
-        html += `<div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:8px;margin-top:12px">👔 Chủ tịch HĐ — chấm điểm</div>
-          <div class="form-group"><label>Điểm CT.HĐ</label><input type="number" id="diem-ct-${k.id}" value="${k.diemBB ?? ''}"></div>
-          <div class="form-group"><label>Nhận xét & câu hỏi</label><textarea id="nhanxet-ct-${k.id}" rows="4" placeholder="Nhập nhận xét và câu hỏi...">${escapeHtml((k.ctNote || '') + (k.ctCauHoi ? '\n\n— Câu hỏi —\n' + k.ctCauHoi : ''))}</textarea></div>
-          <button class="btn btn-primary btn-sm" onclick="saveScoreCT('${k.dangKyId}')">💾 Lưu điểm</button>`;
-      }
-
-      html += `</div>`;
+      const gvhd = getUser(k.gvHDEmail);
+      html += `<tr>
+        <td><div style="font-weight:600">${escapeHtml(sv?.name || k.svEmail)}</div><div style="font-size:13px;color:var(--text3);margin-top:3px">${escapeHtml(sv?.mssv || sv?.ma || '')}</div></td>
+        <td><div style="font-weight:700;color:var(--primary)">${escapeHtml(k.tenDeTai)}</div><div style="font-size:15px;color:var(--text3);margin-top:3px">${escapeHtml(getTopicTypeLabel(k.topicType))}</div></td>
+        <td>${escapeHtml(k.mangDeTai || '')}</td>
+        <td style="font-size:13px">${escapeHtml(gvhd?.name || k.gvHDEmail || '')}</td>
+        <td>${statusBadge(k.trangThai)}</td>
+        <td><button class="btn btn-ghost btn-sm" onclick="viewKLTNDetail('${k.id}')">👁 Chi tiết</button></td>
+      </tr>`;
     });
+    html += `</tbody></table></div></div>`;
   }
+
   el.innerHTML = html;
-  list.forEach((k) => {
-    ['HD', 'PB', 'TV'].forEach((vaiTro) => recalcKLTNRoleTotal(k.id, vaiTro));
-  });
 }
 
 function renderHuongDan() {
@@ -3009,6 +3006,11 @@ function renderThongKe() { document.getElementById('page-thongke').innerHTML = `
 function renderTheoDoi() { document.getElementById('page-theodoi').innerHTML = `<div class="page-header"><h1>⏱️ Theo dõi trạng thái</h1></div>`; }
 
 async function phanCongPBKLTN(kId) {
+  const u = DB.currentUser;
+  if (u.role !== 'bm') {
+    toast('Chỉ trưởng bộ môn mới được phân công PB & Hội đồng', 'error');
+    return;
+  }
   const k = DB.kltnList.find(x => x.id === kId);
   if (!k) {
     toast('Không tìm thấy KLTN', 'error');
@@ -3017,10 +3019,11 @@ async function phanCongPBKLTN(kId) {
   const sv = getUser(k.svEmail);
   const gvList = DB.users.filter(u => u.role === 'gv' || u.role === 'bm');
 
-  let html = `<div class="modal-header"><div class="modal-title">👥 Phân công PB & Hội đồng cho KLTN</div><button class="modal-close" onclick="closeModalForce()">✕</button></div>
+  let html = `<div class="modal-header"><div class="modal-title">Phân công Phản biện & Hội đồng cho Khóa luận tốt nghiệp</div><button class="modal-close" onclick="closeModalForce()">✕</button></div>
     <div class="info-row"><span class="info-label">Sinh viên:</span><span class="info-value">${escapeHtml(sv?.name || '')}</span></div>
     <div class="info-row"><span class="info-label">Tên đề tài:</span><span class="info-value" style="font-weight:700">${escapeHtml(k.tenDeTai)}</span></div>
-    <div class="info-row"><span class="info-label">Ngành:</span><span class="info-value">${escapeHtml(k.mangDeTai)}</span></div>
+    <div class="kltn-row"><span class="kltn-label">Ngành:</span><span class="kltn-value">Thương mại Điện tử</span></div>
+    <div class="kltn-row"><span class="kltn-label">Lĩnh vực:</span><span class="kltn-value">${escapeHtml(k.mangDeTai)}</span></div>
     <div class="form-group"><label>GV Phản biện</label><select id="select-gv-pb"><option value="">-- Chọn GV phản biện --</option>${gvList.map(g => `<option value="${g.id}" ${k.gvPBEmail === g.email ? 'selected' : ''}>${escapeHtml(g.name)}</option>`).join('')}</select></div>
     <div class="form-group"><label>Chủ tịch Hội đồng</label><select id="select-ct"><option value="">-- Chọn Chủ tịch --</option>${gvList.map(g => `<option value="${g.id}" ${k.hoiDong?.ct === g.email ? 'selected' : ''}>${escapeHtml(g.name)}</option>`).join('')}</select></div>
     <div class="form-group"><label>Thư ký Hội đồng</label><select id="select-tk"><option value="">-- Chọn Thư ký --</option>${gvList.map(g => `<option value="${g.id}" ${k.hoiDong?.tk === g.email ? 'selected' : ''}>${escapeHtml(g.name)}</option>`).join('')}</select></div>

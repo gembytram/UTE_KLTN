@@ -1,3 +1,5 @@
+import json as _json_mod
+
 from utils.helpers import (
     build_email,
     map_role,
@@ -113,29 +115,48 @@ def fetch_bootstrap(conn):
             bctt_list.append(record)
         else:
             sc = score_map.get(r["id"], {})
-            assignment = _kltn_assignment(conn, r["id"]) or {}
-            pb_raw = upload_map.get(r["id"], {}).get("phanbien_gv")
-            gv_pb_email = None
-            if pb_raw:
-                try:
-                    pb_user = user_map.get(int(pb_raw))
-                    gv_pb_email = pb_user["email"] if pb_user else None
-                except ValueError:
-                    gv_pb_email = None
-            hoi_dong_raw = upload_map.get(r["id"], {}).get("hoi_dong")
+            # Get assignments from dang_ky table
+            gv_pb_id = r["gv_pb_id"]
+            chu_tich_id = r["chu_tich_id"]
+            thu_ky_id = r["thu_ky_id"]
+            try:
+                gv_pb_id = int(r["gv_pb_id"]) if r["gv_pb_id"] is not None else None
+            except (TypeError, ValueError):
+                gv_pb_id = None
+            try:
+                chu_tich_id = int(r["chu_tich_id"]) if r["chu_tich_id"] is not None else None
+            except (TypeError, ValueError):
+                chu_tich_id = None
+            try:
+                thu_ky_id = int(r["thu_ky_id"]) if r["thu_ky_id"] is not None else None
+            except (TypeError, ValueError):
+                thu_ky_id = None
+            uy_vien_ids = r["uy_vien_ids"] or "[]"
+            uy_vien_list = []
+            try:
+                raw_list = _json_mod.loads(uy_vien_ids) if uy_vien_ids else []
+                uy_vien_list = [int(uid) for uid in raw_list if str(uid).isdigit()]
+            except Exception:
+                uy_vien_list = []
+            assignment = {
+                "advisor_id": r["gv_id"],
+                "reviewer_id": gv_pb_id,
+                "chairman_id": chu_tich_id,
+                "secretary_id": thu_ky_id,
+                "committee_members": uy_vien_list,
+            }
+            gv_pb_email = user_map.get(gv_pb_id, {}).get("email") if gv_pb_id else None
             hoi_dong = None
-            if hoi_dong_raw:
-                ids = [int(id_str) for id_str in hoi_dong_raw.split("|") if id_str.isdigit()]
-                if len(ids) >= 3:
-                    ct_user = user_map.get(ids[0])
-                    tk_user = user_map.get(ids[1])
-                    tv_users = [user_map.get(uid) for uid in ids[2:]]
-                    if ct_user and tk_user and all(tv_users):
-                        hoi_dong = {
-                            "ct": ct_user["email"],
-                            "tk": tk_user["email"],
-                            "tv": [u["email"] for u in tv_users],
-                        }
+            if chu_tich_id and thu_ky_id and uy_vien_list:
+                ct_user = user_map.get(chu_tich_id)
+                tk_user = user_map.get(thu_ky_id)
+                tv_users = [user_map.get(uid) for uid in uy_vien_list if uid in user_map]
+                if ct_user and tk_user and tv_users:
+                    hoi_dong = {
+                        "ct": ct_user["email"],
+                        "tk": tk_user["email"],
+                        "tv": [u["email"] for u in tv_users],
+                    }
             record["gvPBEmail"] = gv_pb_email
             record["advisorId"] = assignment.get("advisor_id")
             record["reviewerId"] = assignment.get("reviewer_id")
