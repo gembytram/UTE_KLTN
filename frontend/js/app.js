@@ -2062,16 +2062,21 @@ function renderPhanCong() {
   const needHD = DB.kltnList.filter(k => !k.hoiDong);
   const needAction = DB.kltnList.filter(k => !k.gvPBEmail || !k.hoiDong);
 
-  let html = `<div class="page-header">
+ let html = `<div class="page-header">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
         <div>
           <h1>👥 Phân công KLTN</h1>
           <p>${needPB.length} KLTN cần phân công PB • ${needHD.length} KLTN cần lập HĐ</p>
         </div>
-        <button class="btn btn-primary" onclick="showHoiDongModal()">➕ Thêm hội đồng</button>
+        <div style="display:flex; gap:8px">
+          <button class="btn btn-sm" style="background:#f97316;color:#fff;border:none" onclick="taoDuLieuTest()">🛠️ Tạo Data Test</button>
+          
+          <button class="btn btn-primary" onclick="showHoiDongModal()">➕ Thêm hội đồng</button>
+        </div>
       </div>
     </div>`;
 
+  // === KHỐI 1: DANH SÁCH HỘI ĐỒNG BẠN ĐÃ TẠO ===
   html += `<div class="card" style="margin-bottom:14px">
     <div class="card-title" style="margin-bottom:10px">🏛️ Danh sách Hội đồng bạn đã tạo</div>`;
     
@@ -2079,40 +2084,31 @@ function renderPhanCong() {
   let myHoiDongList = [];
   
   if (DB.hoiDongList) {
-    if (currentUser.role === 'admin') {
-      myHoiDongList = DB.hoiDongList;
-    } else {
-      myHoiDongList = DB.hoiDongList.filter(hd => hd.nguoiTaoEmail === currentUser.email);
-    }
+    if (currentUser.role === 'admin') myHoiDongList = DB.hoiDongList;
+    else myHoiDongList = DB.hoiDongList.filter(hd => hd.nguoiTaoEmail === currentUser.email);
   }
 
   if (myHoiDongList.length === 0) {
     html += `<div class="empty-state" style="padding:16px"><div class="empty-state-title" style="font-size:14px">Bạn chưa tạo hội đồng nào</div></div>`;
   } else {
     html += `<div class="table-wrap"><table>
-      <thead><tr><th>Tên Hội đồng</th><th>Chủ tịch</th><th>Thư ký</th><th>Thành viên</th><th>Thời gian</th><th>Phòng</th><th>Thao tác</th></tr></thead>
+      <thead><tr><th>Tên Hội đồng</th><th>Chủ tịch</th><th>Thư ký</th><th>Thời gian</th><th>Phòng</th><th>Thao tác</th></tr></thead>
       <tbody>`;
     myHoiDongList.forEach(hd => {
       const ctName = getUser(hd.ct)?.name || hd.ct;
       const tkName = getUser(hd.tk)?.name || hd.tk;
-      const tvNames = (hd.tv || []).map(email => getUser(email)?.name || email).join(', ');
-      
-      let timeStr = 'Chưa xếp';
-      if (hd.thoiGian) {
-        const d = new Date(hd.thoiGian);
-        timeStr = d.toLocaleString('vi-VN', {hour: '2-digit', minute:'2-digit', day:'2-digit', month:'2-digit', year:'numeric'});
-      }
+      let timeStr = hd.thoiGian ? new Date(hd.thoiGian).toLocaleString('vi-VN', {hour: '2-digit', minute:'2-digit', day:'2-digit', month:'2-digit', year:'numeric'}) : 'Chưa xếp';
 
       html += `<tr>
         <td style="font-weight:600;color:var(--primary)">${escapeHtml(hd.ten)}</td>
         <td>${escapeHtml(ctName)}</td>
         <td>${escapeHtml(tkName)}</td>
-        <td style="font-size:12px;max-width:150px">${escapeHtml(tvNames)}</td>
         <td style="font-size:13px">${timeStr}</td>
         <td><span class="badge badge-gray">${escapeHtml(hd.phong || 'Chưa xếp')}</span></td>
         <td style="display:flex;gap:4px">
+          <button class="btn btn-sm" style="background:#0284c7;color:#fff;border:none" onclick="showPhanCongSinhVienModal('${hd.id}')">👥 Thêm SV bảo vệ</button>
           <button class="btn btn-ghost btn-sm" onclick="showHoiDongModal('${hd.id}')">✏️ Sửa</button>
-          <button class="btn btn-danger btn-sm" onclick="deleteHoiDong('${hd.id}')">❌ Xóa</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteHoiDong('${hd.id}')">🗑️ Xóa</button>
         </td>
       </tr>`;
     });
@@ -2120,12 +2116,12 @@ function renderPhanCong() {
   }
   html += `</div>`;
 
-  html += `<div class="card" style="margin-bottom:14px"><div class="card-title" style="margin-bottom:10px">🧾 Danh sách KLTN cần phân công PB / Hội đồng</div>`;
+  // === KHỐI 2: DANH SÁCH KLTN ===
+  html += `<div class="card" style="margin-bottom:14px"><div class="card-title" style="margin-bottom:10px">🧾 Danh sách KLTN cần phân công</div>`;
   if (!needAction.length) {
     html += `<div class="empty-state"><div class="empty-state-icon">✅</div><div class="empty-state-title">Tất cả KLTN đã được phân công đầy đủ PB và HĐ</div></div>`;
   } else {
     needAction.forEach(k => {
-      const sv = getUser(k.svEmail);
       const missingTags = [];
       if (!k.gvPBEmail) missingTags.push('<span class="badge badge-orange">Thiếu PB</span>');
       if (!k.hoiDong) missingTags.push('<span class="badge badge-red">Thiếu HĐ</span>');
@@ -2137,7 +2133,7 @@ function renderPhanCong() {
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           <button class="btn btn-ghost btn-sm" onclick="viewKLTNDetail('${k.id}')">👁 Chi tiết</button>
-          <button class="btn btn-primary btn-sm" onclick="phanCongPBKLTN('${k.id}')">Phân công PB & HĐ</button>
+          <button class="btn btn-primary btn-sm" onclick="phanCongPBKLTN('${k.id}')">Phân công PB</button>
         </div>
       </div>`;
     });
@@ -2225,7 +2221,112 @@ function showHoiDongModal(editId = null) {
 
   showModal(html);
 }
+// Hiển thị Modal để chọn danh sách sinh viên cho một hội đồng
+function showPhanCongSinhVienModal(hdId) {
+  const hd = DB.hoiDongList.find(x => x.id === hdId);
+  if (!hd) return;
 
+  // Lọc ra các sinh viên KLTN CHƯA có hội đồng, HOẶC ĐANG nằm trong hội đồng này
+  const dsKLTN = DB.kltnList.filter(k => !k.hoiDong || k.hoiDong.id === hdId);
+
+  let timeStr = hd.thoiGian ? new Date(hd.thoiGian).toLocaleString('vi-VN', {hour: '2-digit', minute:'2-digit', day:'2-digit', month:'2-digit', year:'numeric'}) : 'Chưa xếp';
+
+  let svHtml = '';
+  if (dsKLTN.length === 0) {
+    svHtml = '<div style="padding:16px; color:var(--text3); font-style:italic; text-align:center">Không có sinh viên nào chờ phân công hội đồng.</div>';
+  } else {
+    svHtml = dsKLTN.map(k => {
+      const sv = getUser(k.svEmail);
+      // Đánh dấu check nếu sinh viên này đã thuộc hội đồng đang xem
+      const isChecked = (k.hoiDong && k.hoiDong.id === hdId) ? 'checked' : '';
+      return `
+        <label style="display:flex; align-items:flex-start; gap:12px; padding:12px; border-bottom:1px solid var(--border); cursor:pointer">
+          <input type="checkbox" class="chk-sv-hoidong" value="${k.id}" ${isChecked} style="margin-top:4px; transform:scale(1.2)">
+          <div>
+            <div style="font-weight:600; color:var(--primary)">${escapeHtml(k.tenDeTai)}</div>
+            <div style="font-size:12px; color:var(--text2); margin-top:2px">SV: ${escapeHtml(sv?.name || k.svEmail)} • Ngành: ${escapeHtml(k.mangDeTai)}</div>
+          </div>
+        </label>
+      `;
+    }).join('');
+  }
+
+  let html = `
+    <div class="modal-header">
+      <div class="modal-title">👥 Phân công Sinh viên bảo vệ</div>
+      <button class="modal-close" onclick="closeModalForce()">✕</button>
+    </div>
+    
+    <div style="background:var(--bg); padding:16px; border-radius:6px; border:1px solid var(--border); margin-bottom:16px; font-size:13.5px">
+      <div style="font-weight:800; font-size:15px; margin-bottom:12px; color:var(--primary); text-transform:uppercase">${escapeHtml(hd.ten)}</div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px">
+        <div><strong>Chủ tịch:</strong> ${escapeHtml(getUser(hd.ct)?.name || hd.ct)}</div>
+        <div><strong>Thư ký:</strong> ${escapeHtml(getUser(hd.tk)?.name || hd.tk)}</div>
+        <div style="grid-column:1/-1"><strong>Thành viên:</strong> ${escapeHtml((hd.tv || []).map(e => getUser(e)?.name || e).join(', '))}</div>
+        <div><strong>🕒 Thời gian:</strong> ${timeStr}</div>
+        <div><strong>🚪 Phòng:</strong> ${escapeHtml(hd.phong || 'Chưa xếp')}</div>
+      </div>
+    </div>
+
+    <div style="font-weight:700; margin-bottom:8px">Chọn sinh viên tham gia hội đồng này:</div>
+    <div style="max-height:300px; overflow-y:auto; border:1px solid var(--border); border-radius:6px; margin-bottom:16px; background:#fff">
+      ${svHtml}
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModalForce()">Hủy</button>
+      <button class="btn btn-primary" onclick="submitBulkPhanCong('${hdId}')">💾 Lưu phân công</button>
+    </div>
+  `;
+  showModal(html);
+}
+
+// Lưu các checkbox được chọn
+async function submitBulkPhanCong(hdId) {
+  const hd = DB.hoiDongList.find(x => x.id === hdId);
+  if (!hd) return;
+
+  const checkboxes = document.querySelectorAll('.chk-sv-hoidong');
+  const selectedKltnIds = Array.from(checkboxes).filter(chk => chk.checked).map(chk => chk.value);
+  const unselectedKltnIds = Array.from(checkboxes).filter(chk => !chk.checked).map(chk => chk.value);
+
+  // Phân tích người dùng ra ID để gửi lên server (nếu cần)
+  const ctUser = DB.users.find(u => u.email === hd.ct);
+  const tkUser = DB.users.find(u => u.email === hd.tk);
+  const tvUsers = (hd.tv || []).map(email => DB.users.find(u => u.email === email)).filter(Boolean);
+
+  try {
+    // 1. Thêm hội đồng cho các SV được CHECK
+    for (const kId of selectedKltnIds) {
+      const k = DB.kltnList.find(x => x.id === kId);
+      if (k && (!k.hoiDong || k.hoiDong.id !== hdId)) {
+        
+        // Gọi API lên backend nếu có
+        await apiRequest("/api/phan-cong/hoi-dong", {
+          method: "POST",
+          body: JSON.stringify({ dang_ky_id: k.dangKyId || extractId(k.id), ct_id: ctUser ? ctUser.id : null, tk_id: tkUser ? tkUser.id : null, tv_ids: tvUsers.map(u => u.id) })
+        }).catch(() => {});
+
+        // Cập nhật ở giao diện
+        k.hoiDong = { id: hd.id, ct: hd.ct, tk: hd.tk, tv: hd.tv, tenHD: hd.ten, phong: hd.phong, thoiGian: hd.thoiGian };
+      }
+    }
+
+    // 2. Gỡ bỏ hội đồng cho các SV bị BỎ CHECK (UNCHECK)
+    for (const kId of unselectedKltnIds) {
+       const k = DB.kltnList.find(x => x.id === kId);
+       if (k && k.hoiDong && k.hoiDong.id === hdId) {
+         k.hoiDong = null; // Gỡ hội đồng
+       }
+    }
+
+    toast('✅ Đã cập nhật danh sách sinh viên bảo vệ!');
+    closeModalForce();
+    if (DB.currentPage === 'phancong') renderPhanCong();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
 // Hàm render thêm 1 ô chọn Giảng viên khi bấm nút "Thêm thành viên"
 function addHoiDongMemberSelect() {
   const container = document.getElementById('hd-members-container');
@@ -3000,3 +3101,46 @@ document.addEventListener("DOMContentLoaded", async () => {
     localStorage.removeItem("currentUser");
   }
 });
+// ==========================================
+// HÀM TẠO DỮ LIỆU ẢO ĐỂ TEST PHÂN CÔNG KLTN
+// ==========================================
+function taoDuLieuTest() {
+  // 1. Tạo 5 sinh viên ảo
+  const mockStudents = [
+    { id: 901, ma: '20110001', mssv: '20110001', email: 'sv1@student.ute.vn', name: 'Nguyễn Văn Test Một', role: 'sv', chuyenMon: ['Công nghệ phần mềm'] },
+    { id: 902, ma: '20110002', mssv: '20110002', email: 'sv2@student.ute.vn', name: 'Trần Thị Test Hai', role: 'sv', chuyenMon: ['Hệ thống thông tin'] },
+    { id: 903, ma: '20110003', mssv: '20110003', email: 'sv3@student.ute.vn', name: 'Lê Văn Test Ba', role: 'sv', chuyenMon: ['An toàn thông tin'] },
+    { id: 904, ma: '20110004', mssv: '20110004', email: 'sv4@student.ute.vn', name: 'Phạm Test Bốn', role: 'sv', chuyenMon: ['Mạng máy tính'] },
+    { id: 905, ma: '20110005', mssv: '20110005', email: 'sv5@student.ute.vn', name: 'Hoàng Test Năm', role: 'sv', chuyenMon: ['Khoa học dữ liệu'] }
+  ];
+
+  // Đẩy sinh viên vào RAM
+  mockStudents.forEach(sv => {
+    if (!DB.users.find(u => u.email === sv.email)) {
+      DB.users.push(sv);
+    }
+  });
+
+  // 2. Tạo 5 đề tài KLTN tương ứng (Chưa có Hội đồng, chưa có PB)
+  const mockKltn = [
+    { id: 'kltn_test_1', dangKyId: 101, svEmail: 'sv1@student.ute.vn', tenDeTai: 'Xây dựng website bán hàng Ecommerce', mangDeTai: 'Công nghệ phần mềm', gvHDEmail: DB.currentUser?.email || 'gv1@ute.vn', gvPBEmail: null, hoiDong: null, trangThai: 'thuc_hien' },
+    { id: 'kltn_test_2', dangKyId: 102, svEmail: 'sv2@student.ute.vn', tenDeTai: 'Nghiên cứu AI dự đoán giá cổ phiếu', mangDeTai: 'Hệ thống thông tin', gvHDEmail: DB.currentUser?.email || 'gv1@ute.vn', gvPBEmail: null, hoiDong: null, trangThai: 'thuc_hien' },
+    { id: 'kltn_test_3', dangKyId: 103, svEmail: 'sv3@student.ute.vn', tenDeTai: 'Phân tích mã độc mã hóa tống tiền Ransomware', mangDeTai: 'An toàn thông tin', gvHDEmail: 'gv2@ute.vn', gvPBEmail: null, hoiDong: null, trangThai: 'thuc_hien' },
+    { id: 'kltn_test_4', dangKyId: 104, svEmail: 'sv4@student.ute.vn', tenDeTai: 'Tối ưu hóa định tuyến mạng SDN', mangDeTai: 'Mạng máy tính', gvHDEmail: 'gv2@ute.vn', gvPBEmail: null, hoiDong: null, trangThai: 'thuc_hien' },
+    { id: 'kltn_test_5', dangKyId: 105, svEmail: 'sv5@student.ute.vn', tenDeTai: 'Hệ thống gợi ý sản phẩm dựa trên hành vi', mangDeTai: 'Khoa học dữ liệu', gvHDEmail: 'gv3@ute.vn', gvPBEmail: null, hoiDong: null, trangThai: 'thuc_hien' }
+  ];
+
+  // Đẩy KLTN vào RAM
+  mockKltn.forEach(k => {
+    if (!DB.kltnList.find(x => x.id === k.id)) {
+      DB.kltnList.push(k);
+    }
+  });
+
+  toast("✅ Đã tạo 5 sinh viên và 5 KLTN ảo thành công!");
+  
+  // Tự động load lại giao diện phân công
+  if (DB.currentPage === 'phancong') {
+    renderPhanCong();
+  }
+}
