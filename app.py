@@ -1,7 +1,7 @@
 import os
 import socket
 
-from flask import Flask, send_from_directory
+from flask import Flask
 from flask_cors import CORS
 
 from api.routes import register_routes
@@ -16,11 +16,6 @@ configure_app(app)
 CORS(app, supports_credentials=True)
 init_db()
 register_routes(app)
-
-
-@app.route("/")
-def index():
-    return send_from_directory(FRONTEND_DIR, "index.html")
 
 
 def pick_port():

@@ -116,7 +116,7 @@ Luu y: frontend dang goi API den `http://127.0.0.1:5000`.
 
 ## Tai khoan va dang nhap
 
-- Mat khau mac dinh thuong la: `12345678910`
+- Mat khau mac dinh thuong la: `123456`
 - Co the dang nhap bang ma (MSSV/MAGV) hoac email tuy bo du lieu import
 - Vai tro trong he thong:
   - SV: Sinh vien
@@ -180,4 +180,3 @@ npm install
 - Gioi han upload: 20MB
 - File upload chap nhan: PDF, DOC, DOCX
 - Session login su dung cookie cua Flask
-

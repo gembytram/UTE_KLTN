@@ -39,6 +39,9 @@ def migrate_db(conn):
         cur.execute("ALTER TABLE dang_ky ADD COLUMN thu_ky_id INTEGER")
     if "uy_vien_ids" not in dkcols:
         cur.execute("ALTER TABLE dang_ky ADD COLUMN uy_vien_ids TEXT DEFAULT '[]'")
+    cur.execute(
+        "UPDATE users SET mat_khau = '123456' WHERE mat_khau = '12345678910'"
+    )
     conn.commit()
 
 
