@@ -98,6 +98,7 @@ def fetch_bootstrap(conn):
             "tenDot": r["ten_dot"] if "ten_dot" in r.keys() else "",
             "tenDeTai": r["ten_de_tai"],
             "mangDeTai": meta["mangDeTai"],
+            "topicType": meta["topicType"],
             "gvEmail": build_email(r["gv_ma"]),
             "gvHDEmail": build_email(r["gv_ma"]),
             "dotId": str(r["dot_id"]),
