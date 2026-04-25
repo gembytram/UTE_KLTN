@@ -53,6 +53,53 @@ function getGV(email) {
     return DB.users.find(u => u.email === email && (u.role === 'gv' || u.role === 'bm')); 
 }
 
+function normalizeEmail(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function normalizeIdList(value) {
+  if (Array.isArray(value)) {
+    return value.map((id) => Number(id)).filter((id) => !Number.isNaN(id));
+  }
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return parsed.map((id) => Number(id)).filter((id) => !Number.isNaN(id));
+      }
+    } catch (_) {}
+  }
+  return [];
+}
+
+function normalizeEmailList(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((email) => normalizeEmail(email)).filter(Boolean);
+}
+
+function userMatchesIdOrEmail(user, idValue, emailValue) {
+  if (!user) return false;
+  const userId = Number(user.id);
+  const candidateId = Number(idValue);
+  if (!Number.isNaN(userId) && !Number.isNaN(candidateId) && userId === candidateId) return true;
+  const userEmail = normalizeEmail(user.email);
+  return Boolean(userEmail) && userEmail === normalizeEmail(emailValue);
+}
+
+function isUserCommitteeMemberOnRecord(user, student) {
+  if (!user || !student) return false;
+  const userId = Number(user.id);
+  const userEmail = normalizeEmail(user.email);
+  const committeeIds = normalizeIdList(student.committeeMembers);
+  const committeeEmails = normalizeEmailList(student.committeeMemberEmails);
+  const hoiDongTvEmails = normalizeEmailList(student.hoiDong?.tv);
+  return (
+    (!Number.isNaN(userId) && committeeIds.includes(userId)) ||
+    (userEmail && committeeEmails.includes(userEmail)) ||
+    (userEmail && hoiDongTvEmails.includes(userEmail))
+  );
+}
+
 function hasCommonMajor(a, b) {
     if (!a || !b) return false;
     const majorsA = Array.isArray(a.chuyenMon) ? a.chuyenMon.map((m) => String(m).trim()).filter(Boolean) : [];
@@ -164,28 +211,23 @@ function getKLTNAssignment(user, student) {
     };
   }
 
-  const userId = Number(user.id);
-  const committeeIds = Array.isArray(student.committeeMembers)
-    ? student.committeeMembers.map((id) => Number(id)).filter((id) => !Number.isNaN(id))
-    : [];
-  const committeeEmails = Array.isArray(student.committeeMemberEmails) ? student.committeeMemberEmails : [];
+  if (student.myAssignment) {
+    return {
+      isAdvisor: Boolean(student.myAssignment.isAdvisor),
+      isReviewer: Boolean(student.myAssignment.isReviewer),
+      isCommitteeMember: Boolean(student.myAssignment.isCommitteeMember),
+      isChair: Boolean(student.myAssignment.isChair),
+      isSecretary: Boolean(student.myAssignment.isSecretary),
+      canGrade: Boolean(student.myAssignment.canGrade),
+      canView: Boolean(student.myAssignment.canView),
+    };
+  }
 
-  const isAdvisor =
-    (student.advisorId != null && Number(student.advisorId) === userId) ||
-    (student.gvHDEmail && student.gvHDEmail === user.email);
-  const isReviewer =
-    (student.reviewerId != null && Number(student.reviewerId) === userId) ||
-    (student.gvPBEmail && student.gvPBEmail === user.email);
-  const isChair =
-    (student.chairmanId != null && Number(student.chairmanId) === userId) ||
-    (student.hoiDong && student.hoiDong.ct === user.email);
-  const isSecretary =
-    (student.secretaryId != null && Number(student.secretaryId) === userId) ||
-    (student.hoiDong && student.hoiDong.tk === user.email);
-  const isCommitteeMember =
-    committeeIds.includes(userId) ||
-    committeeEmails.includes(user.email) ||
-    (student.hoiDong && Array.isArray(student.hoiDong.tv) && student.hoiDong.tv.includes(user.email));
+  const isAdvisor = userMatchesIdOrEmail(user, student.advisorId, student.gvHDEmail);
+  const isReviewer = userMatchesIdOrEmail(user, student.reviewerId, student.gvPBEmail);
+  const isChair = userMatchesIdOrEmail(user, student.chairmanId, student.hoiDong?.ct);
+  const isSecretary = userMatchesIdOrEmail(user, student.secretaryId, student.hoiDong?.tk);
+  const isCommitteeMember = isUserCommitteeMemberOnRecord(user, student);
 
   return {
     isAdvisor,
@@ -569,7 +611,7 @@ function gvKLTNListForNhapDiem(u) {
     const isPB = assignment.isReviewer;
     const isCT = assignment.isChair;
     const isTK = assignment.isSecretary;
-    const isTV = assignment.isCommitteeMember;
+    const isTV = assignment.isCommitteeMember || isUserCommitteeMemberOnRecord(u, k);
     if (!(isHD || isPB || isCT || isTK || isTV)) return false;
     // TV được chấm điểm cả khi đã bảo vệ
     if (st === 'bao_ve' && isPB) return false;
@@ -693,8 +735,12 @@ async function syncFromServer() {
     .filter((u) => u.role === "gv" || u.role === "bm")
     .flatMap((u) => (u.chuyenMon || []).map((field) => ({ email: u.email, major: field, field })));
   
-  if (DB.currentUser && DB.currentUser.id) {
-    const fromServer = DB.users.find((u) => u.id === DB.currentUser.id);
+  if (DB.currentUser) {
+    const currentEmail = normalizeEmail(DB.currentUser.email);
+    const fromServer = DB.users.find((u) =>
+      (DB.currentUser.id != null && u.id === DB.currentUser.id) ||
+      (currentEmail && normalizeEmail(u.email) === currentEmail)
+    );
     if (fromServer) {
       DB.currentUser = { ...DB.currentUser, ...fromServer };
     }
@@ -1102,7 +1148,7 @@ async function buildNotifPanel() {
         </div>
       ` + list.map(n => {
         const chuaDoc = !n.da_doc;
-        const tieuDe = n.loai === 'tu_choi_gvhd' ? '❌ Giảng viên HD yêu cầu chỉnh sửa lại' : '❌ Chủ tịch HĐ yêu cầu chỉnh sửa lại';
+        const tieuDe = n.loai === 'tu_choi_gvhd' ? '❌ Giảng viên HD yêu cầu chỉnh sửa lại' : '❌ Chủ tịch HĐ không đồng ý báo cáo';
         return `
           <div class="notif-item ${chuaDoc ? 'unread' : ''}" onclick="markOneNotifRead(${n.id}, this)">
             <div class="notif-item-title">${tieuDe}</div>
@@ -1831,8 +1877,8 @@ function renderKLTN() {
          </div>` : ''}
       ${k.tuChoiCTHD !== undefined && k.tuChoiCTHD !== null
       ? `<div style="background:#FFEBE6;border:1px solid #FF8F73;border-radius:var(--radius);padding:12px 16px;margin-bottom:12px;font-size:13px">
-          ❌ <strong>Chủ tịch HĐ yêu cầu chỉnh sửa lại:</strong> ${escapeHtml(k.tuChoiCTHD || 'Vui lòng xem lại và nộp bài mới.')}
-          <div style="font-size:12px;color:#BF2600;margin-top:4px">Hãy upload lại bài chỉnh sửa bên dưới.</div>
+          ❌ <strong>Chủ tịch HĐ không đồng ý báo cáo:</strong> ${escapeHtml(k.tuChoiCTHD || 'Vui lòng xem lại nội dung báo cáo theo góp ý của hội đồng.')}
+          <div style="font-size:12px;color:#BF2600;margin-top:4px">Bạn cần điều chỉnh theo góp ý trước khi thực hiện bước tiếp theo.</div>
          </div>` : ''}
       ${k.tkBienBan
         ? `<div style="background:#E3FCEF;border:1px solid #57D9A3;border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;font-size:13px">
@@ -1859,7 +1905,7 @@ function renderKLTN() {
         </div>
       </div>
       </div>
-      <div style="margin-top:10px;font-size:12px;color:var(--text3)">Trạng thái duyệt sửa: GVHD ${k.xacNhanGVHD ? 'Đồng ý' : 'Chờ'} • Chủ tịch ${k.xacNhanCTHD ? 'Đồng ý' : 'Chờ'}</div>
+      <div style="margin-top:10px;font-size:12px;color:var(--text3)">Trạng thái sau bảo vệ: GVHD ${k.xacNhanGVHD ? 'Đã duyệt bài chỉnh sửa' : 'Chờ duyệt bài chỉnh sửa'} • CTHĐ ${k.xacNhanCTHD ? 'Đã xác nhận đồng ý báo cáo' : 'Chờ xác nhận đồng ý/không đồng ý báo cáo'}</div>
       </div>`;
     }
   } else {
@@ -2109,10 +2155,10 @@ function viewKLTNDetail(id) {
       </div>
      
       <div class="kltn-row" style="margin-top: 15px; background: var(--bg, #fff); padding: 10px 12px; border-radius: 6px; border: 1px solid var(--border, #e5e7eb);">
-        <span class="kltn-label" style="min-width: 130px;">Duyệt chỉnh sửa:</span>
+        <span class="kltn-label" style="min-width: 130px;">Xác nhận sau bảo vệ:</span>
         <span class="kltn-value">
-          <span style="display:inline-block; margin-right: 15px;"><b>GVHD:</b> ${k.xacNhanGVHD ? '<span style="color:#16a34a; font-weight:bold;">✅ Đồng ý</span>' : '<span style="color:#d97706;">⏳ Chờ</span>'}</span>
-          <span><b>Chủ tịch:</b> ${k.xacNhanCTHD ? '<span style="color:#16a34a; font-weight:bold;">✅ Đồng ý</span>' : '<span style="color:#d97706;">⏳ Chờ</span>'}</span>
+          <span style="display:inline-block; margin-right: 15px;"><b>GVHD:</b> ${k.xacNhanGVHD ? '<span style="color:#16a34a; font-weight:bold;">✅ Đã duyệt bài chỉnh sửa</span>' : '<span style="color:#d97706;">⏳ Chờ duyệt bài chỉnh sửa</span>'}</span>
+          <span><b>Chủ tịch:</b> ${k.xacNhanCTHD ? '<span style="color:#16a34a; font-weight:bold;">✅ Đã xác nhận đồng ý báo cáo</span>' : '<span style="color:#d97706;">⏳ Chờ xác nhận báo cáo sau bảo vệ</span>'}</span>
         </span>
       </div>
      
@@ -2595,7 +2641,7 @@ function renderNhapDiem() {
     }
 
     if (isCT) {
-      html += `<div style="font-size:13px;color:var(--text3);margin-top:12px">👨‍⚖️ Bạn đang là Chủ tịch hội đồng. Vai trò này hiện theo dõi tổng thể và duyệt các bước sau bảo vệ, không nhập phiếu chấm tại tab này.</div>`;
+      html += `<div style="font-size:13px;color:var(--text3);margin-top:12px">👨‍⚖️ Bạn đang là Chủ tịch hội đồng. Ở tab này, bạn chỉ xác nhận đồng ý hoặc không đồng ý buổi báo cáo/bảo vệ sau khi hội đồng đã chấm; đây không phải bước duyệt bài chỉnh sửa của sinh viên.</div>`;
     }
 
     if (isTK) {
@@ -2888,13 +2934,9 @@ async function acceptPhanBienKLTN(recordId) {
 async function approveKLTNRevision(recordId, step, dongY) {
   const record = findKltnRecord(recordId);
   if (!record) return toast('Không tìm thấy hồ sơ KLTN', 'error');
-  if (step === 'cthd' && !Boolean(record.gvhdApproved ?? record.xacNhanGVHD)) {
-    toast('GVHD chưa duyệt chỉnh sửa, Chủ tịch hội đồng chưa thể thao tác', 'error');
-    return;
-  }
   let ly_do = '';
   if (!dongY) {
-    ly_do = window.prompt('Nhập lý do từ chối chỉnh sửa', '') || '';
+    ly_do = window.prompt(step === 'cthd' ? 'Nhập lý do không đồng ý báo cáo' : 'Nhập lý do từ chối chỉnh sửa', '') || '';
   }
   try {
     await apiRequest('/api/kltn/revision-approve', {
@@ -2906,7 +2948,11 @@ async function approveKLTNRevision(recordId, step, dongY) {
         ly_do,
       }),
     });
-    toast(dongY ? 'Đã duyệt chỉnh sửa' : 'Đã từ chối chỉnh sửa');
+    if (step === 'cthd') {
+      toast(dongY ? 'CTHĐ đã đồng ý báo cáo' : 'CTHĐ đã không đồng ý báo cáo');
+    } else {
+      toast(dongY ? 'Đã duyệt chỉnh sửa' : 'Đã từ chối chỉnh sửa');
+    }
     await refreshCurrentView();
   } catch (err) {
     toast(err.message, 'error');
@@ -2916,6 +2962,9 @@ async function approveKLTNRevision(recordId, step, dongY) {
 async function finalizeKLTNResult(recordId) {
   const record = findKltnRecord(recordId);
   if (!record) return toast('Không tìm thấy hồ sơ KLTN', 'error');
+  if (!Boolean(record.cthdApproved ?? record.xacNhanCTHD)) {
+    return toast('CTHĐ cần xác nhận đồng ý báo cáo trước khi kết thúc KLTN', 'error');
+  }
   if (computeKLTNFinalAvg(record) == null) {
     return toast('Chưa đủ điểm để kết thúc KLTN', 'error');
   }
@@ -3025,7 +3074,9 @@ function renderPhanBien() {
 
 function renderHoiDong() {
   const el = document.getElementById('page-hoidong');
-  const list = getKLTNRoleRecords((assignment) => assignment.isCommitteeMember);
+  const list = DB.kltnList
+    .filter((k) => Boolean(k.myAssignment?.isCommitteeMember) || isUserCommitteeMemberOnRecord(DB.currentUser, k))
+    .sort((a, b) => Number(b.dangKyId || 0) - Number(a.dangKyId || 0));
   let html = renderKLTNRoleHeader('🏛️ Hội đồng', 'thuộc hội đồng bạn tham gia', list.length);
 
   if (!list.length) {
@@ -3063,33 +3114,30 @@ function renderChuTich() {
 
   list.forEach((k) => {
     const finalAvg = computeKLTNFinalAvg(k);
-    const hasRevisionFiles = Boolean(k.fileBaiChinhSua && k.fileGiaiTrinh);
     const gvhdApproved = Boolean(k.gvhdApproved ?? k.xacNhanGVHD);
     const cthdApproved = Boolean(k.cthdApproved ?? k.xacNhanCTHD);
-    const canReviewRevision = hasRevisionFiles && gvhdApproved;
+    const canConfirmReport = k.trangThai === 'bao_ve' && !cthdApproved;
     html += renderKLTNRoleCardStart(k);
     html += `<div style="margin-top:12px;font-size:13px;color:var(--text2)">
-      Chủ tịch hội đồng xem hồ sơ, theo dõi kết quả và duyệt chỉnh sửa sau bảo vệ. Nếu hồ sơ đã có điểm Chủ tịch, điểm này cũng được tính vào trung bình hội đồng.
+      Chủ tịch hội đồng xem hồ sơ, theo dõi kết quả và xác nhận đồng ý hoặc không đồng ý buổi báo cáo/bảo vệ sau khi hội đồng đã chấm. Bước này không phải duyệt bài chỉnh sửa; phần đó thuộc GVHD. Nếu hồ sơ đã có điểm Chủ tịch, điểm này cũng được tính vào trung bình hội đồng.
     </div>`;
     html += `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
       ${finalAvg != null ? `<div class="badge badge-purple">Điểm tổng hợp: ${finalAvg.toFixed(2)}</div>` : `<div class="badge badge-orange">Chưa đủ điểm để tổng hợp</div>`}
-      <div class="badge badge-blue">GVHD: ${gvhdApproved ? 'Đã duyệt sửa' : 'Chưa duyệt sửa'}</div>
-      <div class="badge badge-blue">CT.HĐ: ${cthdApproved ? 'Đã duyệt sửa' : 'Chưa duyệt sửa'}</div>
+      <div class="badge badge-blue">GVHD: ${gvhdApproved ? 'Đã duyệt bài chỉnh sửa' : 'Chưa duyệt bài chỉnh sửa'}</div>
+      <div class="badge badge-blue">CT.HĐ: ${cthdApproved ? 'Đã xác nhận đồng ý báo cáo' : 'Chưa xác nhận báo cáo'}</div>
     </div>`;
     html += `<div style="margin-top:10px;font-size:12px;color:var(--text3)">
-      ${!hasRevisionFiles
-        ? 'Sinh viên chưa nộp đủ bài chỉnh sửa và biên bản giải trình.'
-        : !gvhdApproved
-          ? 'CTHĐ chỉ được duyệt sau khi GVHD đã bấm đồng ý.'
-          : cthdApproved
-            ? 'Chủ tịch hội đồng đã xác nhận chỉnh sửa cho hồ sơ này.'
-            : 'Đã đủ điều kiện để CTHĐ duyệt chỉnh sửa.'}
+      ${k.trangThai !== 'bao_ve' && k.trangThai !== 'pass' && k.trangThai !== 'fail' && k.trangThai !== 'hoan_thanh'
+        ? 'Bước xác nhận này chỉ thực hiện sau khi sinh viên đã bảo vệ/báo cáo.'
+        : cthdApproved
+          ? 'Chủ tịch hội đồng đã xác nhận đồng ý báo cáo cho hồ sơ này.'
+          : 'Đã đủ điều kiện để CTHĐ xác nhận đồng ý hoặc không đồng ý buổi báo cáo/bảo vệ.'}
     </div>`;
     html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
       <button class="btn btn-ghost btn-sm" onclick="viewKLTNDetail('${k.id}')">👁 Chi tiết</button>
-      <button class="btn btn-primary btn-sm" onclick="finalizeKLTNResult('${k.id}')">🏁 Kết thúc KLTN</button>
-      <button class="btn btn-success btn-sm" onclick="approveKLTNRevision('${k.id}','cthd',true)" ${canReviewRevision && !cthdApproved ? '' : 'disabled'}>Đồng ý chỉnh sửa</button>
-      <button class="btn btn-danger btn-sm" onclick="approveKLTNRevision('${k.id}','cthd',false)" ${canReviewRevision && !cthdApproved ? '' : 'disabled'}>Không đồng ý</button>
+      <button class="btn btn-primary btn-sm" onclick="finalizeKLTNResult('${k.id}')" ${cthdApproved ? '' : 'disabled'}>🏁 Kết thúc KLTN</button>
+      <button class="btn btn-success btn-sm" onclick="approveKLTNRevision('${k.id}','cthd',true)" ${canConfirmReport ? '' : 'disabled'}>Đồng ý báo cáo</button>
+      <button class="btn btn-danger btn-sm" onclick="approveKLTNRevision('${k.id}','cthd',false)" ${canConfirmReport ? '' : 'disabled'}>Không đồng ý báo cáo</button>
     </div>`;
     if (k.pbNote || k.pbCauHoi || buildSecretaryCouncilNotes(k)) {
       html += `<div class="form-group" style="margin-top:12px"><label>Nhận xét để tham chiếu khi duyệt</label><textarea readonly style="min-height:120px;background:var(--bg)">${escapeHtml([k.pbNote ? `Nhận xét PB: ${k.pbNote}` : '', k.pbCauHoi ? `Câu hỏi PB: ${k.pbCauHoi}` : '', buildSecretaryCouncilNotes(k)].filter(Boolean).join('\n\n'))}</textarea></div>`;
@@ -3245,10 +3293,11 @@ function renderTheoDoi() {
     const st = myKLTN.trangThai;
     const steps = [
       { label: 'Đăng ký', done: true },
-      { label: 'Thực hiện', done: ['thuc_hien', 'cham_diem', 'bao_ve', 'hoan_thanh'].includes(st) },
-      { label: 'Chấm điểm', done: ['cham_diem', 'bao_ve', 'hoan_thanh'].includes(st) },
-      { label: 'Bảo vệ', done: ['bao_ve', 'hoan_thanh'].includes(st) },
-      { label: 'Hoàn tất', done: st === 'hoan_thanh' },
+      { label: 'Thực hiện', done: ['thuc_hien', 'cham_diem', 'bao_ve', 'hoan_thanh', 'pass', 'fail'].includes(st) },
+      { label: 'Chấm điểm', done: ['cham_diem', 'bao_ve', 'hoan_thanh', 'pass', 'fail'].includes(st) },
+      { label: 'Bảo vệ', done: ['bao_ve', 'hoan_thanh', 'pass', 'fail'].includes(st) },
+      { label: 'CTHĐ xác nhận báo cáo', done: Boolean(myKLTN.xacNhanCTHD) || ['hoan_thanh', 'pass', 'fail'].includes(st) },
+      { label: 'Hoàn tất', done: ['hoan_thanh', 'pass', 'fail'].includes(st) },
     ];
     html += `<div class="info-row"><span class="info-label">Tên đề tài:</span><span class="info-value" style="font-weight:700">${escapeHtml(myKLTN.tenDeTai)}</span></div>
       <div class="info-row"><span class="info-label">Lĩnh vực:</span><span class="info-value">${escapeHtml(myKLTN.mangDeTai || '—')}</span></div>
