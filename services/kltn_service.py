@@ -1,4 +1,28 @@
 def _hoi_dong_ids(conn, dang_ky_id):
+    reg = conn.execute(
+        """
+        SELECT chu_tich_id, thu_ky_id, uy_vien_ids, loai FROM dang_ky
+        WHERE id = ?
+        """,
+        (dang_ky_id,),
+    ).fetchone()
+    if reg and reg["loai"] == "KLTN":
+        try:
+            committee_members = [
+                int(x) for x in json.loads(reg["uy_vien_ids"] or "[]")
+                if str(x).isdigit()
+            ]
+        except Exception:
+            committee_members = []
+        chairman_id = reg["chu_tich_id"]
+        secretary_id = reg["thu_ky_id"]
+        if chairman_id and secretary_id and committee_members:
+            return {
+                "ct": int(chairman_id),
+                "tk": int(secretary_id),
+                "tv": committee_members,
+            }
+
     row = conn.execute(
         """
         SELECT file_path FROM nop_bai
@@ -16,6 +40,19 @@ def _hoi_dong_ids(conn, dang_ky_id):
 
 
 def _reviewer_id(conn, dang_ky_id):
+    reg = conn.execute(
+        """
+        SELECT gv_pb_id, loai FROM dang_ky
+        WHERE id = ?
+        """,
+        (dang_ky_id,),
+    ).fetchone()
+    if reg and reg["loai"] == "KLTN" and reg["gv_pb_id"] is not None:
+        try:
+            return int(reg["gv_pb_id"])
+        except (TypeError, ValueError):
+            pass
+
     row = conn.execute(
         """
         SELECT file_path FROM nop_bai
