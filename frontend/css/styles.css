@@ -132,7 +132,10 @@ body { font-family: 'Be Vietnam Pro', sans-serif; background: var(--bg); color: 
 .nav-item:hover { background: rgba(255,255,255,.1); }
 .nav-item.active { background: rgba(255,255,255,.18); }
 .nav-item.active::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: #fff; border-radius: 0 2px 2px 0; }
-.nav-item-icon { font-size: 16px; opacity: .8; }
+.nav-item-icon { font-size: 16px; opacity: .8; display: inline-flex; align-items: center; justify-content: center; }
+.inline-icon { display: inline-flex; align-items: center; justify-content: center; width: 1em; height: 1em; color: currentColor; }
+.empty-state-icon .inline-icon { width: 2.2em; height: 2.2em; }
+.toast-icon { display: inline-flex; align-items: center; justify-content: center; margin-right: 8px; width: 1em; height: 1em; }
 .nav-item-badge {
   margin-left: auto; background: var(--accent); color: #fff; padding: 1px 6px;
   border-radius: 10px; font-size: 10px; font-weight: 700;
@@ -156,7 +159,9 @@ body { font-family: 'Be Vietnam Pro', sans-serif; background: var(--bg); color: 
 .page { padding: 24px; flex: 1; }
 
 /* =========== CARDS & COMMON =========== */
-.card { background: var(--surface); border-radius: var(--radius-lg); box-shadow: var(--shadow); padding: 20px; }
+.card {
+  background: var(--surface); border-radius: var(--radius-lg); box-shadow: var(--shadow); padding: 20px;
+}
 .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
 .card-title { font-size: 15px; font-weight: 700; }
 .card-subtitle { font-size: 12px; color: var(--text3); margin-top: 2px; }
@@ -222,6 +227,11 @@ body { font-family: 'Be Vietnam Pro', sans-serif; background: var(--bg); color: 
 .stat-card {
   background: var(--surface); border-radius: var(--radius-lg); padding: 20px;
   box-shadow: var(--shadow); display: flex; align-items: center; gap: 16px;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+.stat-card:hover {
+  transform: translateY(-8px);
+  box-shadow: 0 12px 24px rgba(9,30,66,.15), 0 4px 8px rgba(9,30,66,.1);
 }
 .stat-icon { width: 48px; height: 48px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0; }
 .stat-icon.blue { background: #E9F2FF; }

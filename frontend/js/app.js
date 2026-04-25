@@ -6,8 +6,11 @@ function resolveApiBase() {
     return String(window.API_BASE).replace(/\/$/, "");
   }
   if (typeof window !== "undefined" && window.location) {
-    const { origin, protocol } = window.location;
+    const { origin, protocol, hostname, port } = window.location;
     if (origin && protocol !== "file:") {
+      if ((hostname === "localhost" || hostname === "127.0.0.1") && port && port !== "5000") {
+        return "http://127.0.0.1:5000";
+      }
       return String(origin).replace(/\/$/, "");
     }
   }
@@ -70,6 +73,103 @@ function uploadFileHref(storedPath) {
   const base = getApiBaseUrl();
   const rel = String(storedPath).replace(/^uploads[\\/]/i, '').replace(/\\/g, '/');
   return base + '/uploads/' + rel.split('/').map((seg) => encodeURIComponent(seg)).join('/');
+}
+
+const ICON_MAP = {
+  '🏠': 'home', '📝': 'edit', '🎓': 'academicCap', '⏱️': 'timer', '👤': 'user',
+  '✅': 'checkCircle', '❌': 'xCircle', 'ℹ️': 'infoCircle', '🧾': 'receipt', '🏛️': 'building',
+  '👨‍⚖️': 'gavel', '💡': 'lightbulb', '📊': 'chartBar', '📈': 'chartLine', '👥': 'users',
+  '📋': 'clipboard', '🗂️': 'folder', '🎯': 'target', '📅': 'calendar', '📭': 'inbox',
+  '🚫': 'ban', '✕': 'x', '➕': 'plus', '✏️': 'pencil', '🗑️': 'trash', '📄': 'file',
+  '📁': 'folder', '📥': 'download', '🔑': 'key', '🔔': 'bell', '📕': 'book', '📑': 'bookmark', '👁': 'eye'
+};
+
+const ICON_SVG = {
+  home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5L12 3l9 6.5V21a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5z"/><path d="M9 21V12h6v9"/></svg>',
+  edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h8"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L8 18l-4 1 1-4 11.5-11.5Z"/></svg>',
+  academicCap: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 1 8l11 5 9-4.09"/><path d="M2 9.5v4.75C2 16.55 6.58 18.47 12 18.47c5.42 0 10-1.92 10-4.22V9.5"/><path d="M12 18.5v3"/></svg>',
+  timer: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="7"/><path d="M12 10v3l2 1"/><path d="M11 2h2"/></svg>',
+  user: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="4"/><path d="M6 21v-1a5 5 0 0 1 10 0v1"/></svg>',
+  checkCircle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.5 2.5 4.5-5"/></svg>',
+  xCircle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/></svg>',
+  infoCircle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>',
+  receipt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 4 12 9 3 4v16h18V4Z"/><path d="M7 9h10M7 13h6"/></svg>',
+  building: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21h16V5L12 2 4 5v16Z"/><path d="M9 8h2m2 0h2M9 12h2m2 0h2M9 16h2m2 0h2"/></svg>',
+  gavel: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m7 13 7-7 4 4-7 7-4-4Z"/><path d="m14 10 4 4"/><path d="M3 21h7"/></svg>',
+  lightbulb: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 3a6 6 0 0 0-4 10.9c0 1.7.8 3.3 2.1 4.3L10 20h4l.9-1.8A5.99 5.99 0 0 0 16 3h-4Z"/></svg>',
+  chartBar: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 19V10"/><path d="M10 19V6"/><path d="M14 19v-4"/><path d="M18 19v-7"/><path d="M4 21h16"/></svg>',
+  chartLine: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17 9 12l3 3 6-6 2 2"/><path d="M4 21h16"/></svg>',
+  users: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7a4 4 0 1 1 6 0 4 4 0 0 1-6 0Z"/><path d="M3 21v-1a4 4 0 0 1 4-4h2"/><path d="M17 16h2a4 4 0 0 1 4 4v1"/></svg>',
+  clipboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h8"/><path d="M9 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"/><path d="M5 7h14v14H5V7Z"/></svg>',
+  folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h6l2 2h10v10H3V7Z"/></svg>',
+  target: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3"/><path d="M12 5V2"/><path d="M12 22v-3"/><path d="M5 12H2"/><path d="M22 12h-3"/></svg>',
+  calendar: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4"/><path d="M8 3v4"/><path d="M3 11h18"/></svg>',
+  inbox: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v6l-4 5H8l-4-5V4Z"/><path d="M4 20h16"/></svg>',
+  ban: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M7 7l10 10"/></svg>',
+  x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m6 6 12 12"/><path d="m18 6-12 12"/></svg>',
+  plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>',
+  pencil: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L8 18l-4 1 1-4 11.5-11.5Z"/></svg>',
+  trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M5 6 6 20h12l1-14"/></svg>',
+  file: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Z"/><path d="M14 2v6h6"/></svg>',
+  download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v13"/><path d="m8 13 4 4 4-4"/><path d="M4 20h16"/></svg>',
+  key: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="16" r="3"/><path d="M10.5 16 21 5.5"/><path d="M19 7v3h3"/></svg>',
+  bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 8-3 8h18s-3-1-3-8"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>',
+  book: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M4 4.5A2.5 2.5 0 0 1 6.5 7H20v13"/></svg>',
+  bookmark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-6-4-6 4V3Z"/></svg>',
+  eye: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z"/><circle cx="12" cy="12" r="3"/></svg>'
+};
+
+const ICON_REGEX = new RegExp(Object.keys(ICON_MAP).map((token) => token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).sort((a,b) => b.length - a.length).join('|'), 'g');
+
+function createIconElement(token) {
+  const key = ICON_MAP[token];
+  const wrapper = document.createElement('span');
+  wrapper.className = 'inline-icon';
+  wrapper.setAttribute('aria-hidden', 'true');
+  wrapper.innerHTML = ICON_SVG[key] || '';
+  return wrapper;
+}
+
+function shouldIgnoreTextNode(node) {
+  let el = node.parentElement;
+  while (el) {
+    const tag = el.tagName;
+    if (['SCRIPT', 'STYLE', 'TEXTAREA', 'INPUT', 'OPTION', 'SELECT'].includes(tag)) return true;
+    el = el.parentElement;
+  }
+  return false;
+}
+
+function replaceTextNodeIcons(textNode) {
+  const value = textNode.nodeValue;
+  if (!value || !ICON_REGEX.test(value) || shouldIgnoreTextNode(textNode)) return;
+  ICON_REGEX.lastIndex = 0;
+  const frag = document.createDocumentFragment();
+  let lastIndex = 0;
+  let match;
+  while ((match = ICON_REGEX.exec(value)) !== null) {
+    const beforeText = value.slice(lastIndex, match.index);
+    if (beforeText) frag.appendChild(document.createTextNode(beforeText));
+    frag.appendChild(createIconElement(match[0]));
+    lastIndex = match.index + match[0].length;
+  }
+  const remaining = value.slice(lastIndex);
+  if (remaining) frag.appendChild(document.createTextNode(remaining));
+  textNode.replaceWith(frag);
+}
+
+function applyIconsToDom(root) {
+  if (!root) return;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode(node) {
+    if (!node.nodeValue) return NodeFilter.FILTER_SKIP;
+    ICON_REGEX.lastIndex = 0;
+    if (!ICON_REGEX.test(node.nodeValue)) return NodeFilter.FILTER_SKIP;
+    if (shouldIgnoreTextNode(node)) return NodeFilter.FILTER_SKIP;
+    return NodeFilter.FILTER_ACCEPT;
+  } }, false);
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  nodes.forEach(replaceTextNodeIcons);
 }
 
 function getCurrentStudentMajor() {
@@ -627,13 +727,16 @@ function toast(msg, type = 'success') {
   const tc = document.getElementById('toast-container');
   const t = document.createElement('div');
   t.className = `toast toast-${type}`;
-  t.innerHTML = (type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️') + ' ' + msg;
+  t.innerHTML = `${type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️'} ${msg}`;
+  applyIconsToDom(t);
   tc.appendChild(t);
   setTimeout(() => t.remove(), 3500);
 }
 
 function showModal(html) {
-  document.getElementById('modal-content').innerHTML = html;
+  const modalContent = document.getElementById('modal-content');
+  modalContent.innerHTML = html;
+  applyIconsToDom(modalContent);
   document.getElementById('modal-overlay').classList.add('open');
 }
 function closeModal(e) {
@@ -1018,6 +1121,7 @@ function buildSidebar(role) {
       <span class="nav-item-icon">${item.icon}</span>${item.label}${badge}
     </div>`;
   }).join('');
+  applyIconsToDom(nav);
 }
 
 function getPendingCount() {
@@ -1041,8 +1145,8 @@ function navigateTo(page) {
   });
   // Hide all pages
   document.querySelectorAll('[id^="page-"]').forEach(el => el.style.display = 'none');
-  const pageEl = document.getElementById('page-' + page);
-  if (pageEl) pageEl.style.display = 'block';
+  const currentPageEl = document.getElementById('page-' + page);
+  if (currentPageEl) currentPageEl.style.display = 'block';
 
   const titles = {
     dashboard: 'Tổng quan', bctt: 'Đăng ký BCTT', kltn: 'Đăng ký KLTN',
@@ -1061,6 +1165,7 @@ function navigateTo(page) {
     chutich: renderChuTich, thuky: renderThuKy, goiy: renderGoiY, thongke: renderThongKe,
   };
   if (renders[page]) renders[page]();
+  applyIconsToDom(currentPageEl);
 }
 
 function navigateToDetaiTab(tabId) {
@@ -1887,6 +1992,69 @@ function renderDeTai() {
   } else { html += `<div class="empty-state"><div class="empty-state-icon">📭</div><div class="empty-state-title">Chưa có KLTN nào</div></div>`; }
   html += `</div>`;
   el.innerHTML = html;
+}
+
+function renderNhapDiem() {
+  const u = DB.currentUser;
+  const el = document.getElementById('page-nhapDiem');
+  if (!el) return;
+  let html = `<div class="page-header"><h1>📊 Chấm điểm</h1><p>Trang quản lý chấm điểm KLTN theo vai trò của bạn</p></div>`;
+  if (!u || (u.role !== 'gv' && u.role !== 'bm')) {
+    html += `<div class="card"><div class="empty-state"><div class="empty-state-icon">🚫</div><div class="empty-state-title">Bạn không có quyền truy cập trang này</div><div style="margin-top:12px"><button class="btn btn-primary btn-sm" onclick="navigateTo('dashboard')">Về trang chính</button></div></div></div>`;
+    el.innerHTML = html;
+    return;
+  }
+
+  const list = getKLTNRoleRecords((assignment) => assignment.canGrade);
+  if (!list.length) {
+    html += `<div class="card"><div class="empty-state"><div class="empty-state-icon">📭</div><div class="empty-state-title">Không có đề tài KLTN nào để chấm</div><div style="margin-top:8px;color:var(--text3)">Kiểm tra lại phân công hội đồng, vai trò GV hoặc PB.</div></div></div>`;
+    el.innerHTML = html;
+    return;
+  }
+
+  list.forEach((k) => {
+    const assignment = getKLTNAssignment(u, k);
+    html += renderKLTNRoleCardStart(k);
+    if (assignment.isAdvisor) {
+      html += renderKLTNScoreBlock(
+        k,
+        'HD',
+        '🎯 Giảng viên hướng dẫn — phiếu chấm',
+        'Nhập điểm và nhận xét theo mẫu chấm HD.',
+        { existingScore: k.diemHD, noteValue: k.hdNote || '' }
+      );
+    }
+    if (assignment.isReviewer) {
+      html += renderKLTNScoreBlock(
+        k,
+        'PB',
+        '🧾 Giảng viên phản biện — phiếu chấm',
+        'Nhập điểm, nhận xét và câu hỏi phản biện.',
+        { existingScore: k.diemPB, noteValue: k.pbNote || '', questionValue: k.pbCauHoi || '', showQuestion: true }
+      );
+    }
+    if (assignment.isCommitteeMember) {
+      const myTVScore = getCurrentTVScore(k);
+      html += renderKLTNScoreBlock(
+        k,
+        'TV',
+        '🏛️ Thành viên hội đồng — phiếu chấm',
+        'Nhập điểm và nhận xét riêng cho hội đồng.',
+        { existingScore: myTVScore?.diem, noteValue: myTVScore?.nhanXet || '' }
+      );
+    }
+    if (!assignment.isAdvisor && !assignment.isReviewer && !assignment.isCommitteeMember) {
+      html += `<div style="font-size:13px;color:var(--text3);margin-top:12px">Bạn chưa được phân công vai trò chấm điểm cho đề tài này.</div>`;
+    }
+    html += renderKLTNRoleCardEnd();
+  });
+
+  el.innerHTML = html;
+  list.forEach((k) => {
+    if (getKLTNAssignment(u, k).isAdvisor) recalcKLTNRoleTotal(k.id, 'HD');
+    if (getKLTNAssignment(u, k).isReviewer) recalcKLTNRoleTotal(k.id, 'PB');
+    if (getKLTNAssignment(u, k).isCommitteeMember) recalcKLTNRoleTotal(k.id, 'TV');
+  });
 }
 
 function viewBCTTDetail(id) {

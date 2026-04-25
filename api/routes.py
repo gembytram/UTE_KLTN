@@ -30,10 +30,6 @@ def register_routes(app):
     def file_too_large(_):
         return fail("File vượt quá 20MB", 400)
 
-    @app.route("/")
-    def index():
-        return send_from_directory(os.path.join(app.root_path, "frontend"), "index.html")
-
     @app.route("/<path:filename>")
     def static_files(filename):
         return send_from_directory(os.path.join(app.root_path, "frontend"), filename)
