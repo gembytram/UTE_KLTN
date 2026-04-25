@@ -11,6 +11,7 @@ const DB = {
   mangDeTai: [],
   bcttList: [],
   kltnList: [],
+  hoiDongList: [],
   notifications: [],
   chuyenMonList: [],
   quotaList: [],
@@ -621,6 +622,16 @@ async function syncFromServer() {
   DB.bcttList = data.bcttList || [];
   DB.kltnList = data.kltnList || [];
   DB.gvSlots = data.gvSlots || [];
+  try {
+    const savedHD = localStorage.getItem('hoiDongList');
+    if (savedHD) {
+      DB.hoiDongList = JSON.parse(savedHD);
+    } else {
+      DB.hoiDongList = [];
+    }
+  } catch (err) {
+    DB.hoiDongList = [];
+  }
   const lv = new Set();
   DB.bcttList.forEach((x) => x.mangDeTai && lv.add(x.mangDeTai));
   DB.kltnList.forEach((x) => x.mangDeTai && lv.add(x.mangDeTai));
@@ -639,6 +650,7 @@ async function syncFromServer() {
       localStorage.setItem("currentUser", JSON.stringify(DB.currentUser));
     } catch (_) {}
   }
+  
 }
 
 // ============================================================
@@ -1396,19 +1408,19 @@ async function saveScoreCT(dangKyId) {
   return saveScore('CT', dangKyId);
 }
 
-=======
-        diem,
-        nhan_xet,
-      }),
-    });
-    toast("Chấm BCTT thành công");
-    await refreshCurrentView();
-  } catch (err) {
-    toast(err.message, "error");
-  }
-}
+// =======
+//         diem,
+//         nhan_xet,
+//       }),
+//     });
+//     toast("Chấm BCTT thành công");
+//     await refreshCurrentView();
+//   } catch (err) {
+//     toast(err.message, "error");
+//   }
+// }
 
->>>>>>> 44ee37002d4672fd538f29bf56b093e94e257d2f
+// >>>>>>> 44ee37002d4672fd538f29bf56b093e94e257d2f
 // ============================================================
 // PAGES RENDER (BCTT, KLTN, DUYỆT, ... )
 // ============================================================
@@ -2043,23 +2055,90 @@ function renderDuyetDe() {
   }
   el.innerHTML = html;
 }
-
+// Phân công hội đồng 
 function renderPhanCong() {
   const el = document.getElementById('page-phancong');
   const needPB = DB.kltnList.filter(k => !k.gvPBEmail);
   const needHD = DB.kltnList.filter(k => !k.hoiDong);
-  const gvList = DB.users.filter(u => u.role === 'gv' || u.role === 'bm');
+  const needAction = DB.kltnList.filter(k => !k.gvPBEmail || !k.hoiDong);
 
-  let html = `<div class="page-header"><h1>👥 Phân công KLTN</h1><p>${needPB.length} KLTN cần phân công phản biện • ${needHD.length} KLTN cần lập hội đồng</p></div>`;
-  html += `<div class="card" style="margin-bottom:14px"><div class="card-title" style="margin-bottom:10px">🧾 Phân công GV phản biện KLTN</div>`;
-  if (!needPB.length) {
-    html += `<div class="empty-state"><div class="empty-state-icon">✅</div><div class="empty-state-title">Tất cả KLTN đã có GV phản biện</div></div>`;
+  let html = `<div class="page-header">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+        <div>
+          <h1>👥 Phân công KLTN</h1>
+          <p>${needPB.length} KLTN cần phân công PB • ${needHD.length} KLTN cần lập HĐ</p>
+        </div>
+        <button class="btn btn-primary" onclick="showHoiDongModal()">➕ Thêm hội đồng</button>
+      </div>
+    </div>`;
+
+  html += `<div class="card" style="margin-bottom:14px">
+    <div class="card-title" style="margin-bottom:10px">🏛️ Danh sách Hội đồng bạn đã tạo</div>`;
+    
+  const currentUser = DB.currentUser || {};
+  let myHoiDongList = [];
+  
+  if (DB.hoiDongList) {
+    if (currentUser.role === 'admin') {
+      myHoiDongList = DB.hoiDongList;
+    } else {
+      myHoiDongList = DB.hoiDongList.filter(hd => hd.nguoiTaoEmail === currentUser.email);
+    }
+  }
+
+  if (myHoiDongList.length === 0) {
+    html += `<div class="empty-state" style="padding:16px"><div class="empty-state-title" style="font-size:14px">Bạn chưa tạo hội đồng nào</div></div>`;
   } else {
-    needPB.forEach(k => {
+    html += `<div class="table-wrap"><table>
+      <thead><tr><th>Tên Hội đồng</th><th>Chủ tịch</th><th>Thư ký</th><th>Thành viên</th><th>Thời gian</th><th>Phòng</th><th>Thao tác</th></tr></thead>
+      <tbody>`;
+    myHoiDongList.forEach(hd => {
+      const ctName = getUser(hd.ct)?.name || hd.ct;
+      const tkName = getUser(hd.tk)?.name || hd.tk;
+      const tvNames = (hd.tv || []).map(email => getUser(email)?.name || email).join(', ');
+      
+      let timeStr = 'Chưa xếp';
+      if (hd.thoiGian) {
+        const d = new Date(hd.thoiGian);
+        timeStr = d.toLocaleString('vi-VN', {hour: '2-digit', minute:'2-digit', day:'2-digit', month:'2-digit', year:'numeric'});
+      }
+
+      html += `<tr>
+        <td style="font-weight:600;color:var(--primary)">${escapeHtml(hd.ten)}</td>
+        <td>${escapeHtml(ctName)}</td>
+        <td>${escapeHtml(tkName)}</td>
+        <td style="font-size:12px;max-width:150px">${escapeHtml(tvNames)}</td>
+        <td style="font-size:13px">${timeStr}</td>
+        <td><span class="badge badge-gray">${escapeHtml(hd.phong || 'Chưa xếp')}</span></td>
+        <td style="display:flex;gap:4px">
+          <button class="btn btn-ghost btn-sm" onclick="showHoiDongModal('${hd.id}')">✏️ Sửa</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteHoiDong('${hd.id}')">❌ Xóa</button>
+        </td>
+      </tr>`;
+    });
+    html += `</tbody></table></div>`;
+  }
+  html += `</div>`;
+
+  html += `<div class="card" style="margin-bottom:14px"><div class="card-title" style="margin-bottom:10px">🧾 Danh sách KLTN cần phân công PB / Hội đồng</div>`;
+  if (!needAction.length) {
+    html += `<div class="empty-state"><div class="empty-state-icon">✅</div><div class="empty-state-title">Tất cả KLTN đã được phân công đầy đủ PB và HĐ</div></div>`;
+  } else {
+    needAction.forEach(k => {
       const sv = getUser(k.svEmail);
+      const missingTags = [];
+      if (!k.gvPBEmail) missingTags.push('<span class="badge badge-orange">Thiếu PB</span>');
+      if (!k.hoiDong) missingTags.push('<span class="badge badge-red">Thiếu HĐ</span>');
+
       html += `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid var(--border)">
-        <div style="flex:1;min-width:200px"><div style="font-weight:700;cursor:pointer;color:var(--primary)" onclick="viewKLTNDetail('${k.id}')">${escapeHtml(k.tenDeTai)}</div></div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-ghost btn-sm" onclick="viewKLTNDetail('${k.id}')">👁 Chi tiết</button><button class="btn btn-primary btn-sm" onclick="phanCongPBKLTN('${k.id}')">Phân công PB & HĐ</button></div>
+        <div style="flex:1;min-width:200px">
+          <div style="font-weight:700;cursor:pointer;color:var(--primary)" onclick="viewKLTNDetail('${k.id}')">${escapeHtml(k.tenDeTai)}</div>
+          <div style="margin-top:4px">${missingTags.join(' ')}</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn btn-ghost btn-sm" onclick="viewKLTNDetail('${k.id}')">👁 Chi tiết</button>
+          <button class="btn btn-primary btn-sm" onclick="phanCongPBKLTN('${k.id}')">Phân công PB & HĐ</button>
+        </div>
       </div>`;
     });
   }
@@ -2067,6 +2146,201 @@ function renderPhanCong() {
   el.innerHTML = html;
 }
 
+
+function showHoiDongModal(editId = null) {
+  const gvList = DB.users.filter(u => u.role === 'gv' || u.role === 'bm');
+  let hd = null;
+  
+  if (editId) {
+    hd = DB.hoiDongList.find(x => x.id === editId);
+  }
+
+  // Hàm helper để tạo option list và tự động chọn đúng người cũ
+  const getGvOptions = (selectedValue) => {
+    return gvList.map(g => `<option value="${g.email}" ${g.email === selectedValue ? 'selected' : ''}>${escapeHtml(g.name)}</option>`).join('');
+  };
+
+  // Render danh sách thành viên cũ (nếu có)
+  let tvHtml = '';
+  if (hd && hd.tv && hd.tv.length > 0) {
+    hd.tv.forEach(tvEmail => {
+      tvHtml += `<div class="hd-member-row" style="display:flex;gap:8px;margin-bottom:8px">
+        <select class="hd-tv" style="flex:1"><option value="">-- Chọn Thành viên --</option>${getGvOptions(tvEmail)}</select>
+        <button class="btn btn-danger btn-sm" onclick="this.parentElement.remove()">Xóa</button>
+      </div>`;
+    });
+  } else {
+    tvHtml = `<div class="hd-member-row" style="display:flex;gap:8px;margin-bottom:8px">
+        <select class="hd-tv" style="flex:1"><option value="">-- Chọn Thành viên --</option>${getGvOptions('')}</select>
+        <button class="btn btn-danger btn-sm" onclick="this.parentElement.remove()">Xóa</button>
+      </div>`;
+  }
+
+  let html = `<div class="modal-header">
+      <div class="modal-title">${hd ? '✏️ Chỉnh sửa Hội Đồng' : '🏛️ Thêm Hội Đồng Mới'}</div>
+      <button class="modal-close" onclick="closeModalForce()">✕</button>
+    </div>
+    
+    <input type="hidden" id="hd-id" value="${hd ? hd.id : ''}">
+    
+    <div class="form-group">
+      <label>Tên hội đồng *</label>
+      <input type="text" id="hd-ten" value="${hd ? escapeHtml(hd.ten) : ''}" placeholder="VD: Hội đồng Kỹ thuật phần mềm 1">
+    </div>
+    
+    <div class="grid-2">
+      <div class="form-group">
+        <label>Ngày giờ bảo vệ</label>
+        <input type="datetime-local" id="hd-thoigian" value="${hd ? hd.thoiGian : ''}" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px">
+      </div>
+      <div class="form-group">
+        <label>Mã phòng</label>
+        <input type="text" id="hd-phong" value="${hd ? escapeHtml(hd.phong || '') : ''}" placeholder="VD: A1-202">
+      </div>
+    </div>
+    
+    <div class="grid-2">
+      <div class="form-group">
+        <label>Chủ tịch hội đồng *</label>
+        <select id="hd-ct"><option value="">-- Chọn Chủ tịch --</option>${getGvOptions(hd ? hd.ct : '')}</select>
+      </div>
+      <div class="form-group">
+        <label>Thư ký hội đồng *</label>
+        <select id="hd-tk"><option value="">-- Chọn Thư ký --</option>${getGvOptions(hd ? hd.tk : '')}</select>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Thành viên hội đồng</label>
+      <div id="hd-members-container">
+        ${tvHtml}
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="addHoiDongMemberSelect()" style="margin-top:4px">➕ Thêm thành viên</button>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModalForce()">Hủy</button>
+      <button class="btn btn-primary" onclick="saveHoiDong()">💾 Lưu Hội Đồng</button>
+    </div>`;
+
+  showModal(html);
+}
+
+// Hàm render thêm 1 ô chọn Giảng viên khi bấm nút "Thêm thành viên"
+function addHoiDongMemberSelect() {
+  const container = document.getElementById('hd-members-container');
+  const gvList = DB.users.filter(u => u.role === 'gv' || u.role === 'bm');
+  const gvOptions = gvList.map(g => `<option value="${g.email}">${escapeHtml(g.name)}</option>`).join('');
+
+  const row = document.createElement('div');
+  row.className = 'hd-member-row';
+  row.style = 'display:flex;gap:8px;margin-bottom:8px';
+  row.innerHTML = `
+    <select class="hd-tv" style="flex:1"><option value="">-- Chọn Thành viên --</option>${gvOptions}</select>
+    <button class="btn btn-danger btn-sm" onclick="this.parentElement.remove()">Xóa</button>
+  `;
+  container.appendChild(row);
+}
+
+// Hàm lưu chung cho cả việc Tạo mới và Cập nhật
+function saveHoiDong() {
+  const id = document.getElementById('hd-id').value;
+  const ten = document.getElementById('hd-ten').value.trim();
+  const thoiGian = document.getElementById('hd-thoigian').value;
+  const phong = document.getElementById('hd-phong').value.trim();
+  const ct = document.getElementById('hd-ct').value;
+  const tk = document.getElementById('hd-tk').value;
+
+  const tvSelects = document.querySelectorAll('.hd-tv');
+  const tvs = Array.from(tvSelects).map(s => s.value).filter(val => val !== "");
+  const uniqueTvs = [...new Set(tvs)];
+
+  if (!ten || !ct || !tk) {
+    toast('Vui lòng nhập Tên hội đồng, Chủ tịch và Thư ký', 'error');
+    return;
+  }
+
+  // Check 1: Không trùng nhiệm vụ trong cùng 1 hội đồng
+  const allSelected = [ct, tk, ...uniqueTvs].filter(Boolean);
+  const uniqueAll = new Set(allSelected); 
+  if (allSelected.length !== uniqueAll.size) {
+    toast('Mỗi giáo viên chỉ được đảm nhận 1 nhiệm vụ trong cùng một hội đồng!', 'error');
+    return;
+  }
+
+  if (!DB.hoiDongList) DB.hoiDongList = [];
+
+  // Check 2: Không trùng giáo viên với hội đồng khác
+  let gvBiTrung = null;
+  let tenHoiDongTrung = "";
+  for (const hdCu of DB.hoiDongList) {
+    if (id && hdCu.id === id) continue;
+    const thanhVienHdCu = [hdCu.ct, hdCu.tk, ...(hdCu.tv || [])].filter(Boolean);
+    for (const emailGv of allSelected) {
+      if (thanhVienHdCu.includes(emailGv)) {
+        gvBiTrung = emailGv;
+        tenHoiDongTrung = hdCu.ten;
+        break;
+      }
+    }
+    if (gvBiTrung) break;
+  }
+
+  if (gvBiTrung) {
+    const thongTinGv = getUser(gvBiTrung);
+    const tenGv = thongTinGv ? thongTinGv.name : gvBiTrung;
+    toast(`Lỗi: Giảng viên ${tenGv} đã tham gia "${tenHoiDongTrung}"!`, 'error');
+    return;
+  }
+
+function deleteHoiDong(id) {
+  if (!window.confirm("Bạn có chắc chắn muốn xóa hội đồng này không? Thao tác này không thể hoàn tác.")) {
+    return;
+  }
+  // Lọc bỏ hội đồng có id trùng với id cần xóa
+  if (DB.hoiDongList) {
+    DB.hoiDongList = DB.hoiDongList.filter(hd => hd.id !== id);
+  }
+  // Cập nhật lại Local Storage
+  localStorage.setItem('hoiDongList', JSON.stringify(DB.hoiDongList));
+  // Thông báo và tải lại giao diện
+  toast("🗑️ Đã xóa hội đồng thành công!");
+  if (DB.currentPage === 'phancong') {
+    renderPhanCong();
+  }
+}
+  // Tiến hành lưu
+  const currentUser = DB.currentUser || {};
+  if (id) {
+    const hdIndex = DB.hoiDongList.findIndex(x => x.id === id);
+    if (hdIndex > -1) {
+      const hdCu = DB.hoiDongList[hdIndex];
+      DB.hoiDongList[hdIndex] = { 
+        id, ten, thoiGian, phong, ct, tk, tv: uniqueTvs,
+        nguoiTaoEmail: hdCu.nguoiTaoEmail,
+        nguoiTaoTen: hdCu.nguoiTaoTen,
+        nguoiTaoMa: hdCu.nguoiTaoMa
+      };
+      toast('✅ Đã cập nhật hội đồng thành công!');
+    }
+  } else {
+    const newHD = {
+      id: 'hd_' + Date.now(),
+      ten, thoiGian, phong, ct, tk, tv: uniqueTvs,
+      nguoiTaoEmail: currentUser.email,
+      nguoiTaoTen: currentUser.name,
+      nguoiTaoMa: currentUser.ma || currentUser.msgv || 'Không có mã'
+    };
+    DB.hoiDongList.push(newHD); 
+    toast('✅ Đã tạo hội đồng thành công!');
+  }
+  
+  // Lưu cứng vào bộ nhớ trình duyệt
+  localStorage.setItem('hoiDongList', JSON.stringify(DB.hoiDongList));
+  closeModalForce();
+  if (DB.currentPage === 'phancong') renderPhanCong();
+}
+// phân công hội đồng 
 function renderNhapDiem() {
   const u = DB.currentUser;
   const el = document.getElementById('page-nhapDiem');
@@ -2092,7 +2366,6 @@ function renderNhapDiem() {
         <div class="card-header"><div><div class="card-title" style="cursor:pointer;color:var(--primary)" onclick="viewKLTNDetail('${k.id}')">${escapeHtml(k.tenDeTai)}</div><div style="font-size:12px;color:var(--text3);margin-top:4px">${escapeHtml(sv?.name || k.svEmail)} • ${escapeHtml(getTopicTypeLabel(k.topicType))}</div></div>${statusBadge(k.trangThai)}</div>`;
 
       if (isHD) {
-      if (isHD) {
         html += `<div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:8px">🎯 GV hướng dẫn — chấm điểm</div>
           <div class="form-group"><label>Điểm HD</label><input type="number" id="diem-hd-${k.id}" value="${k.diemHD ?? ''}"></div>
           <div class="form-group"><label>Nhận xét & câu hỏi</label><textarea id="nhanxet-hd-${k.id}" rows="4" placeholder="Nhập nhận xét và câu hỏi...">${escapeHtml(k.hdNote || '')}</textarea></div>
@@ -2112,11 +2385,7 @@ function renderNhapDiem() {
           <div class="form-group"><label>Nhận xét & câu hỏi</label><textarea id="nhanxet-ct-${k.id}" rows="4" placeholder="Nhập nhận xét và câu hỏi...">${escapeHtml((k.ctNote || '') + (k.ctCauHoi ? '\n\n— Câu hỏi —\n' + k.ctCauHoi : ''))}</textarea></div>
           <button class="btn btn-primary btn-sm" onclick="saveScoreCT('${k.dangKyId}')">💾 Lưu điểm</button>`;
       }
-      }
-        );
-      }
-
-      html += `</div>`;
+    html += `</div>`;
     });
   }
   el.innerHTML = html;
