@@ -59,10 +59,39 @@ function uploadFileHref(storedPath) {
 }
 
 function getCurrentStudentMajor() {
-  const u = DB.currentUser;
-  if (!u || u.role !== 'sv') return '';
-  const majors = Array.isArray(u.chuyenMon) ? u.chuyenMon.filter(Boolean).map((m) => String(m).trim()) : [];
-  return majors[0] || '';
+  return 'TMĐT';
+}
+
+function getCurrentStudentFields() {
+  return ['AI', 'Chất lượng', 'HR', 'Kinh doanh quốc tế', 'Kế toán', 'Logistic', 'Marketing', 'Mô phỏng', 'Quản lý công nghiệp', 'Sản xuất', 'Startup', 'TMĐT'];
+}
+
+function getTopicTypesForField(field) {
+  // Nhóm lĩnh vực phù hợp đề tài ứng dụng
+  const applicationFields = [
+    'AI',
+    'HR',
+    'Kế toán',
+    'Logistic',
+    'Marketing',
+    'Sản xuất',
+    'Startup',
+    'TMĐT',
+    'Kinh doanh quốc tế',
+  ];
+
+  // Nhóm lĩnh vực phù hợp đề tài nghiên cứu
+  const researchFields = [
+    'Chất lượng',
+    'Mô phỏng',
+    'Quản lý công nghiệp',
+    'AI',
+  ];
+
+  const types = [];
+  if (applicationFields.includes(field)) types.push('ung_dung');
+  if (researchFields.includes(field)) types.push('nghien_cuu');
+  return types.length ? types : ['ung_dung', 'nghien_cuu'];
 }
 
 function dotMatchesStudentHeAndMajor(d) {
@@ -95,35 +124,6 @@ function gvAcceptsBcttRegistration(gvId, dotId) {
   const sl = gvBcttSlotRow(gvId, dotId);
   if (!sl) return false;
   return Boolean(sl.duyetTbm) && (sl.slotConLai || 0) > 0;
-}
-
-function renderGVOptionsByField() {
-  const gvSelect = document.getElementById('f-gv');
-  const dotSelect = document.getElementById('f-dot');
-  if (!gvSelect || !dotSelect) return;
-
-  const selectedDotId = dotSelect.value;
-  const heDaoTao = normalizeStudentSlotHe(DB.currentUser);
-  const validSlots = DB.gvSlots.filter((slot) => {
-    return String(slot.dotId) === String(selectedDotId) && String(slot.heDaoTao) === String(heDaoTao) && slot.duyetTbm && (slot.slotConLai || 0) > 0;
-  });
-
-  const gvIds = Array.from(new Set(validSlots.map((slot) => Number(slot.gvId))));
-  const options = gvIds
-    .map((gvId) => {
-      const gv = DB.users.find((u) => Number(u.id) === Number(gvId));
-      if (!gv) return null;
-      const slot = validSlots.find((s) => Number(s.gvId) === Number(gvId));
-      const label = gv.name;
-      const extra = slot ? ` - slot còn lại: ${slot.slotConLai}` : '';
-      return `<option value="${gvId}">${escapeHtml(label + extra)}</option>`;
-    })
-    .filter(Boolean);
-
-  gvSelect.innerHTML = `
-    <option value="">-- Chọn giảng viên hướng dẫn --</option>
-    ${options.length ? options.join('') : '<option value="" disabled>Không có giảng viên phù hợp hoặc chưa chọn đợt</option>'}
-  `;
 }
 
 function gvListMatchingKltnMajor(k) {
@@ -616,11 +616,12 @@ async function apiRequest(path, options = {}) {
 async function syncFromServer() {
   const out = await apiRequest("/api/bootstrap", { method: "GET" });
   const data = out.data || {};
-  DB.users = data.users || [];
+  DB.users = (data.users || []).map(u => ({...u, chuyenMon: u.linh_vuc ? u.linh_vuc.split(',').map(s => s.trim()) : []}));
   DB.dotDangKy = data.dotDangKy || [];
   DB.bcttList = data.bcttList || [];
   DB.kltnList = data.kltnList || [];
   DB.gvSlots = data.gvSlots || [];
+  DB.notifications = data.notifications || [];
   const lv = new Set();
   DB.bcttList.forEach((x) => x.mangDeTai && lv.add(x.mangDeTai));
   DB.kltnList.forEach((x) => x.mangDeTai && lv.add(x.mangDeTai));
@@ -1112,13 +1113,44 @@ async function submitKLTN() {
   }
 }
 
+function renderTopicTypesByField() {
+  const fieldSelect = document.getElementById('f-mang');
+  const typeSelect = document.getElementById('f-topicType');
+  if (!fieldSelect || !typeSelect) return;
+  
+  const selectedField = fieldSelect.value;
+  const types = selectedField ? getTopicTypesForField(selectedField) : ['ung_dung', 'nghien_cuu'];
+  
+  typeSelect.innerHTML = '<option value="">-- Chọn loại đề tài --</option>';
+  if (types.includes('ung_dung')) typeSelect.innerHTML += '<option value="ung_dung">Đề tài ứng dụng</option>';
+  if (types.includes('nghien_cuu')) typeSelect.innerHTML += '<option value="nghien_cuu">Đề tài nghiên cứu</option>';
+  typeSelect.value = '';
+}
+
+function renderKLTNTopicTypesByField() {
+  const fieldSelect = document.getElementById('fk-mang');
+  const typeSelect = document.getElementById('fk-topicType');
+  if (!fieldSelect || !typeSelect) return;
+  
+  const selectedField = fieldSelect.value;
+  const types = selectedField ? getTopicTypesForField(selectedField) : ['ung_dung', 'nghien_cuu'];
+  
+  const currentValue = typeSelect.value;
+  typeSelect.innerHTML = '<option value="">-- Chọn loại đề tài --</option>';
+  if (types.includes('ung_dung')) typeSelect.innerHTML += '<option value="ung_dung">Đề tài ứng dụng</option>';
+  if (types.includes('nghien_cuu')) typeSelect.innerHTML += '<option value="nghien_cuu">Đề tài nghiên cứu</option>';
+  if (types.includes(currentValue)) {
+    typeSelect.value = currentValue;
+  }
+}
+
 function renderGVOptionsByField() {
   const gvSelect = document.getElementById("f-gv");
   const dotSelect = document.getElementById("f-dot");
   if (!gvSelect || !dotSelect) return;
 
   const dotId = dotSelect.value;
-  const major = (document.getElementById("f-mang")?.value || getCurrentStudentMajor() || "").trim();
+  const major = (document.getElementById("f-mang")?.value || "").trim();
   const he = normalizeStudentSlotHe(DB.currentUser);
 
   if (!dotId) {
@@ -1396,19 +1428,6 @@ async function saveScoreCT(dangKyId) {
   return saveScore('CT', dangKyId);
 }
 
-=======
-        diem,
-        nhan_xet,
-      }),
-    });
-    toast("Chấm BCTT thành công");
-    await refreshCurrentView();
-  } catch (err) {
-    toast(err.message, "error");
-  }
-}
-
->>>>>>> 44ee37002d4672fd538f29bf56b093e94e257d2f
 // ============================================================
 // PAGES RENDER (BCTT, KLTN, DUYỆT, ... )
 // ============================================================
@@ -1478,9 +1497,9 @@ function renderDashboard() {
     const pendingList = DB.bcttList.filter(b => b.gvEmail === u.email && b.trangThai === 'cho_duyet');
     if (pendingList.length) {
       html += `<div class="table-wrap"><table><thead><tr><th>Sinh viên</th><th>Đề tài</th><th>Ngày đăng ký</th><th>Thao tác</th></tr></thead><tbody>`;
-      pendingList.forEach(b => {
+      html += pendingList.map(b => {
         const sv = getUser(b.svEmail);
-        html += `<tr><td><div style="font-weight:600">${sv?.name}</div><div style="font-size:11px;color:var(--text3)">${b.svEmail}</div></td>
+        return `<tr><td><div style="font-weight:600">${sv?.name}</div><div style="font-size:11px;color:var(--text3)">${b.svEmail}</div></td>
           <td><div style="font-weight:500;max-width:240px;cursor:pointer;color:var(--primary)" onclick="viewBCTTDetail('${b.id}')">${escapeHtml(b.tenDeTai)}</div><div style="font-size:11px;color:var(--text3)">${escapeHtml(b.mangDeTai)}</div></td>
           <td style="font-size:12px;color:var(--text3)">${b.ngayDangKy}</td>
           <td><div class="action-row">
@@ -1488,7 +1507,7 @@ function renderDashboard() {
             <button class="btn btn-success btn-sm" onclick="duyetBCTT('${b.id}',true)">✓ Duyệt</button>
             <button class="btn btn-danger btn-sm" onclick="duyetBCTT('${b.id}',false)">✗ Từ chối</button>
           </div></td></tr>`;
-      });
+      }).join('');
       html += `</tbody></table></div>`;
     } else { html += `<div class="empty-state"><div class="empty-state-icon">✅</div><div class="empty-state-title">Không có BCTT chờ duyệt</div></div>`; }
     html += `</div>`;
@@ -1579,18 +1598,20 @@ function renderBCTT() {
       html += `<div class="card" style="background:#FFEBE6;border:1px solid #FF8F73"><div style="font-size:13px;font-weight:700;color:#BF2600">❌ BCTT chưa đạt (&lt; 4). Vui lòng cập nhật và nộp lại hồ sơ.</div></div>`;
     }
   } else {
-      const svMajor = getCurrentStudentMajor();
+      const fieldOptions = getCurrentStudentFields();
       html += `<div class="card">
       <div class="card-title" style="margin-bottom:20px">📋 Form đăng ký BCTT</div>
       <div class="grid-2">
-        <div class="form-group"><label>Tên đề tài *</label><input type="text" id="f-tenDeTai" placeholder="Nhập tên đề tài thực tập..."></div>
-        <div class="form-group"><label>Loại đề tài *</label><select id="f-topicType"><option value="">-- Chọn loại đề tài --</option><option value="ung_dung">Đề tài ứng dụng</option><option value="nghien_cuu">Đề tài nghiên cứu</option></select></div>
-        <div class="form-group"><label>Ngành *</label><input type="text" id="f-mang" value="${escapeHtml(svMajor)}" readonly style="background:var(--bg)"></div>
-        <div class="form-group"><label>Tên công ty *</label><input type="text" id="f-congty" placeholder="Tên doanh nghiệp thực tập..."></div>
-        <div class="form-group"><label>Giảng viên hướng dẫn *</label><select id="f-gv"><option value="">-- Chọn đợt — slot theo hệ của bạn (${normalizeStudentSlotHe(DB.currentUser)}) --</option></select></div>
         <div class="form-group" style="grid-column:1/-1"><label>Đợt đăng ký *</label><select id="f-dot" onchange="renderGVOptionsByField()"><option value="">-- Chọn đợt --</option>${DB.dotDangKy.filter(d => d.trangThai === 'dang_mo' && d.loai === 'BCTT' && dotMatchesStudentHeAndMajor(d)).map(d => `<option value="${d.id}">${d.ten}</option>`).join('')}</select></div>
+        <div class="form-group"><label>Tên đề tài *</label><input type="text" id="f-tenDeTai" placeholder="Nhập tên đề tài thực tập..."></div>
+        <div class="form-group"><label>Tên công ty *</label><input type="text" id="f-congty" placeholder="Tên doanh nghiệp thực tập..."></div>
+        <div class="form-group"><label>Ngành *</label><select id="f-nganh" disabled><option value="TMĐT">Thương mại điện tử</option></select></div>
+        <div class="form-group"><label>Giảng viên hướng dẫn *</label><select id="f-gv"><option value="">-- Chọn giảng viên hướng dẫn --</option></select></div>
+        <div class="form-group"><label>Lĩnh vực *</label><select id="f-mang" onchange="renderTopicTypesByField(); renderGVOptionsByField();"><option value="">-- Chọn lĩnh vực --</option>${fieldOptions.map((field) => `<option value="${escapeHtml(field)}">${escapeHtml(field)}</option>`).join('')}</select></div>
+        <div class="form-group"><label>Loại đề tài *</label><select id="f-topicType"><option value="">-- Chọn loại đề tài --</option></select></div>
+        <div class="form-note" style="grid-column:1/-1;font-size:13px;color:var(--text3);margin-top:6px;margin-bottom:0;line-height:1.5">*Ghi chú: Lĩnh vực AI có thể chọn cả đề tài ứng dụng và nghiên cứu; Chất lượng, Mô phỏng, Quản lý công nghiệp ưu tiên đề tài nghiên cứu; các lĩnh vực kinh doanh và kỹ thuật ứng dụng ưu tiên đề tài ứng dụng.</div>
       </div>
-      <button class="btn btn-primary" style="margin-top:8px;min-width:200px" onclick="submitBCTT()">📤 Gửi đăng ký</button>
+      <button class="btn btn-primary" style="margin-top:20px;min-width:200px" onclick="submitBCTT()">Gửi đăng ký</button>
     </div>`;
   }
   el.innerHTML = html;
@@ -1714,11 +1735,13 @@ function renderKLTN() {
       <div class="card">
         <div class="card-title" style="margin-bottom:20px">📋 Form đăng ký KLTN</div>
         <div class="grid-2">
-          <div class="form-group"><label>Tên đề tài *</label><input type="text" id="fk-ten" value="${myBCTT.tenDeTai}" placeholder="Tên đề tài KLTN..."></div>
-          <div class="form-group"><label>Loại đề tài *</label><select id="fk-topicType"><option value="">-- Chọn loại đề tài --</option><option value="ung_dung" ${normalizeTopicType(myBCTT.topicType) === 'ung_dung' ? 'selected' : ''}>Đề tài ứng dụng</option><option value="nghien_cuu" ${normalizeTopicType(myBCTT.topicType) === 'nghien_cuu' ? 'selected' : ''}>Đề tài nghiên cứu</option></select></div>
-          <div class="form-group"><label>Ngành *</label><select id="fk-mang"><option value="">-- Chọn ngành --</option>${DB.mangDeTai.map(m=>`<option ${m===myBCTT.mangDeTai?'selected':''}>${m}</option>`).join('')}</select></div>
-          <div class="form-group"><label>GV Hướng dẫn</label><input type="text" value="${getUser(myBCTT.gvEmail)?.name || myBCTT.gvEmail}" readonly style="background:var(--bg)" id="fk-gvhd-display"><input type="hidden" id="fk-gvhd" value="${myBCTT.gvEmail}"></div>
-          <div class="form-group"><label>Đợt đăng ký *</label><select id="fk-dot"><option value="">-- Chọn đợt --</option>${DB.dotDangKy.filter(d => d.trangThai === 'dang_mo' && d.loai === 'KLTN' && dotMatchesStudentHeAndMajor(d)).map(d => `<option value="${d.id}">${d.ten}</option>`).join('')}</select></div>
+          <div class="form-group" style="grid-column:1/-1"><label>Tên đề tài *</label><input type="text" id="fk-ten" value="${myBCTT.tenDeTai}" placeholder="Tên đề tài KLTN..."></div>
+          <div class="form-group" style="grid-column:1/-1"><label>Đợt đăng ký *</label><select id="fk-dot"><option value="">-- Chọn đợt --</option>${DB.dotDangKy.filter(d => d.trangThai === 'dang_mo' && d.loai === 'KLTN' && dotMatchesStudentHeAndMajor(d)).map(d => `<option value="${d.id}">${d.ten}</option>`).join('')}</select></div>
+          <div class="form-group"><label>Ngành *</label><select id="fk-nganh" disabled><option value="TMĐT">Thương mại điện tử</option></select></div>
+          <div class="form-group"><label>Lĩnh vực *</label><select id="fk-mang" onchange="renderKLTNTopicTypesByField();"><option value="">-- Chọn lĩnh vực --</option>${getCurrentStudentFields().map((field) => `<option value="${escapeHtml(field)}" ${myBCTT.mangDeTai === field ? 'selected' : ''}>${escapeHtml(field)}</option>`).join('')}</select></div>
+          <div class="form-group"><label>Loại đề tài *</label><select id="fk-topicType"><option value="">-- Chọn loại đề tài --</option></select></div>
+          <div class="form-note" style="font-size:13px;color:var(--text3);margin-top:8px;margin-bottom:0;line-height:1.5">*Ghi chú: Lĩnh vực AI có thể chọn cả đề tài ứng dụng và nghiên cứu; Chất lượng, Mô phỏng, Quản lý công nghiệp ưu tiên đề tài nghiên cứu; các lĩnh vực kinh doanh và kỹ thuật ứng dụng ưu tiên đề tài ứng dụng.</div>
+          <div class="form-group" style="grid-column:1/-1" ><label>GV Hướng dẫn</label><input type="text" value="${getUser(myBCTT.gvEmail)?.name || myBCTT.gvEmail}" readonly style="background:var(--bg)" id="fk-gvhd-display"><input type="hidden" id="fk-gvhd" value="${myBCTT.gvEmail}"></div>
         </div>
         <button class="btn btn-primary" style="margin-top:8px;min-width:200px" onclick="submitKLTN()">📤 Gửi đăng ký KLTN</button>
       </div>`;
@@ -2092,28 +2115,24 @@ function renderNhapDiem() {
         <div class="card-header"><div><div class="card-title" style="cursor:pointer;color:var(--primary)" onclick="viewKLTNDetail('${k.id}')">${escapeHtml(k.tenDeTai)}</div><div style="font-size:12px;color:var(--text3);margin-top:4px">${escapeHtml(sv?.name || k.svEmail)} • ${escapeHtml(getTopicTypeLabel(k.topicType))}</div></div>${statusBadge(k.trangThai)}</div>`;
 
       if (isHD) {
-      if (isHD) {
         html += `<div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:8px">🎯 GV hướng dẫn — chấm điểm</div>
           <div class="form-group"><label>Điểm HD</label><input type="number" id="diem-hd-${k.id}" value="${k.diemHD ?? ''}"></div>
           <div class="form-group"><label>Nhận xét & câu hỏi</label><textarea id="nhanxet-hd-${k.id}" rows="4" placeholder="Nhập nhận xét và câu hỏi...">${escapeHtml(k.hdNote || '')}</textarea></div>
           <button class="btn btn-primary btn-sm" onclick="saveScoreHD('${k.dangKyId}')">💾 Lưu điểm</button>`;
       }
-      
+
       if (isPB) {
         html += `<div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:8px;margin-top:12px">📋 GV phản biện — chấm điểm</div>
           <div class="form-group"><label>Điểm PB</label><input type="number" id="diem-pb-${k.id}" value="${k.diemPB ?? ''}"></div>
           <div class="form-group"><label>Nhận xét & câu hỏi</label><textarea id="nhanxet-pb-${k.id}" rows="4" placeholder="Nhập nhận xét và câu hỏi...">${escapeHtml((k.pbNote || '') + (k.pbCauHoi ? '\n\n— Câu hỏi —\n' + k.pbCauHoi : ''))}</textarea></div>
           <button class="btn btn-primary btn-sm" onclick="saveScorePB('${k.dangKyId}')">💾 Lưu điểm</button>`;
       }
-      
+
       if (isCT) {
         html += `<div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:8px;margin-top:12px">👔 Chủ tịch HĐ — chấm điểm</div>
           <div class="form-group"><label>Điểm CT.HĐ</label><input type="number" id="diem-ct-${k.id}" value="${k.diemBB ?? ''}"></div>
           <div class="form-group"><label>Nhận xét & câu hỏi</label><textarea id="nhanxet-ct-${k.id}" rows="4" placeholder="Nhập nhận xét và câu hỏi...">${escapeHtml((k.ctNote || '') + (k.ctCauHoi ? '\n\n— Câu hỏi —\n' + k.ctCauHoi : ''))}</textarea></div>
           <button class="btn btn-primary btn-sm" onclick="saveScoreCT('${k.dangKyId}')">💾 Lưu điểm</button>`;
-      }
-      }
-        );
       }
 
       html += `</div>`;
