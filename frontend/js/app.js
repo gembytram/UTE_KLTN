@@ -2462,53 +2462,144 @@ function renderNhapDiem() {
   if (u.role === 'gv') list = gvKLTNListForNhapDiem(u);
   else if (u.role === 'bm') list = DB.kltnList.filter((k) => ['cham_diem', 'bao_ve'].includes(k.trangThai));
 
-  let html = `<div class="page-header"><h1>📊 Nhập điểm & sau bảo vệ KLTN</h1><p>${list.length} đề tài</p></div>`;
+  let html = `<div class="page-header"><h1>📊 Nhập điểm & bảo vệ KLTN</h1><p>${list.length} đề tài</p></div>`;
 
   if (!list.length) {
-    html += `<div class="card"><div class="empty-state"><div class="empty-state-icon">📊</div><div class="empty-state-title">Không có KLTN nào trong giai đoạn này</div></div></div>`;
+    html += `<div class="card"><div class="empty-state"><div class="empty-state-title">Không có KLTN nào</div></div></div>`;
   } else {
     list.forEach((k) => {
       const sv = getUser(k.svEmail);
       const assignment = getKLTNAssignment(u, k);
-      const isHD = Boolean(assignment.isAdvisor);
-      const isPB = Boolean(assignment.isReviewer);
-      const isCT = Boolean(assignment.isChair);
-      const isTK = Boolean(assignment.isSecretary);
-      const isTVMember = Boolean(assignment.isCommitteeMember);
-
+      
       html += `<div class="card" style="margin-bottom:16px">
-        <div class="card-header"><div><div class="card-title" style="cursor:pointer;color:var(--primary)" onclick="viewKLTNDetail('${k.id}')">${escapeHtml(k.tenDeTai)}</div><div style="font-size:12px;color:var(--text3);margin-top:4px">${escapeHtml(sv?.name || k.svEmail)} • ${escapeHtml(getTopicTypeLabel(k.topicType))}</div></div>${statusBadge(k.trangThai)}</div>`;
+        <div class="card-header">
+          <div>
+            <div class="card-title" onclick="viewKLTNDetail('${k.id}')" style="cursor:pointer;color:var(--primary)">${escapeHtml(k.tenDeTai)}</div>
+            <div style="font-size:12px;color:var(--text3);margin-top:4px">${escapeHtml(sv?.name || k.svEmail)}</div>
+          </div>
+          ${statusBadge(k.trangThai)}
+        </div>`;
 
-      if (isHD) {
-        html += `<div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:8px">🎯 GV hướng dẫn — chấm điểm</div>
-          <div class="form-group"><label>Điểm HD</label><input type="number" id="diem-hd-${k.id}" value="${k.diemHD ?? ''}"></div>
-          <div class="form-group"><label>Nhận xét & câu hỏi</label><textarea id="nhanxet-hd-${k.id}" rows="4" placeholder="Nhập nhận xét và câu hỏi...">${escapeHtml(k.hdNote || '')}</textarea></div>
-          <button class="btn btn-primary btn-sm" onclick="saveScoreHD('${k.dangKyId}')">💾 Lưu điểm</button>`;
-      }
+      // Hàm nội bộ để render từng phần điểm
+      const renderScoreSection = (roleLabel, roleId, score, note, saveFunc) => {
+        const hasScore = score !== null && score !== undefined && score !== '';
+        const isEditing = k[`isEditing_${roleId}`]; // Kiểm tra xem có đang bật chế độ sửa không
+        
+        if (hasScore && !isEditing) {
+          // GIAO DIỆN NGẮN GỌN
+          return `
+            <div class="score-summary" style="background: #f8f9fa; padding: 10px; border-radius: 6px; margin-top: 10px; display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <span style="font-weight: 700; color: var(--primary);">${roleLabel}:</span> 
+                <b style="font-size: 16px; margin-left: 8px;">${score} điểm</b>
+                <p style="margin: 4px 0 0 0; font-size: 13px; color: #666; font-style: italic;">"${escapeHtml(note || 'Không có nhận xét')}"</p>
+              </div>
+              <button class="btn btn-outline btn-sm" onclick="enableEditScore('${k.id}', '${roleId}')">✏️ Sửa</button>
+            </div>`;
+        } else {
+          // GIAO DIỆN ĐẦY ĐỦ (Mở form khi chưa có điểm, hoặc khi bấm Sửa)
+          return `
+            <div id="form-${roleId}-${k.id}" style="margin-top: 12px; border-top: 1px dashed #ddd; padding-top: 12px;">
+              <div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:8px">${roleLabel} — chấm điểm</div>
+              <div class="form-group">
+                <label>Điểm</label>
+                <input type="number" step="0.1" id="diem-${roleId}-${k.id}" value="${score ?? ''}">
+              </div>
+              <div class="form-group">
+                <label>Nhận xét</label>
+                <textarea id="note-${roleId}-${k.id}" rows="3" placeholder="Nhập nhận xét...">${escapeHtml(note || '')}</textarea>
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <button class="btn btn-primary btn-sm" onclick="${saveFunc}('${k.dangKyId}', '${k.id}')">💾 Lưu điểm</button>
+                ${isEditing ? `<button class="btn btn-outline btn-sm" onclick="cancelEditScore('${k.id}', '${roleId}')">❌ Hủy</button>` : ''}
+              </div>
+            </div>`;
+        }
+      };
 
-      if (isPB) {
-        html += `<div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:8px;margin-top:12px">📋 GV phản biện — chấm điểm</div>
-          <div class="form-group"><label>Điểm PB</label><input type="number" id="diem-pb-${k.id}" value="${k.diemPB ?? ''}"></div>
-          <div class="form-group"><label>Nhận xét & câu hỏi</label><textarea id="nhanxet-pb-${k.id}" rows="4" placeholder="Nhập nhận xét và câu hỏi...">${escapeHtml((k.pbNote || '') + (k.pbCauHoi ? '\n\n— Câu hỏi —\n' + k.pbCauHoi : ''))}</textarea></div>
-          <button class="btn btn-primary btn-sm" onclick="saveScorePB('${k.dangKyId}')">💾 Lưu điểm</button>`;
-      }
-
-      if (isCT) {
-        html += `<div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:8px;margin-top:12px">👔 Chủ tịch HĐ — chấm điểm</div>
-          <div class="form-group"><label>Điểm CT.HĐ</label><input type="number" id="diem-ct-${k.id}" value="${k.diemBB ?? ''}"></div>
-          <div class="form-group"><label>Nhận xét & câu hỏi</label><textarea id="nhanxet-ct-${k.id}" rows="4" placeholder="Nhập nhận xét và câu hỏi...">${escapeHtml((k.ctNote || '') + (k.ctCauHoi ? '\n\n— Câu hỏi —\n' + k.ctCauHoi : ''))}</textarea></div>
-          <button class="btn btn-primary btn-sm" onclick="saveScoreCT('${k.dangKyId}')">💾 Lưu điểm</button>`;
-      }
+      if (assignment.isAdvisor) html += renderScoreSection('🎯 Hướng dẫn', 'hd', k.diemHD, k.hdNote, 'handleSaveScoreHD');
+      if (assignment.isReviewer) html += renderScoreSection('📋 Phản biện', 'pb', k.diemPB, k.pbNote, 'handleSaveScorePB');
+      if (assignment.isChair) html += renderScoreSection('👔 Chủ tịch', 'ct', k.diemBB, k.ctNote, 'handleSaveScoreCT');
 
       html += `</div>`;
     });
   }
   el.innerHTML = html;
-  list.forEach((k) => {
-    ['HD', 'PB', 'TV'].forEach((vaiTro) => recalcKLTNRoleTotal(k.id, vaiTro));
+}
+// Bật chế độ sửa điểm
+function enableEditScore(kltnId, roleId) {
+  const k = DB.kltnList.find(x => x.id === kltnId);
+  if (!k) return;
+  k[`isEditing_${roleId}`] = true; // Bật cờ edit lên
+  renderNhapDiem(); // Vẽ lại giao diện, form sẽ mở ra cùng dữ liệu cũ
+}
+
+// Hủy chế độ sửa (đóng form lại như cũ)
+function cancelEditScore(kltnId, roleId) {
+  const k = DB.kltnList.find(x => x.id === kltnId);
+  if (!k) return;
+  k[`isEditing_${roleId}`] = false; // Tắt cờ edit
+  renderNhapDiem();
+}
+
+// --- CÁC HÀM XỬ LÝ LƯU ĐIỂM GỌI API ---
+
+function handleSaveScoreHD(dangKyId, kltnId) {
+  saveScoreToAPI(dangKyId, kltnId, 'HD', 'diemHD', 'hdNote');
+}
+
+function handleSaveScorePB(dangKyId, kltnId) {
+  saveScoreToAPI(dangKyId, kltnId, 'PB', 'diemPB', 'pbNote');
+}
+
+function handleSaveScoreCT(dangKyId, kltnId) {
+  saveScoreToAPI(dangKyId, kltnId, 'CT', 'diemBB', 'ctNote');
+}
+
+// Hàm dùng chung để gọi API, code cực kỳ gọn gàng
+function saveScoreToAPI(dangKyId, kltnId, vaiTro, ramScoreKey, ramNoteKey) {
+  const suffix = vaiTro.toLowerCase();
+  const score = document.getElementById(`diem-${suffix}-${kltnId}`).value;
+  const note = document.getElementById(`note-${suffix}-${kltnId}`).value;
+
+  if (!score) return alert("Vui lòng nhập điểm!");
+
+  const payload = {
+    dang_ky_id: dangKyId,
+    vai_tro: vaiTro,
+    diem: parseFloat(score),
+    nhan_xet: note
+  };
+
+  apiRequest('/api/kltn/grade', 'POST', payload).then(res => {
+    if (res.ok) {
+      // Cập nhật lại Database cục bộ (RAM)
+      const k = DB.kltnList.find(x => x.id === kltnId);
+      k[ramScoreKey] = payload.diem;
+      k[ramNoteKey] = payload.nhan_xet;
+      k[`isEditing_${suffix}`] = false; // Tắt chế độ sửa sau khi lưu thành công
+
+      toast(`✅ Đã lưu điểm ${vaiTro} thành công!`);
+      renderNhapDiem(); // Chuyển sang dạng ngắn gọn ngay lập tức
+    } else {
+      alert("Lỗi khi lưu điểm: " + (res.message || "Unkown error"));
+    }
   });
 }
 
+function handleSaveScoreCT(dangKyId, kltnId) {
+  const score = document.getElementById(`diem-ct-${kltnId}`).value;
+  const note = document.getElementById(`note-ct-${kltnId}`).value;
+
+  if (!score) return alert("Vui lòng nhập điểm!");
+
+  const payload = {
+    dang_ky_id: dangKyId,
+    vai_tro: 'CT',
+    diem: parseFloat(score),
+    nhan_xet: note
+  }
+}
 function renderHuongDan() {
   const u = DB.currentUser;
   const list = DB.bcttList.filter(b => b.gvEmail === u.email && b.trangThai === 'cho_duyet');
@@ -3116,10 +3207,16 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 });
 // ==========================================
-// HÀM TẠO DỮ LIỆU ẢO ĐỂ TEST PHÂN CÔNG KLTN
+// HÀM TẠO DỮ LIỆU ẢO AN TOÀN
 // ==========================================
 function taoDuLieuTest() {
-  // 1. Tạo 5 sinh viên ảo
+  // 1. Khởi tạo an toàn: Nếu DB chưa có thì tạo mới để tránh lỗi "undefined"
+  window.DB = window.DB || {};
+  window.DB.users = window.DB.users || [];
+  window.DB.kltnList = window.DB.kltnList || [];
+  window.DB.currentUser = window.DB.currentUser || { email: 'gv1@ute.vn' }; // Tránh lỗi null currentUser
+
+  // 2. Tạo 5 sinh viên ảo
   const mockStudents = [
     { id: 901, ma: '20110001', mssv: '20110001', email: 'sv1@student.ute.vn', name: 'Nguyễn Văn Test Một', role: 'sv', chuyenMon: ['Công nghệ phần mềm'] },
     { id: 902, ma: '20110002', mssv: '20110002', email: 'sv2@student.ute.vn', name: 'Trần Thị Test Hai', role: 'sv', chuyenMon: ['Hệ thống thông tin'] },
@@ -3128,33 +3225,46 @@ function taoDuLieuTest() {
     { id: 905, ma: '20110005', mssv: '20110005', email: 'sv5@student.ute.vn', name: 'Hoàng Test Năm', role: 'sv', chuyenMon: ['Khoa học dữ liệu'] }
   ];
 
-  // Đẩy sinh viên vào RAM
   mockStudents.forEach(sv => {
     if (!DB.users.find(u => u.email === sv.email)) {
       DB.users.push(sv);
     }
   });
 
-  // 2. Tạo 5 đề tài KLTN tương ứng (Chưa có Hội đồng, chưa có PB)
+  // 3. Tạo 5 đề tài KLTN
   const mockKltn = [
-    { id: 'kltn_test_1', dangKyId: 101, svEmail: 'sv1@student.ute.vn', tenDeTai: 'Xây dựng website bán hàng Ecommerce', mangDeTai: 'Công nghệ phần mềm', gvHDEmail: DB.currentUser?.email || 'gv1@ute.vn', gvPBEmail: null, hoiDong: null, trangThai: 'thuc_hien' },
-    { id: 'kltn_test_2', dangKyId: 102, svEmail: 'sv2@student.ute.vn', tenDeTai: 'Nghiên cứu AI dự đoán giá cổ phiếu', mangDeTai: 'Hệ thống thông tin', gvHDEmail: DB.currentUser?.email || 'gv1@ute.vn', gvPBEmail: null, hoiDong: null, trangThai: 'thuc_hien' },
-    { id: 'kltn_test_3', dangKyId: 103, svEmail: 'sv3@student.ute.vn', tenDeTai: 'Phân tích mã độc mã hóa tống tiền Ransomware', mangDeTai: 'An toàn thông tin', gvHDEmail: 'gv2@ute.vn', gvPBEmail: null, hoiDong: null, trangThai: 'thuc_hien' },
-    { id: 'kltn_test_4', dangKyId: 104, svEmail: 'sv4@student.ute.vn', tenDeTai: 'Tối ưu hóa định tuyến mạng SDN', mangDeTai: 'Mạng máy tính', gvHDEmail: 'gv2@ute.vn', gvPBEmail: null, hoiDong: null, trangThai: 'thuc_hien' },
-    { id: 'kltn_test_5', dangKyId: 105, svEmail: 'sv5@student.ute.vn', tenDeTai: 'Hệ thống gợi ý sản phẩm dựa trên hành vi', mangDeTai: 'Khoa học dữ liệu', gvHDEmail: 'gv3@ute.vn', gvPBEmail: null, hoiDong: null, trangThai: 'thuc_hien' }
+    { id: 'kltn_test_1', dangKyId: 101, svEmail: 'sv1@student.ute.vn', tenDeTai: 'Xây dựng website bán hàng Ecommerce', mangDeTai: 'Công nghệ phần mềm', gvHDEmail: DB.currentUser.email, gvPBEmail: null, hoiDong: null, trangThai: 'thuc_hien' },
+    { id: 'kltn_test_2', dangKyId: 102, svEmail: 'sv2@student.ute.vn', tenDeTai: 'Nghiên cứu AI dự đoán giá cổ phiếu', mangDeTai: 'Hệ thống thông tin', gvHDEmail: DB.currentUser.email, gvPBEmail: null, hoiDong: null, trangThai: 'thuc_hien' },
+    { id: 'kltn_test_3', dangKyId: 103, svEmail: 'sv3@student.ute.vn', tenDeTai: 'Phân tích mã độc Ransomware', mangDeTai: 'An toàn thông tin', gvHDEmail: 'gv2@ute.vn', gvPBEmail: null, hoiDong: null, trangThai: 'thuc_hien' },
+    { id: 'kltn_test_4', dangKyId: 104, svEmail: 'sv4@student.ute.vn', tenDeTai: 'Tối ưu hóa mạng SDN', mangDeTai: 'Mạng máy tính', gvHDEmail: 'gv2@ute.vn', gvPBEmail: null, hoiDong: null, trangThai: 'cham_diem' },
+    { id: 'kltn_test_5', dangKyId: 105, svEmail: 'sv5@student.ute.vn', tenDeTai: 'Hệ thống gợi ý sản phẩm', mangDeTai: 'Khoa học dữ liệu', gvHDEmail: 'gv3@ute.vn', gvPBEmail: null, hoiDong: null, trangThai: 'thuc_hien' }
   ];
 
-  // Đẩy KLTN vào RAM
   mockKltn.forEach(k => {
     if (!DB.kltnList.find(x => x.id === k.id)) {
       DB.kltnList.push(k);
     }
   });
 
-  toast("✅ Đã tạo 5 sinh viên và 5 KLTN ảo thành công!");
-  
-  // Tự động load lại giao diện phân công
-  if (DB.currentPage === 'phancong') {
+  if (typeof toast === "function") toast("✅ Đã tạo dữ liệu ảo!");
+  else console.log("✅ Đã tạo dữ liệu ảo!");
+   if (DB.currentPage === 'phancong') {
+
     renderPhanCong();
+
   }
+}
+// 2. In bảng kiểm tra
+if (window.DB && window.DB.kltnList && window.DB.kltnList.length > 0) {
+    console.log(`%c📚 ĐÃ NẠP THÀNH CÔNG ${DB.kltnList.length} ĐỀ TÀI VÀO BỘ NHỚ`, "color: #4caf50; font-size: 14px; font-weight: bold;");
+    const dataHienThi = DB.kltnList.map(k => ({
+        "ID Nội bộ": k.id,
+        "Đăng Ký ID": k.dangKyId,
+        "Tên Đề Tài": k.tenDeTai,
+        "Email Sinh Viên": k.svEmail,
+        "Trạng Thái": k.trangThai
+    }));
+    console.table(dataHienThi);
+} else {
+    console.log("⚠️ Có lỗi xảy ra, không thể nạp dữ liệu.");
 }

@@ -388,7 +388,7 @@ def register_routes(app):
         gv = get_current_user(conn)
         role_hdr = str(request.headers.get("X-User-Role") or session.get("role") or "").upper()
         
-        # Kiểm tra quyền chấm
+        #Kiểm tra quyền chấm
         reg = conn.execute(
             "SELECT * FROM dang_ky WHERE id = ? AND loai = 'KLTN'",
             (dang_ky_id,),
