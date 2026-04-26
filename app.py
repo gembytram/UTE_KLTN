@@ -71,19 +71,27 @@ def google_callback():
     if not email or not email_verified:
         return ("Google account email chưa được xác thực", 403)
 
+    # Cho phép đăng nhập bằng email trường hoặc local-part trùng với mã người dùng.
+    email_local = email.split("@", 1)[0].split("+", 1)[0].strip().lower()
+
     conn = get_db()
     users = conn.execute(
         """
         SELECT *
         FROM users
-        WHERE lower(ma || '@hcmute.edu.vn') = ?
+        WHERE lower(trim(ma)) = ?
+           OR lower(trim(ma) || '@hcmute.edu.vn') = ?
+           OR lower(trim(ma) || '@student.hcmute.edu.vn') = ?
         """,
-        (email,),
+        (email_local, email, email),
     ).fetchall()
     conn.close()
 
     if len(users) == 0:
-        return ("Không có quyền truy cập hệ thống", 403)
+        print(
+            f"[OAuth] No matched user for google_email='{email}', local_part='{email_local}'"
+        )
+        return _frontend_redirect_by_role(None, "google_access_denied")
     if len(users) > 1:
         return ("Dữ liệu người dùng bị trùng email", 500)
 

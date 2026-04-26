@@ -1112,6 +1112,7 @@ function toOauthErrorMessage(code) {
     google_oauth_not_configured: "Google OAuth chưa được cấu hình.",
     google_auth_failed: "Đăng nhập Google thất bại.",
     google_userinfo_failed: "Không lấy được thông tin tài khoản Google.",
+    google_access_denied: "Không có quyền truy cập hệ thống",
   };
   return mapping[code] || "Đăng nhập OAuth thất bại.";
 }
@@ -4195,7 +4196,16 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   if (oauthError) {
     toast(toOauthErrorMessage(oauthError), "error");
+    try {
+      await apiRequest("/api/logout", { method: "POST", body: JSON.stringify({}) });
+    } catch (_) {}
+    DB.currentUser = null;
+    localStorage.removeItem("currentUser");
+    document.getElementById("screen-app").classList.remove("active");
+    document.getElementById("screen-login").classList.add("active");
+    document.getElementById("notif-panel").classList.remove("open");
     clearAuthQueryParams();
+    return;
   }
 
   if (oauthState === "success") {
