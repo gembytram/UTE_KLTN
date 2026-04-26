@@ -33,6 +33,75 @@ def register_routes(app):
         response.headers["Expires"] = "0"
         return response
 
+    def _split_csv(value):
+        return [x.strip() for x in str(value or "").split(",") if x.strip()]
+
+    def _normalize_major(value):
+        raw = str(value or "").strip().lower()
+        aliases = {
+            "logistic": "log",
+            "log": "log",
+        }
+        return aliases.get(raw, raw)
+
+    def _major_matches(a, b):
+        return _normalize_major(a) and _normalize_major(a) == _normalize_major(b)
+
+    def _current_user_majors(conn):
+        current_user = get_current_user(conn)
+        if not current_user:
+            return None, []
+        return current_user, _split_csv(current_user["linh_vuc"])
+
+    def _assert_tbm_can_manage_dot(conn, dot_id):
+        current_user, nganh_list = _current_user_majors(conn)
+        if not current_user:
+            return None, None, fail("Chưa đăng nhập", 401)
+        dot = conn.execute("SELECT * FROM dot WHERE id = ?", (dot_id,)).fetchone()
+        if not dot:
+            return current_user, None, fail("Không tìm thấy đợt", 404)
+        dot_nganh = (dot["nganh"] or "").strip()
+        if nganh_list and not any(_major_matches(dot_nganh, major) for major in nganh_list):
+            return current_user, dot, fail("Bạn không được phép quản lý đợt này (ngoài lĩnh vực quản lý)", 403)
+        return current_user, dot, None
+
+    def _seed_slots_for_dot(conn, dot_id, nganh, copy_from_dot_id=None):
+        lecturers = [
+            row
+            for row in conn.execute("SELECT id, linh_vuc FROM users WHERE role IN ('GV', 'TBM') ORDER BY id ASC").fetchall()
+            if any(_major_matches(nganh, major) for major in _split_csv(row["linh_vuc"]))
+        ]
+        if not lecturers:
+            return
+
+        template_map = {}
+        if copy_from_dot_id:
+            template_rows = conn.execute(
+                """
+                SELECT gv_id, he_dao_tao, quota, slot_con_lai, duyet_tbm
+                FROM gv_slot
+                WHERE dot_id = ?
+                """,
+                (copy_from_dot_id,),
+            ).fetchall()
+            template_map = {
+                (row["gv_id"], (row["he_dao_tao"] or "").strip() or "DaiTra"): row for row in template_rows
+            }
+
+        for lecturer in lecturers:
+            gv_id = lecturer["id"]
+            for he in ("DaiTra", "CLC"):
+                template = template_map.get((gv_id, he))
+                quota = int(template["quota"]) if template else 0
+                slot_con_lai = int(template["slot_con_lai"]) if template else 0
+                duyet_tbm = int(template["duyet_tbm"]) if template else 0
+                conn.execute(
+                    """
+                    INSERT INTO gv_slot (gv_id, dot_id, quota, slot_con_lai, duyet_tbm, he_dao_tao)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (gv_id, dot_id, quota, slot_con_lai, duyet_tbm, he),
+                )
     @app.errorhandler(413)
     def file_too_large(_):
         return fail("File vượt quá 20MB", 400)
@@ -840,11 +909,12 @@ def register_routes(app):
         data = request.json or {}
         slot_id = data.get("slot_id")
         gv_id = data.get("gv_id")
+        dot_id = data.get("dot_id")
         he_dao_tao = (data.get("he_dao_tao") or "").strip()
         quota = data.get("quota")
         slot_con_lai = data.get("slot_con_lai")
-        if not slot_id and not (gv_id and he_dao_tao):
-            return fail("Thiếu slot_id hoặc (gv_id, he_dao_tao)", 400)
+        if not slot_id and not (gv_id and dot_id and he_dao_tao):
+            return fail("Thiếu slot_id hoặc (gv_id, dot_id, he_dao_tao)", 400)
         if quota is None and slot_con_lai is None:
             return fail("Thiếu dữ liệu cập nhật slot", 400)
 
@@ -871,17 +941,17 @@ def register_routes(app):
             target_gv_id = gv_id
             slot = conn.execute(
                 """
-                SELECT id, gv_id, quota, slot_con_lai, he_dao_tao
+                SELECT id, gv_id, dot_id, quota, slot_con_lai, he_dao_tao
                 FROM gv_slot
-                WHERE gv_id = ? AND he_dao_tao = ?
+                WHERE gv_id = ? AND dot_id = ? AND he_dao_tao = ?
                 ORDER BY id ASC
                 LIMIT 1
                 """,
-                (gv_id, he_dao_tao),
+                (gv_id, dot_id, he_dao_tao),
             ).fetchone()
             if not slot:
                 conn.close()
-                return fail("Không tìm thấy slot theo hệ đào tạo", 404)
+                return fail("Không tìm thấy slot theo đợt và hệ đào tạo", 404)
 
         target_gv = conn.execute(
             "SELECT id, ho_ten, linh_vuc FROM users WHERE id = ?",
@@ -917,13 +987,13 @@ def register_routes(app):
                 """
                 UPDATE gv_slot
                 SET quota = ?, slot_con_lai = ?
-                WHERE gv_id = ? AND he_dao_tao = ?
+                WHERE gv_id = ? AND dot_id = ? AND he_dao_tao = ?
                 """,
-                (new_quota, new_slot_con_lai, target_gv_id, he_dao_tao),
+                (new_quota, new_slot_con_lai, target_gv_id, dot_id or slot["dot_id"], he_dao_tao),
             )
             if cursor.rowcount == 0:
                 conn.close()
-                return fail("Không tìm thấy slot theo hệ đào tạo để cập nhật", 404)
+                return fail("Không tìm thấy slot theo đợt và hệ đào tạo để cập nhật", 404)
         else:
             conn.execute(
                 "UPDATE gv_slot SET quota = ?, slot_con_lai = ? WHERE id = ?",
@@ -1232,22 +1302,22 @@ def register_routes(app):
     @role_required("TBM")
     def get_dot_list():
         conn = get_db()
-        gv = get_current_user(conn)
+        gv, nganh_list = _current_user_majors(conn)
         if not gv:
             conn.close()
             return fail("Không tìm thấy người dùng", 401)
 
-        nganh_list = [x.strip() for x in (gv["linh_vuc"] or "").split(",") if x.strip()]
         if not nganh_list:
             conn.close()
             return ok("Lấy danh sách đợt", {"dotList": []})
 
-        dots = conn.execute(
-            "SELECT id, ten_dot, loai, han_dang_ky, han_nop, trang_thai, nganh FROM dot WHERE nganh IN ({})".format(
-                ",".join(["?"] * len(nganh_list))
-            ),
-            nganh_list,
-        ).fetchall()
+        dots = [
+            row
+            for row in conn.execute(
+                "SELECT id, ten_dot, loai, han_dang_ky, han_nop, trang_thai, he_dao_tao, nganh FROM dot ORDER BY id ASC"
+            ).fetchall()
+            if any(_major_matches(row["nganh"], major) for major in nganh_list)
+        ]
 
         dot_list = [dict(row) for row in dots]
         conn.close()
@@ -1264,28 +1334,16 @@ def register_routes(app):
             return fail("Thiếu dot_id hoặc trang_thai không hợp lệ", 400)
 
         conn = get_db()
-        gv = get_current_user(conn)
-        if not gv:
-            conn.close()
-            return fail("Không tìm thấy người dùng", 401)
-
         try:
             dot_id = int(dot_id)
         except (TypeError, ValueError):
             conn.close()
             return fail("dot_id không hợp lệ", 400)
 
-        dot = conn.execute("SELECT id, nganh FROM dot WHERE id = ?", (dot_id,)).fetchone()
-        if not dot:
+        _, dot, error_response = _assert_tbm_can_manage_dot(conn, dot_id)
+        if error_response:
             conn.close()
-            return fail("Không tìm thấy đợt", 404)
-
-        nganh_list = [x.strip() for x in (gv["linh_vuc"] or "").split(",") if x.strip()]
-        dot_nganh = (dot["nganh"] or "").strip()
-
-        if dot_nganh not in nganh_list:
-            conn.close()
-            return fail("Bạn không được phép quản lý đợt này (ngoài lĩnh vực quản lý)", 403)
+            return error_response
 
         conn.execute("UPDATE dot SET trang_thai = ? WHERE id = ?", (trang_thai, dot_id))
         conn.commit()
@@ -1293,6 +1351,88 @@ def register_routes(app):
 
         status_text = "Mở" if trang_thai == "mo" else "Khóa"
         return ok(f"{status_text} đợt thành công")
+
+    @app.route("/api/dot/create", methods=["POST"])
+    @role_required("TBM")
+    def create_dot():
+        data = request.json or {}
+        ten_dot = (data.get("ten_dot") or "").strip()
+        loai = (data.get("loai") or "").strip().upper()
+        han_dang_ky = (data.get("han_dang_ky") or "").strip()
+        han_nop = (data.get("han_nop") or "").strip()
+        trang_thai = (data.get("trang_thai") or "dong").strip()
+        he_dao_tao = (data.get("he_dao_tao") or "").strip()
+        nganh = (data.get("nganh") or "").strip()
+        copy_from_dot_id = data.get("copy_from_dot_id")
+
+        if not ten_dot or loai not in ("BCTT", "KLTN") or not nganh:
+            return fail("Thiếu tên đợt, loại đợt hoặc ngành", 400)
+        if trang_thai not in ("mo", "dong"):
+            return fail("Trạng thái đợt không hợp lệ", 400)
+        if he_dao_tao not in ("", "DaiTra", "CLC"):
+            return fail("Hệ đào tạo không hợp lệ", 400)
+
+        conn = get_db()
+        current_user, nganh_list = _current_user_majors(conn)
+        if not current_user:
+            conn.close()
+            return fail("Không tìm thấy người dùng", 401)
+        if nganh_list and not any(_major_matches(nganh, major) for major in nganh_list):
+            conn.close()
+            return fail("Bạn không được phép tạo đợt cho ngành này", 403)
+
+        copy_dot = None
+        if copy_from_dot_id not in (None, ""):
+            try:
+                copy_from_dot_id = int(copy_from_dot_id)
+            except (TypeError, ValueError):
+                conn.close()
+                return fail("copy_from_dot_id không hợp lệ", 400)
+            _, copy_dot, error_response = _assert_tbm_can_manage_dot(conn, copy_from_dot_id)
+            if error_response:
+                conn.close()
+                return error_response
+
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO dot (ten_dot, loai, han_dang_ky, han_nop, trang_thai, he_dao_tao, nganh)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (ten_dot, loai, han_dang_ky, han_nop, trang_thai, he_dao_tao, nganh),
+        )
+        dot_id = cursor.lastrowid
+        _seed_slots_for_dot(conn, dot_id, nganh, copy_dot["id"] if copy_dot else None)
+        conn.commit()
+        conn.close()
+        return ok("Tạo đợt thành công", {"dot_id": dot_id})
+
+    @app.route("/api/dot/delete", methods=["POST"])
+    @role_required("TBM")
+    def delete_dot():
+        data = request.json or {}
+        dot_id = data.get("dot_id")
+        try:
+            dot_id = int(dot_id)
+        except (TypeError, ValueError):
+            return fail("dot_id không hợp lệ", 400)
+
+        conn = get_db()
+        _, dot, error_response = _assert_tbm_can_manage_dot(conn, dot_id)
+        if error_response:
+            conn.close()
+            return error_response
+
+        reg_exists = conn.execute("SELECT id FROM dang_ky WHERE dot_id = ? LIMIT 1", (dot_id,)).fetchone()
+        if reg_exists:
+            conn.close()
+            return fail("Đợt đã có sinh viên đăng ký nên không thể xóa", 400)
+
+        conn.execute("DELETE FROM gv_slot WHERE dot_id = ?", (dot_id,))
+        conn.execute("DELETE FROM dot WHERE id = ?", (dot_id,))
+        conn.commit()
+        conn.close()
+        return ok("Xóa đợt thành công", {"dot_id": dot["id"]})
 
     @app.route("/api/upload", methods=["POST"])
     @login_required
