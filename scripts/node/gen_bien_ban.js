@@ -1,7 +1,15 @@
 const {
-  Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
-  AlignmentType, BorderStyle, WidthType, UnderlineType,
-  PageOrientation, HeadingLevel
+  Document,
+  Packer,
+  Paragraph,
+  TextRun,
+  Table,
+  TableRow,
+  TableCell,
+  AlignmentType,
+  BorderStyle,
+  WidthType,
+  TabStopType,
 } = require('docx');
 const fs = require('fs');
 
@@ -12,6 +20,14 @@ const {
   tenDeTai = '',
   sinhVien = '',
   maSV = '',
+  diemGVHD = '',
+  diemGVPB = '',
+  diemHoiDongTB = '',
+  diemTongHop = '',
+  diemThanhVien = '',
+  tenGVHD = '',
+  tenGVPB = '',
+  tenChuTich = '',
   nhanXetCT = '',
   nhanXetTV = '',
   yeuCauChinhSua = '',
@@ -34,15 +50,18 @@ const noBorder = {
   right: { style: BorderStyle.NONE, size: 0 },
 };
 
-const thinBorder = {
-  top: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
-  bottom: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
-  left: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
-  right: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+const whiteBorder = {
+  top: { style: BorderStyle.SINGLE, size: 1, color: 'FFFFFF' },
+  bottom: { style: BorderStyle.SINGLE, size: 1, color: 'FFFFFF' },
+  left: { style: BorderStyle.SINGLE, size: 1, color: 'FFFFFF' },
+  right: { style: BorderStyle.SINGLE, size: 1, color: 'FFFFFF' },
 };
 
+const CONTENT_WIDTH = 9666;
+const CONTENT_GUTTER = 220;
+
 function txt(text, opts = {}) {
-  return new TextRun({ text, font: 'Times New Roman', size: 24, ...opts });
+  return new TextRun({ text, font: 'Times New Roman', size: 24, color: '000000', ...opts });
 }
 
 function boldTxt(text, opts = {}) {
@@ -50,82 +69,97 @@ function boldTxt(text, opts = {}) {
 }
 
 function centerPara(children, spacing = {}) {
-  return new Paragraph({ alignment: AlignmentType.CENTER, children, spacing: { before: 0, after: 0, ...spacing } });
+  return new Paragraph({
+    alignment: AlignmentType.CENTER,
+    children,
+    spacing: { before: 0, after: 0, line: 360, ...spacing },
+  });
 }
 
 function leftPara(children, spacing = {}) {
-  return new Paragraph({ alignment: AlignmentType.LEFT, children, spacing: { before: 0, after: 0, ...spacing } });
+  return new Paragraph({
+    alignment: AlignmentType.LEFT,
+    children,
+    spacing: { before: 0, after: 0, line: 360, ...spacing },
+  });
 }
 
-function dottedLinePara(label = '', value = '', indent = 0) {
-  const dots = '....................................................................................................'.repeat(2);
-  return leftPara([
-    txt(label),
-    txt(value || dots.substring(0, Math.max(10, 80 - label.length)), { underline: value ? { type: UnderlineType.SINGLE } : undefined }),
-  ]);
+function dottedDivider(width = 8600) {
+  return new Paragraph({
+    children: [txt('')],
+    border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: '7A7A7A', space: 1 } },
+    spacing: { before: 40, after: 120 },
+    indent: { left: 0, right: 0 },
+    width: { size: width, type: WidthType.DXA },
+  });
 }
 
-function dotLine(count = 100) {
-  return '.'.repeat(count);
+function dottedFillLine(label, value = '') {
+  return new Paragraph({
+    spacing: { before: 0, after: 20, line: 360 },
+    children: [txt(`${label} ${value || ''}`.trimEnd())],
+  });
 }
 
-function signatureTable(leftLabel, leftName, rightLabel, rightName) {
+function blankDottedLine() {
+  return new Paragraph({
+    spacing: { before: 0, after: 0, line: 360 },
+    children: [txt(' ')],
+  });
+}
+
+function contentBlock(text, lineCount = 6) {
+  const lines = String(text || '')
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim().length > 0);
+  const paras = lines.map((line) =>
+    new Paragraph({
+      alignment: AlignmentType.JUSTIFIED,
+      spacing: { before: 0, after: 20, line: 360 },
+      children: [txt(line, { color: '000000' })],
+    })
+  );
+  while (paras.length < lineCount) {
+    paras.push(blankDottedLine());
+  }
+  return paras;
+}
+
+function chairmanOpinionLine() {
   return new Table({
-    width: { size: 9026, type: WidthType.DXA },
-    columnWidths: [4513, 4513],
+    width: { size: CONTENT_WIDTH, type: WidthType.DXA },
+    alignment: AlignmentType.CENTER,
+    columnWidths: [CONTENT_WIDTH],
     borders: {
-      top: { style: BorderStyle.NONE },
-      bottom: { style: BorderStyle.NONE },
-      left: { style: BorderStyle.NONE },
-      right: { style: BorderStyle.NONE },
-      insideH: { style: BorderStyle.NONE },
-      insideV: { style: BorderStyle.NONE },
+      top: { style: BorderStyle.SINGLE, size: 1, color: 'FFFFFF' },
+      bottom: { style: BorderStyle.SINGLE, size: 1, color: 'FFFFFF' },
+      left: { style: BorderStyle.SINGLE, size: 1, color: 'FFFFFF' },
+      right: { style: BorderStyle.SINGLE, size: 1, color: 'FFFFFF' },
+      insideH: { style: BorderStyle.SINGLE, size: 1, color: 'FFFFFF' },
+      insideV: { style: BorderStyle.SINGLE, size: 1, color: 'FFFFFF' },
     },
     rows: [
       new TableRow({
         children: [
           new TableCell({
-            borders: noBorder,
-            width: { size: 4513, type: WidthType.DXA },
-            children: [centerPara([boldTxt(leftLabel)])],
-          }),
-          new TableCell({
-            borders: noBorder,
-            width: { size: 4513, type: WidthType.DXA },
-            children: [centerPara([boldTxt(rightLabel)])],
-          }),
-        ],
-      }),
-      new TableRow({
-        children: [
-          new TableCell({
-            borders: noBorder,
-            width: { size: 4513, type: WidthType.DXA },
-            children: [centerPara([txt('(Ký, họ và tên)')])],
-          }),
-          new TableCell({
-            borders: noBorder,
-            width: { size: 4513, type: WidthType.DXA },
-            children: [centerPara([txt('(Ký, họ và tên)')])],
-          }),
-        ],
-      }),
-      new TableRow({
-        children: [
-          new TableCell({
-            borders: noBorder,
-            width: { size: 4513, type: WidthType.DXA },
+            width: { size: CONTENT_WIDTH, type: WidthType.DXA },
+            borders: whiteBorder,
+            margins: { top: 0, bottom: 0, left: 0, right: 0 },
             children: [
-              new Paragraph({ spacing: { before: 800, after: 0 } }),
-              centerPara([boldTxt(leftName || '')]),
-            ],
-          }),
-          new TableCell({
-            borders: noBorder,
-            width: { size: 4513, type: WidthType.DXA },
-            children: [
-              new Paragraph({ spacing: { before: 800, after: 0 } }),
-              centerPara([boldTxt(rightName || '')]),
+              new Paragraph({
+                children: [txt('')],
+                border: {
+                  bottom: {
+                    color: '000000',
+                    space: 1,
+                    style: BorderStyle.DOTTED,
+                    size: 6,
+                  },
+                },
+                spacing: { before: 120, after: 0, line: 360 },
+                keepLines: true,
+              }),
             ],
           }),
         ],
@@ -134,20 +168,328 @@ function signatureTable(leftLabel, leftName, rightLabel, rightName) {
   });
 }
 
-function multilineContent(text, emptyLines = 5) {
-  const lines = text ? text.split('\n') : [];
-  const paras = [];
-  if (lines.length > 0) {
-    for (const line of lines) {
-      paras.push(leftPara([txt(line)]));
-    }
-  } else {
-    for (let i = 0; i < emptyLines; i++) {
-      paras.push(leftPara([txt(dotLine(90))]));
-    }
-  }
-  return paras;
+function scoreRow(role, name, score) {
+  return new TableRow({
+    children: [
+      new TableCell({
+        width: { size: 1700, type: WidthType.DXA },
+        borders: {
+          top: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+          bottom: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+          left: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+          right: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+        },
+        margins: { top: 80, bottom: 80, left: 100, right: 100 },
+        children: [centerPara([boldTxt(role)])],
+      }),
+      new TableCell({
+        width: { size: 6166, type: WidthType.DXA },
+        borders: {
+          top: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+          bottom: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+          left: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+          right: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+        },
+        margins: { top: 80, bottom: 80, left: 120, right: 120 },
+        children: [leftPara([txt(name || '')])],
+      }),
+      new TableCell({
+        width: { size: 1800, type: WidthType.DXA },
+        borders: {
+          top: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+          bottom: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+          left: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+          right: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+        },
+        margins: { top: 80, bottom: 80, left: 100, right: 100 },
+        children: [centerPara([txt(score || '–')])],
+      }),
+    ],
+  });
 }
+
+function mergedScoreRow(label, score) {
+  return new TableRow({
+    children: [
+      new TableCell({
+        columnSpan: 2,
+        width: { size: 7866, type: WidthType.DXA },
+        borders: {
+          top: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+          bottom: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+          left: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+          right: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+        },
+        margins: { top: 80, bottom: 80, left: 120, right: 120 },
+        children: [leftPara([boldTxt(label)])],
+      }),
+      new TableCell({
+        width: { size: 1800, type: WidthType.DXA },
+        borders: {
+          top: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+          bottom: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+          left: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+          right: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+        },
+        margins: { top: 80, bottom: 80, left: 100, right: 100 },
+        children: [centerPara([txt(score || '–')])],
+      }),
+    ],
+  });
+}
+
+function parseThanhVienScores() {
+  return String(diemThanhVien || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const idx = line.lastIndexOf(':');
+      if (idx < 0) return null;
+      const left = line.slice(0, idx).trim();
+      const right = line.slice(idx + 1).trim();
+      if (!left || ['GVHD', 'GVPB', 'TB Hội đồng', 'Điểm tổng hợp'].includes(left)) return null;
+      if (left === 'Chủ tịch HĐ') return { role: 'CT', name: tenChuTich || 'Chủ tịch hội đồng', score: right || '–' };
+      return { role: 'TV', name: left, score: right || '–' };
+    })
+    .filter(Boolean);
+}
+
+function scoreTable() {
+  const memberRows = parseThanhVienScores();
+  const rows = [
+    new TableRow({
+      children: [
+        new TableCell({
+          width: { size: 1700, type: WidthType.DXA },
+          borders: {
+            top: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+            bottom: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+            left: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+            right: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+          },
+          margins: { top: 80, bottom: 80, left: 100, right: 100 },
+          children: [centerPara([boldTxt('Vai trò')])],
+        }),
+        new TableCell({
+          width: { size: 6166, type: WidthType.DXA },
+          borders: {
+            top: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+            bottom: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+            left: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+            right: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+          },
+          margins: { top: 80, bottom: 80, left: 120, right: 120 },
+          children: [centerPara([boldTxt('Họ tên / Nội dung')])],
+        }),
+        new TableCell({
+          width: { size: 1800, type: WidthType.DXA },
+          borders: {
+            top: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+            bottom: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+            left: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+            right: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+          },
+          margins: { top: 80, bottom: 80, left: 100, right: 100 },
+          children: [centerPara([boldTxt('Điểm')])],
+        }),
+      ],
+    }),
+    scoreRow('GVHD', tenGVHD || 'Giảng viên hướng dẫn', diemGVHD || '–'),
+    scoreRow('GVPB', tenGVPB || 'Giảng viên phản biện', diemGVPB || '–'),
+    ...memberRows.map((row) => scoreRow(row.role, row.name, row.score)),
+    mergedScoreRow('Trung bình hội đồng', diemHoiDongTB || '–'),
+    scoreRow('Tổng', 'Điểm tổng hợp', diemTongHop || '–'),
+  ];
+
+  return new Table({
+    width: { size: CONTENT_WIDTH, type: WidthType.DXA },
+    alignment: AlignmentType.CENTER,
+    columnWidths: [1700, 6166, 1800],
+    borders: {
+      top: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+      bottom: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+      left: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+      right: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+      insideH: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+      insideV: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
+    },
+    rows,
+  });
+}
+
+function twoColPara(leftText = '', rightText = '', options = {}) {
+  const { bold = false, before = 0, after = 0, keepNext = false } = options;
+  const maker = bold ? boldTxt : txt;
+  return new Paragraph({
+    spacing: { before, after, line: 360 },
+    keepNext,
+    keepLines: true,
+    tabStops: [
+      { type: TabStopType.LEFT, position: 0 },
+      { type: TabStopType.RIGHT, position: 9026 },
+    ],
+    children: [
+      maker(leftText),
+      new TextRun({ text: '\t', font: 'Times New Roman', size: 24 }),
+      maker(rightText),
+    ],
+  });
+}
+
+function signatureDatePara(d, m, y) {
+  return new Paragraph({
+    spacing: { before: 140, after: 20, line: 360 },
+    keepNext: true,
+    keepLines: true,
+    tabStops: [
+      { type: TabStopType.CENTER, position: 2400 },
+      { type: TabStopType.CENTER, position: 6900 },
+    ],
+    children: [
+      new TextRun({ text: '\t', font: 'Times New Roman', size: 24 }),
+      new TextRun({ text: '\t', font: 'Times New Roman', size: 24 }),
+      txt(`Ngày ${d || '...'} tháng ${m || '...'} năm ${y || '......'}`),
+    ],
+  });
+}
+
+function rightDateLine(d, m, y) {
+  return new Paragraph({
+    alignment: AlignmentType.RIGHT,
+    spacing: { before: 140, after: 60, line: 360 },
+    keepNext: true,
+    children: [
+      txt(`Ngày ${d || '...'} tháng ${m || '...'} năm ${y || '......'}`),
+    ],
+  });
+}
+
+function signatureBlock() {
+  // Table chữ ký: giữ toàn bộ khối trên cùng một trang và vẫn chừa khoảng ký tên
+  return new Table({
+    width: { size: 9500, type: WidthType.DXA },
+    columnWidths: [4750, 4750],
+    rows: [
+      new TableRow({
+        cantSplit: true,
+        tableHeader: true,
+        children: [
+          new TableCell({
+            borders: whiteBorder,
+            width: { size: 4750, type: WidthType.DXA },
+            children: [
+              new Paragraph({
+                children: [txt('')],
+                spacing: { before: 0, after: 0, line: 360 },
+                keepNext: true,
+                keepLines: true,
+              }),
+            ],
+          }),
+          new TableCell({
+            borders: whiteBorder,
+            width: { size: 4750, type: WidthType.DXA },
+            children: [
+              new Paragraph({
+                children: [txt(`Ngày ${ngay || '...'} tháng ${thang || '...'} năm ${nam || '......'}`)],
+                spacing: { before: 0, after: 0, line: 360 },
+                alignment: AlignmentType.CENTER,
+                keepNext: true,
+                keepLines: true,
+              }),
+            ],
+          }),
+        ],
+      }),
+      new TableRow({
+        cantSplit: true,
+        children: [
+          new TableCell({
+            borders: whiteBorder,
+            width: { size: 4750, type: WidthType.DXA },
+            children: [centerPara([boldTxt('Chủ tịch hội đồng')], { after: 0 })],
+          }),
+          new TableCell({
+            borders: whiteBorder,
+            width: { size: 4750, type: WidthType.DXA },
+            children: [centerPara([boldTxt('Thư ký')], { after: 0 })],
+          }),
+        ],
+      }),
+      new TableRow({
+        cantSplit: true,
+        children: [
+          new TableCell({
+            borders: whiteBorder,
+            width: { size: 4750, type: WidthType.DXA },
+            children: [centerPara([txt('(ký, họ và tên)')], { after: 0 })],
+          }),
+          new TableCell({
+            borders: whiteBorder,
+            width: { size: 4750, type: WidthType.DXA },
+            children: [centerPara([txt('(ký, họ và tên)')], { after: 0 })],
+          }),
+        ],
+      }),
+      new TableRow({
+        cantSplit: true,
+        children: [
+          new TableCell({
+            borders: whiteBorder,
+            width: { size: 4750, type: WidthType.DXA },
+            children: [
+              new Paragraph({
+                children: [txt('')],
+                spacing: { before: 760, after: 0, line: 360 },
+                keepNext: true,
+                keepLines: true,
+              }),
+            ],
+          }),
+          new TableCell({
+            borders: whiteBorder,
+            width: { size: 4750, type: WidthType.DXA },
+            children: [
+              new Paragraph({
+                children: [txt('')],
+                spacing: { before: 760, after: 0, line: 360 },
+                keepNext: true,
+                keepLines: true,
+              }),
+            ],
+          }),
+        ],
+      }),
+      new TableRow({
+        cantSplit: true,
+        children: [
+          new TableCell({
+            borders: whiteBorder,
+            width: { size: 4750, type: WidthType.DXA },
+            children: [centerPara([boldTxt(chuTichHD || '')], { after: 0 })],
+          }),
+          new TableCell({
+            borders: whiteBorder,
+            width: { size: 4750, type: WidthType.DXA },
+            children: [centerPara([boldTxt(thuKy || '')], { after: 0 })],
+          }),
+        ],
+      }),
+    ],
+    borders: {
+      top: { style: BorderStyle.SINGLE, size: 1, color: 'FFFFFF' },
+      bottom: { style: BorderStyle.SINGLE, size: 1, color: 'FFFFFF' },
+      left: { style: BorderStyle.SINGLE, size: 1, color: 'FFFFFF' },
+      right: { style: BorderStyle.SINGLE, size: 1, color: 'FFFFFF' },
+      insideH: { style: BorderStyle.SINGLE, size: 1, color: 'FFFFFF' },
+      insideV: { style: BorderStyle.SINGLE, size: 1, color: 'FFFFFF' },
+    },
+  });
+}
+
+const major = String(tenKhoa || '').trim() || 'KINH DOANH QUỐC TẾ';
+const course = String(khoaHoc || '').trim();
 
 const doc = new Document({
   styles: {
@@ -159,180 +501,53 @@ const doc = new Document({
     {
       properties: {
         page: {
-          size: { width: 11906, height: 16838 }, // A4
-          margin: { top: 1134, right: 851, bottom: 1134, left: 1701 }, // ~2cm left, ~1.5cm others (in DXA: 567 per cm)
+          margin: { top: 1000, right: 900, bottom: 1000, left: 900 },
         },
       },
       children: [
-        // Header
-        centerPara([boldTxt('Đại học Công nghệ Kỹ thuật TP.HCM')]),
+        centerPara([boldTxt('ĐẠI HỌC CÔNG NGHỆ KỸ THUẬT TP.HCM')], { after: 20 }),
         centerPara([boldTxt('KHOA KINH TẾ')]),
-        centerPara([boldTxt(`NGÀNH ${tenKhoa.toUpperCase() || 'KINH DOANH QUỐC TẾ'}`)]),
+        centerPara([boldTxt(`NGÀNH ${major.toUpperCase()}`)], { after: 40 }),
+        dottedDivider(),
 
-        // Divider line
-        new Paragraph({
-          spacing: { before: 80, after: 80 },
-          border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: '000000', space: 1 } },
-          children: [txt('')],
-        }),
+        centerPara([boldTxt('BIÊN BẢN HỌP HỘI ĐỒNG ĐÁNH GIÁ KHÓA LUẬN TỐT NGHIỆP')], { before: 180, after: 10 }),
+        centerPara([boldTxt(`NGÀNH ${major.toUpperCase()} KHÓA ${course || '............................'}`)], { after: 220 }),
 
-        new Paragraph({ spacing: { before: 120, after: 0 } }),
+        leftPara([boldTxt('1.  Thông tin chung')], { after: 80 }),
+        dottedFillLine('Tên khóa luận:', tenDeTai),
+        dottedFillLine('Sinh viên thực hiện:', sinhVien),
+        dottedFillLine('MSSV:', maSV),
 
-        // Title
-        centerPara([boldTxt('BIÊN BẢN HỌP HỘI ĐỒNG ĐÁNH GIÁ KHÓA LUẬN TỐT NGHIỆP')], { before: 100 }),
-        centerPara([boldTxt(`NGÀNH ${tenKhoa.toUpperCase() || 'KINH DOANH QUỐC TẾ'} KHÓA ${khoaHoc || '....'}`)], { before: 40, after: 160 }),
+        leftPara([boldTxt('2.  Bảng điểm tổng hợp')], { before: 100, after: 40 }),
+        scoreTable(),
 
-        // Section 1
-        leftPara([boldTxt('1. Thông tin chung')], { before: 80, after: 80 }),
+        leftPara([boldTxt('3.  Nhận xét của các thành viên hội đồng:')], { before: 60, after: 20 }),
+        ...contentBlock([nhanXetCT, nhanXetTV].filter(Boolean).join('\n'), 1),
 
-        leftPara([txt('Tên khóa luận: '), txt(tenDeTai || dotLine(70), { underline: tenDeTai ? { type: UnderlineType.SINGLE } : undefined })]),
-        new Paragraph({ spacing: { before: 0, after: 0 } }),
-        leftPara([txt(dotLine(90))]),
-        new Paragraph({ spacing: { before: 0, after: 0 } }),
+        leftPara([boldTxt('4.  Yêu cầu chỉnh sửa')], { before: 20, after: 20 }),
+        ...contentBlock(yeuCauChinhSua, 1),
 
-        leftPara([txt('Sinh viên thực hiện: '), txt(sinhVien || dotLine(50))], { before: 80 }),
+        new Paragraph({ pageBreakBefore: true }),
+        signatureBlock(),
 
-        leftPara([txt('MSSV: '), txt(maSV || dotLine(70))], { before: 80 }),
-
-        // Section 2
-        leftPara([boldTxt('2. Nhận xét của các thành viên hội đồng:')], { before: 160, after: 80 }),
-
-        leftPara([boldTxt('Nhận xét của Chủ tịch hội đồng:')], { before: 80, after: 40 }),
-        ...multilineContent(nhanXetCT, 4),
-
-        leftPara([boldTxt('Nhận xét của Thành viên hội đồng:')], { before: 120, after: 40 }),
-        ...multilineContent(nhanXetTV, 4),
-
-        // Section 3
-        leftPara([boldTxt('3. Yêu cầu chỉnh sửa')], { before: 160, after: 80 }),
-        ...multilineContent(yeuCauChinhSua, 5),
-
-        // Date line
-        new Paragraph({ spacing: { before: 160, after: 0 } }),
-        new Table({
-          width: { size: 9026, type: WidthType.DXA },
-          columnWidths: [4513, 4513],
-          borders: {
-            top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE },
-            left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE },
-            insideH: { style: BorderStyle.NONE }, insideV: { style: BorderStyle.NONE },
-          },
-          rows: [
-            new TableRow({
-              children: [
-                new TableCell({
-                  borders: noBorder,
-                  width: { size: 4513, type: WidthType.DXA },
-                  children: [leftPara([txt('')])],
-                }),
-                new TableCell({
-                  borders: noBorder,
-                  width: { size: 4513, type: WidthType.DXA },
-                  children: [centerPara([
-                    txt(`Ngày ${ngay || '.....'} tháng ${thang || '.....'} năm ${nam || '.....'}`)
-                  ])],
-                }),
-              ],
-            }),
-          ],
-        }),
-
-        // Signatures
-        new Paragraph({ spacing: { before: 80, after: 0 } }),
-        signatureTable('Chủ tịch hội đồng', chuTichHD, 'Thư ký', thuKy),
-
-        // Section 4 - After revision
-        new Paragraph({ spacing: { before: 240, after: 0 } }),
-        new Paragraph({
-          spacing: { before: 80, after: 80 },
-          border: { top: { style: BorderStyle.SINGLE, size: 6, color: '000000', space: 1 } },
-          children: [txt('')],
-        }),
-
-        centerPara([boldTxt('Ý KIẾN CỦA CHỦ TỊCH HỘI ĐỒNG SAU KHI SINH VIÊN CHỈNH SỬA')], { before: 80, after: 80 }),
-
-        ...multilineContent(null, 5),
-
-        new Paragraph({ spacing: { before: 120, after: 0 } }),
-        new Table({
-          width: { size: 9026, type: WidthType.DXA },
-          columnWidths: [4513, 4513],
-          borders: {
-            top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE },
-            left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE },
-            insideH: { style: BorderStyle.NONE }, insideV: { style: BorderStyle.NONE },
-          },
-          rows: [
-            new TableRow({
-              children: [
-                new TableCell({
-                  borders: noBorder,
-                  width: { size: 4513, type: WidthType.DXA },
-                  children: [leftPara([txt('')])],
-                }),
-                new TableCell({
-                  borders: noBorder,
-                  width: { size: 4513, type: WidthType.DXA },
-                  children: [centerPara([
-                    txt(`Ngày ${ngay2 || '.....'} tháng ${thang2 || '.....'} năm ${nam2 || '.....'}`)
-                  ])],
-                }),
-              ],
-            }),
-          ],
-        }),
-        new Paragraph({ spacing: { before: 80, after: 0 } }),
-        new Table({
-          width: { size: 9026, type: WidthType.DXA },
-          columnWidths: [9026],
-          borders: {
-            top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE },
-            left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE },
-            insideH: { style: BorderStyle.NONE }, insideV: { style: BorderStyle.NONE },
-          },
-          rows: [
-            new TableRow({
-              children: [
-                new TableCell({
-                  borders: noBorder,
-                  width: { size: 9026, type: WidthType.DXA },
-                  children: [centerPara([boldTxt('Chủ tịch hội đồng')])],
-                }),
-              ],
-            }),
-            new TableRow({
-              children: [
-                new TableCell({
-                  borders: noBorder,
-                  width: { size: 9026, type: WidthType.DXA },
-                  children: [centerPara([txt('(Ký, họ và tên)')])],
-                }),
-              ],
-            }),
-            new TableRow({
-              children: [
-                new TableCell({
-                  borders: noBorder,
-                  width: { size: 9026, type: WidthType.DXA },
-                  children: [
-                    new Paragraph({ spacing: { before: 800, after: 0 } }),
-                    centerPara([boldTxt(chuTichSauChinhSua || chuTichHD || '')]),
-                  ],
-                }),
-              ],
-            }),
-          ],
-        }),
+        centerPara([boldTxt('Ý KIẾN CỦA CHỦ TỊCH HỘI ĐỒNG SAU KHI SINH VIÊN CHỈNH SỬA')], { before: 320, after: 80 }),
+        ...Array.from({ length: 8 }).map(() => chairmanOpinionLine()),
+        centerPara([boldTxt('Chủ tịch hội đồng')], { after: 30 }),
+        centerPara([txt('(ký, họ và tên)')]),
+        new Paragraph({ spacing: { before: 900, after: 0 } }),
+        centerPara([boldTxt(chuTichSauChinhSua || chuTichHD || '')]),
       ],
     },
   ],
 });
 
-Packer.toBuffer(doc).then(buf => {
-  const outPath = process.argv[3] || '/tmp/bien_ban.docx';
-  fs.writeFileSync(outPath, buf);
-  console.log('OK:' + outPath);
-}).catch(err => {
-  console.error('ERR:' + err.message);
-  process.exit(1);
-});
+Packer.toBuffer(doc)
+  .then((buf) => {
+    const outPath = process.argv[3] || '/tmp/bien_ban.docx';
+    fs.writeFileSync(outPath, buf);
+    console.log(`OK:${outPath}`);
+  })
+  .catch((err) => {
+    console.error(`ERR:${err.message}`);
+    process.exit(1);
+  });

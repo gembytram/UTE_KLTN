@@ -1,7 +1,23 @@
 // ============================================================
 // DATA STORE (RAM) & API SETUP
 // ============================================================
-window.API_BASE = "http://127.0.0.1:5000";
+function resolveApiBase() {
+  if (typeof window !== "undefined" && window.API_BASE) {
+    return String(window.API_BASE).replace(/\/$/, "");
+  }
+  if (typeof window !== "undefined" && window.location) {
+    const { origin, protocol, hostname, port } = window.location;
+    if (origin && protocol !== "file:") {
+      if ((hostname === "localhost" || hostname === "127.0.0.1") && port && port !== "5000") {
+        return "http://127.0.0.1:5000";
+      }
+      return String(origin).replace(/\/$/, "");
+    }
+  }
+  return "http://127.0.0.1:5000";
+}
+
+window.API_BASE = resolveApiBase();
 const API_BASE = window.API_BASE;
 const FETCH_OPTS = { credentials: "include" };
 
@@ -40,6 +56,53 @@ function getGV(email) {
     return DB.users.find(u => u.email === email && (u.role === 'gv' || u.role === 'bm')); 
 }
 
+function normalizeEmail(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function normalizeIdList(value) {
+  if (Array.isArray(value)) {
+    return value.map((id) => Number(id)).filter((id) => !Number.isNaN(id));
+  }
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return parsed.map((id) => Number(id)).filter((id) => !Number.isNaN(id));
+      }
+    } catch (_) {}
+  }
+  return [];
+}
+
+function normalizeEmailList(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((email) => normalizeEmail(email)).filter(Boolean);
+}
+
+function userMatchesIdOrEmail(user, idValue, emailValue) {
+  if (!user) return false;
+  const userId = Number(user.id);
+  const candidateId = Number(idValue);
+  if (!Number.isNaN(userId) && !Number.isNaN(candidateId) && userId === candidateId) return true;
+  const userEmail = normalizeEmail(user.email);
+  return Boolean(userEmail) && userEmail === normalizeEmail(emailValue);
+}
+
+function isUserCommitteeMemberOnRecord(user, student) {
+  if (!user || !student) return false;
+  const userId = Number(user.id);
+  const userEmail = normalizeEmail(user.email);
+  const committeeIds = normalizeIdList(student.committeeMembers);
+  const committeeEmails = normalizeEmailList(student.committeeMemberEmails);
+  const hoiDongTvEmails = normalizeEmailList(student.hoiDong?.tv);
+  return (
+    (!Number.isNaN(userId) && committeeIds.includes(userId)) ||
+    (userEmail && committeeEmails.includes(userEmail)) ||
+    (userEmail && hoiDongTvEmails.includes(userEmail))
+  );
+}
+
 function hasCommonMajor(a, b) {
     if (!a || !b) return false;
     const majorsA = Array.isArray(a.chuyenMon) ? a.chuyenMon.map((m) => String(m).trim()).filter(Boolean) : [];
@@ -59,6 +122,103 @@ function uploadFileHref(storedPath) {
   return base + '/uploads/' + rel.split('/').map((seg) => encodeURIComponent(seg)).join('/');
 }
 
+const ICON_MAP = {
+  '🏠': 'home', '📝': 'edit', '🎓': 'academicCap', '⏱️': 'timer', '👤': 'user',
+  '✅': 'checkCircle', '❌': 'xCircle', 'ℹ️': 'infoCircle', '🧾': 'receipt', '🏛️': 'building',
+  '👨‍⚖️': 'gavel', '💡': 'lightbulb', '📊': 'chartBar', '📈': 'chartLine', '👥': 'users',
+  '📋': 'clipboard', '🗂️': 'folder', '🎯': 'target', '📅': 'calendar', '📭': 'inbox',
+  '🚫': 'ban', '✕': 'x', '➕': 'plus', '✏️': 'pencil', '🗑️': 'trash', '📄': 'file',
+  '📁': 'folder', '📥': 'download', '🔑': 'key', '🔔': 'bell', '📕': 'book', '📑': 'bookmark', '👁': 'eye'
+};
+
+const ICON_SVG = {
+  home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5L12 3l9 6.5V21a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5z"/><path d="M9 21V12h6v9"/></svg>',
+  edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h8"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L8 18l-4 1 1-4 11.5-11.5Z"/></svg>',
+  academicCap: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 1 8l11 5 9-4.09"/><path d="M2 9.5v4.75C2 16.55 6.58 18.47 12 18.47c5.42 0 10-1.92 10-4.22V9.5"/><path d="M12 18.5v3"/></svg>',
+  timer: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="7"/><path d="M12 10v3l2 1"/><path d="M11 2h2"/></svg>',
+  user: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="4"/><path d="M6 21v-1a5 5 0 0 1 10 0v1"/></svg>',
+  checkCircle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.5 2.5 4.5-5"/></svg>',
+  xCircle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/></svg>',
+  infoCircle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>',
+  receipt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 4 12 9 3 4v16h18V4Z"/><path d="M7 9h10M7 13h6"/></svg>',
+  building: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21h16V5L12 2 4 5v16Z"/><path d="M9 8h2m2 0h2M9 12h2m2 0h2M9 16h2m2 0h2"/></svg>',
+  gavel: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m7 13 7-7 4 4-7 7-4-4Z"/><path d="m14 10 4 4"/><path d="M3 21h7"/></svg>',
+  lightbulb: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 3a6 6 0 0 0-4 10.9c0 1.7.8 3.3 2.1 4.3L10 20h4l.9-1.8A5.99 5.99 0 0 0 16 3h-4Z"/></svg>',
+  chartBar: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 19V10"/><path d="M10 19V6"/><path d="M14 19v-4"/><path d="M18 19v-7"/><path d="M4 21h16"/></svg>',
+  chartLine: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17 9 12l3 3 6-6 2 2"/><path d="M4 21h16"/></svg>',
+  users: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7a4 4 0 1 1 6 0 4 4 0 0 1-6 0Z"/><path d="M3 21v-1a4 4 0 0 1 4-4h2"/><path d="M17 16h2a4 4 0 0 1 4 4v1"/></svg>',
+  clipboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h8"/><path d="M9 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"/><path d="M5 7h14v14H5V7Z"/></svg>',
+  folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h6l2 2h10v10H3V7Z"/></svg>',
+  target: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3"/><path d="M12 5V2"/><path d="M12 22v-3"/><path d="M5 12H2"/><path d="M22 12h-3"/></svg>',
+  calendar: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4"/><path d="M8 3v4"/><path d="M3 11h18"/></svg>',
+  inbox: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v6l-4 5H8l-4-5V4Z"/><path d="M4 20h16"/></svg>',
+  ban: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M7 7l10 10"/></svg>',
+  x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m6 6 12 12"/><path d="m18 6-12 12"/></svg>',
+  plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>',
+  pencil: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L8 18l-4 1 1-4 11.5-11.5Z"/></svg>',
+  trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M5 6 6 20h12l1-14"/></svg>',
+  file: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Z"/><path d="M14 2v6h6"/></svg>',
+  download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v13"/><path d="m8 13 4 4 4-4"/><path d="M4 20h16"/></svg>',
+  key: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="16" r="3"/><path d="M10.5 16 21 5.5"/><path d="M19 7v3h3"/></svg>',
+  bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 8-3 8h18s-3-1-3-8"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>',
+  book: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M4 4.5A2.5 2.5 0 0 1 6.5 7H20v13"/></svg>',
+  bookmark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-6-4-6 4V3Z"/></svg>',
+  eye: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z"/><circle cx="12" cy="12" r="3"/></svg>'
+};
+
+const ICON_REGEX = new RegExp(Object.keys(ICON_MAP).map((token) => token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).sort((a,b) => b.length - a.length).join('|'), 'g');
+
+function createIconElement(token) {
+  const key = ICON_MAP[token];
+  const wrapper = document.createElement('span');
+  wrapper.className = 'inline-icon';
+  wrapper.setAttribute('aria-hidden', 'true');
+  wrapper.innerHTML = ICON_SVG[key] || '';
+  return wrapper;
+}
+
+function shouldIgnoreTextNode(node) {
+  let el = node.parentElement;
+  while (el) {
+    const tag = el.tagName;
+    if (['SCRIPT', 'STYLE', 'TEXTAREA', 'INPUT', 'OPTION', 'SELECT'].includes(tag)) return true;
+    el = el.parentElement;
+  }
+  return false;
+}
+
+function replaceTextNodeIcons(textNode) {
+  const value = textNode.nodeValue;
+  if (!value || !ICON_REGEX.test(value) || shouldIgnoreTextNode(textNode)) return;
+  ICON_REGEX.lastIndex = 0;
+  const frag = document.createDocumentFragment();
+  let lastIndex = 0;
+  let match;
+  while ((match = ICON_REGEX.exec(value)) !== null) {
+    const beforeText = value.slice(lastIndex, match.index);
+    if (beforeText) frag.appendChild(document.createTextNode(beforeText));
+    frag.appendChild(createIconElement(match[0]));
+    lastIndex = match.index + match[0].length;
+  }
+  const remaining = value.slice(lastIndex);
+  if (remaining) frag.appendChild(document.createTextNode(remaining));
+  textNode.replaceWith(frag);
+}
+
+function applyIconsToDom(root) {
+  if (!root) return;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode(node) {
+    if (!node.nodeValue) return NodeFilter.FILTER_SKIP;
+    ICON_REGEX.lastIndex = 0;
+    if (!ICON_REGEX.test(node.nodeValue)) return NodeFilter.FILTER_SKIP;
+    if (shouldIgnoreTextNode(node)) return NodeFilter.FILTER_SKIP;
+    return NodeFilter.FILTER_ACCEPT;
+  } }, false);
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  nodes.forEach(replaceTextNodeIcons);
+}
+
 function getCurrentStudentMajor() {
   return 'TMĐT';
 }
@@ -68,31 +228,7 @@ function getCurrentStudentFields() {
 }
 
 function getTopicTypesForField(field) {
-  // Nhóm lĩnh vực phù hợp đề tài ứng dụng
-  const applicationFields = [
-    'AI',
-    'HR',
-    'Kế toán',
-    'Logistic',
-    'Marketing',
-    'Sản xuất',
-    'Startup',
-    'TMĐT',
-    'Kinh doanh quốc tế',
-  ];
-
-  // Nhóm lĩnh vực phù hợp đề tài nghiên cứu
-  const researchFields = [
-    'Chất lượng',
-    'Mô phỏng',
-    'Quản lý công nghiệp',
-    'AI',
-  ];
-
-  const types = [];
-  if (applicationFields.includes(field)) types.push('ung_dung');
-  if (researchFields.includes(field)) types.push('nghien_cuu');
-  return types.length ? types : ['ung_dung', 'nghien_cuu'];
+  return ['ung_dung', 'nghien_cuu'];
 }
 
 function dotMatchesStudentHeAndMajor(d) {
@@ -175,28 +311,23 @@ function getKLTNAssignment(user, student) {
     };
   }
 
-  const userId = Number(user.id);
-  const committeeIds = Array.isArray(student.committeeMembers)
-    ? student.committeeMembers.map((id) => Number(id)).filter((id) => !Number.isNaN(id))
-    : [];
-  const committeeEmails = Array.isArray(student.committeeMemberEmails) ? student.committeeMemberEmails : [];
+  if (student.myAssignment) {
+    return {
+      isAdvisor: Boolean(student.myAssignment.isAdvisor),
+      isReviewer: Boolean(student.myAssignment.isReviewer),
+      isCommitteeMember: Boolean(student.myAssignment.isCommitteeMember),
+      isChair: Boolean(student.myAssignment.isChair),
+      isSecretary: Boolean(student.myAssignment.isSecretary),
+      canGrade: Boolean(student.myAssignment.canGrade),
+      canView: Boolean(student.myAssignment.canView),
+    };
+  }
 
-  const isAdvisor =
-    (student.advisorId != null && Number(student.advisorId) === userId) ||
-    (student.gvHDEmail && student.gvHDEmail === user.email);
-  const isReviewer =
-    (student.reviewerId != null && Number(student.reviewerId) === userId) ||
-    (student.gvPBEmail && student.gvPBEmail === user.email);
-  const isChair =
-    (student.chairmanId != null && Number(student.chairmanId) === userId) ||
-    (student.hoiDong && student.hoiDong.ct === user.email);
-  const isSecretary =
-    (student.secretaryId != null && Number(student.secretaryId) === userId) ||
-    (student.hoiDong && student.hoiDong.tk === user.email);
-  const isCommitteeMember =
-    committeeIds.includes(userId) ||
-    committeeEmails.includes(user.email) ||
-    (student.hoiDong && Array.isArray(student.hoiDong.tv) && student.hoiDong.tv.includes(user.email));
+  const isAdvisor = userMatchesIdOrEmail(user, student.advisorId, student.gvHDEmail);
+  const isReviewer = userMatchesIdOrEmail(user, student.reviewerId, student.gvPBEmail);
+  const isChair = userMatchesIdOrEmail(user, student.chairmanId, student.hoiDong?.ct);
+  const isSecretary = userMatchesIdOrEmail(user, student.secretaryId, student.hoiDong?.tk);
+  const isCommitteeMember = isUserCommitteeMemberOnRecord(user, student);
 
   return {
     isAdvisor,
@@ -241,12 +372,72 @@ function escapeForTextarea(s) {
 
 function getKLTNCouncilScores(k) {
   if (!k) return [];
-  const tvs = (k.tvScores || [])
-    .map((t) => Number(t.diem))
-    .filter((d) => !Number.isNaN(d));
-  if (tvs.length) return tvs;
+  const councilRows = [];
+  if (k.diemBB != null && !Number.isNaN(Number(k.diemBB))) {
+    councilRows.push(Number(k.diemBB));
+  }
+  (k.tvScores || []).forEach((t) => {
+    const score = Number(t.diem);
+    if (!Number.isNaN(score)) councilRows.push(score);
+  });
+  if (councilRows.length) return councilRows;
   if (k.diemBB == null || Number.isNaN(Number(k.diemBB))) return [];
   return [Number(k.diemBB)];
+}
+
+function getKLTNCouncilBreakdown(k) {
+  if (!k) return [];
+  const rows = [];
+  const seen = new Set();
+
+  if (k.hoiDong?.ct) {
+    const chairEmail = k.hoiDong.ct;
+    rows.push({
+      role: 'CT',
+      email: chairEmail,
+      name: getUser(chairEmail)?.name || chairEmail || 'Chủ tịch hội đồng',
+      score: k.diemBB != null && !Number.isNaN(Number(k.diemBB)) ? Number(k.diemBB) : null,
+    });
+    seen.add(chairEmail);
+  } else if (k.diemBB != null && !Number.isNaN(Number(k.diemBB))) {
+    rows.push({
+      role: 'CT',
+      email: '',
+      name: 'Chủ tịch hội đồng',
+      score: Number(k.diemBB),
+    });
+  }
+
+  const memberEmails = [];
+  if (Array.isArray(k.hoiDong?.tv)) memberEmails.push(...k.hoiDong.tv);
+  if (Array.isArray(k.committeeMemberEmails)) memberEmails.push(...k.committeeMemberEmails);
+
+  memberEmails.forEach((email) => {
+    if (!email || seen.has(email)) return;
+    const matchedScore = (k.tvScores || []).find((row) => row.email === email);
+    const score = matchedScore && matchedScore.diem != null && !Number.isNaN(Number(matchedScore.diem))
+      ? Number(matchedScore.diem)
+      : null;
+    rows.push({
+      role: 'TV',
+      email,
+      name: getUser(email)?.name || email,
+      score,
+    });
+    seen.add(email);
+  });
+
+  (k.tvScores || []).forEach((row) => {
+    if (!row.email || seen.has(row.email)) return;
+    const score = row.diem != null && !Number.isNaN(Number(row.diem)) ? Number(row.diem) : null;
+    rows.push({
+      role: 'TV',
+      email: row.email,
+      name: getUser(row.email)?.name || row.email,
+      score,
+    });
+  });
+  return rows;
 }
 
 function computeKLTNFinalAvg(k) {
@@ -348,21 +539,28 @@ function renderKLTNScoreBlock(k, vaiTro, title, hint, options = {}) {
   const noteValue = options.noteValue || '';
   const questionValue = options.questionValue || '';
   const showQuestion = Boolean(options.showQuestion);
+  const isLocked = existingScore != null && existingScore !== '';
 
   const rows = template.map(([name, max], index) => {
     const stored = existingCriteria[index];
     const value = stored && stored.score != null ? stored.score : '';
+    const inputAttrs = isLocked ? 'disabled style="opacity:0.6"' : '';
     return `<tr>
       <td style="font-size:13px">${index + 1}. ${escapeHtml(name)}</td>
       <td style="font-size:13px;text-align:center">${max}</td>
-      <td><input type="number" min="0" max="${max}" step="0.1" id="${criteriaInputId(k.id, vaiTro, index)}" value="${value}" oninput="normalizeCriterionInput('${k.id}','${vaiTro}',${index},${max});recalcKLTNRoleTotal('${k.id}','${vaiTro}')"></td>
+      <td><input type="number" min="0" max="${max}" step="0.1" id="${criteriaInputId(k.id, vaiTro, index)}" value="${value}" ${inputAttrs} oninput="normalizeCriterionInput('${k.id}','${vaiTro}',${index},${max});recalcKLTNRoleTotal('${k.id}','${vaiTro}')"></td>
     </tr>`;
   }).join('');
+
+  const lockedMessage = isLocked ? `<div style="background:#FFF7D6;border:1px solid var(--accent3);border-radius:var(--radius);padding:12px 16px;margin-bottom:12px;font-size:13px;color:#974F0C">Bạn đã lưu điểm. Không thể thay đổi.</div>` : '';
+  const textareaAttrs = isLocked ? 'readonly style="opacity:0.6;background:var(--bg)"' : '';
+  const buttonAttrs = isLocked ? 'disabled style="opacity:0.5;cursor:not-allowed"' : '';
 
   return `<div style="font-size:16px;font-weight:800;color:var(--primary-dark);margin:12px 0 8px">${escapeHtml(getScoreSheetTitle(k.topicType, vaiTro))}</div>
     <div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:8px">${escapeHtml(title)}</div>
     <div style="font-size:12px;color:var(--text3);margin-bottom:10px">${escapeHtml(hint)}</div>
     <div style="font-size:12px;color:var(--text2);margin-bottom:10px">Mẫu phiếu: ${escapeHtml(getTopicTypeLabel(k.topicType))} • ${escapeHtml(SCORE_ROLE_LABELS[vaiTro] || vaiTro)}</div>
+    ${lockedMessage}
     <div class="table-wrap" style="margin-bottom:12px">
       <table>
         <thead><tr><th>Tiêu chí</th><th>Điểm tối đa</th><th>Điểm</th></tr></thead>
@@ -370,10 +568,10 @@ function renderKLTNScoreBlock(k, vaiTro, title, hint, options = {}) {
       </table>
     </div>
     <div class="form-group"><label>Tổng điểm</label><input type="number" id="${totalInputId(k.id, vaiTro)}" value="${existingScore ?? ''}" readonly style="background:var(--bg)"></div>
-    <div class="form-group"><label>Nhận xét</label><textarea id="${noteInputId(k.id, vaiTro)}" style="min-height:110px" placeholder="Nhập nhận xét">${escapeHtml(noteValue)}</textarea></div>
-    ${showQuestion ? `<div class="form-group"><label>Câu hỏi / góp ý</label><textarea id="${questionInputId(k.id, vaiTro)}" style="min-height:110px" placeholder="Nhập câu hỏi hoặc góp ý cho sinh viên">${escapeHtml(questionValue)}</textarea></div>` : ''}
+    <div class="form-group"><label>Nhận xét</label><textarea id="${noteInputId(k.id, vaiTro)}" style="min-height:110px" ${textareaAttrs} placeholder="Nhập nhận xét">${escapeHtml(noteValue)}</textarea></div>
+    ${showQuestion ? `<div class="form-group"><label>Câu hỏi / góp ý</label><textarea id="${questionInputId(k.id, vaiTro)}" style="min-height:110px" ${textareaAttrs} placeholder="Nhập câu hỏi hoặc góp ý cho sinh viên">${escapeHtml(questionValue)}</textarea></div>` : ''}
     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn btn-primary btn-sm" onclick="saveKLTNScore('${k.id}','${vaiTro}')">💾 Lưu phiếu chấm</button>
+      <button class="btn btn-primary btn-sm" ${buttonAttrs} onclick="saveKLTNScore('${k.id}','${vaiTro}')">💾 Lưu phiếu chấm</button>
       <button class="btn btn-ghost btn-sm" onclick="exportKLTNScoreDocx('${k.id}','${vaiTro}')">📄 Xuất phiếu DOCX</button>
     </div>`;
 }
@@ -513,7 +711,7 @@ function gvKLTNListForNhapDiem(u) {
     const isPB = assignment.isReviewer;
     const isCT = assignment.isChair;
     const isTK = assignment.isSecretary;
-    const isTV = assignment.isCommitteeMember;
+    const isTV = assignment.isCommitteeMember || isUserCommitteeMemberOnRecord(u, k);
     if (!(isHD || isPB || isCT || isTK || isTV)) return false;
     // TV được chấm điểm cả khi đã bảo vệ
     if (st === 'bao_ve' && isPB) return false;
@@ -547,13 +745,16 @@ function toast(msg, type = 'success') {
   const tc = document.getElementById('toast-container');
   const t = document.createElement('div');
   t.className = `toast toast-${type}`;
-  t.innerHTML = (type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️') + ' ' + msg;
+  t.innerHTML = `${type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️'} ${msg}`;
+  applyIconsToDom(t);
   tc.appendChild(t);
   setTimeout(() => t.remove(), 3500);
 }
 
 function showModal(html) {
-  document.getElementById('modal-content').innerHTML = html;
+  const modalContent = document.getElementById('modal-content');
+  modalContent.innerHTML = html;
+  applyIconsToDom(modalContent);
   document.getElementById('modal-overlay').classList.add('open');
 }
 function closeModal(e) {
@@ -602,11 +803,16 @@ async function apiRequest(path, options = {}) {
   if (current.id) authHeaders["X-User-Id"] = String(current.id);
   if (current.role_raw || current.role) authHeaders["X-User-Role"] = String(current.role_raw || toApiRole(current.role));
   const headers = { ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }), ...authHeaders, ...(options.headers || {}) };
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...FETCH_OPTS,
-    headers,
-    ...options,
-  });
+  let res;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...FETCH_OPTS,
+      headers,
+      ...options,
+    });
+  } catch (_) {
+    throw new Error(`Không kết nối được tới máy chủ (${API_BASE}). Hãy chạy backend Flask rồi mở giao diện từ đúng địa chỉ mà Flask in ra.`);
+  }
   const body = await res.json().catch(() => ({ success: false, message: "Invalid JSON" }));
   if (!res.ok || body.success === false) {
     throw new Error(body.message || "Có lỗi từ server");
@@ -632,8 +838,12 @@ async function syncFromServer() {
     .filter((u) => u.role === "gv" || u.role === "bm")
     .flatMap((u) => (u.chuyenMon || []).map((field) => ({ email: u.email, major: field, field })));
   
-  if (DB.currentUser && DB.currentUser.id) {
-    const fromServer = DB.users.find((u) => u.id === DB.currentUser.id);
+  if (DB.currentUser) {
+    const currentEmail = normalizeEmail(DB.currentUser.email);
+    const fromServer = DB.users.find((u) =>
+      (DB.currentUser.id != null && u.id === DB.currentUser.id) ||
+      (currentEmail && normalizeEmail(u.email) === currentEmail)
+    );
     if (fromServer) {
       DB.currentUser = { ...DB.currentUser, ...fromServer };
     }
@@ -917,8 +1127,16 @@ async function initApp() {
   document.getElementById('sb-role').textContent = ROLE_LABELS[u.role] || u.role;
   document.getElementById('topbar-user').textContent = u.name;
   buildSidebar(u.role);
-  updateNotifDot();
-  buildNotifPanel();
+  try {
+    updateNotifDot();
+  } catch (err) {
+    console.error('updateNotifDot failed', err);
+  }
+  try {
+    await buildNotifPanel();
+  } catch (err) {
+    console.error('buildNotifPanel failed', err);
+  }
   navigateTo('dashboard');
 }
 
@@ -933,6 +1151,7 @@ function buildSidebar(role) {
       <span class="nav-item-icon">${item.icon}</span>${item.label}${badge}
     </div>`;
   }).join('');
+  applyIconsToDom(nav);
 }
 
 function getPendingCount() {
@@ -956,8 +1175,8 @@ function navigateTo(page) {
   });
   // Hide all pages
   document.querySelectorAll('[id^="page-"]').forEach(el => el.style.display = 'none');
-  const pageEl = document.getElementById('page-' + page);
-  if (pageEl) pageEl.style.display = 'block';
+  const currentPageEl = document.getElementById('page-' + page);
+  if (currentPageEl) currentPageEl.style.display = 'block';
 
   const titles = {
     dashboard: 'Tổng quan', bctt: 'Đăng ký BCTT', kltn: 'Đăng ký KLTN',
@@ -975,7 +1194,24 @@ function navigateTo(page) {
     theodoi: renderTheoDoi, huongdan: renderHuongDan, phanbien: renderPhanBien, hoidong: renderHoiDong,
     chutich: renderChuTich, thuky: renderThuKy, goiy: renderGoiY, thongke: renderThongKe,
   };
-  if (renders[page]) renders[page]();
+  if (!renders[page]) return;
+  try {
+    renders[page]();
+  } catch (err) {
+    console.error(`Render failed for page "${page}"`, err);
+    if (currentPageEl) {
+      currentPageEl.innerHTML = `
+        <div class="card" style="border:1px solid #FF8F73;background:#FFEBE6">
+          <div style="font-size:18px;font-weight:800;color:#BF2600;margin-bottom:8px">Không tải được nội dung tab</div>
+          <div style="font-size:13px;color:#7a1f10;line-height:1.6">
+            <div><strong>Tab:</strong> ${escapeHtml(titles[page] || page)}</div>
+            <div><strong>Lỗi:</strong> ${escapeHtml(err?.message || String(err))}</div>
+          </div>
+        </div>`;
+    }
+    toast(`Lỗi hiển thị tab: ${err?.message || err}`, "error");
+  }
+  applyIconsToDom(currentPageEl);
 }
 
 function navigateToDetaiTab(tabId) {
@@ -1017,7 +1253,7 @@ async function buildNotifPanel() {
         </div>
       ` + list.map(n => {
         const chuaDoc = !n.da_doc;
-        const tieuDe = n.loai === 'tu_choi_gvhd' ? '❌ Giảng viên HD yêu cầu chỉnh sửa lại' : '❌ Chủ tịch HĐ yêu cầu chỉnh sửa lại';
+        const tieuDe = n.loai === 'tu_choi_gvhd' ? '❌ Giảng viên HD yêu cầu chỉnh sửa lại' : '❌ Chủ tịch HĐ không đồng ý báo cáo';
         return `
           <div class="notif-item ${chuaDoc ? 'unread' : ''}" onclick="markOneNotifRead(${n.id}, this)">
             <div class="notif-item-title">${tieuDe}</div>
@@ -1070,19 +1306,19 @@ async function refreshCurrentView() {
 
 async function submitBCTT() {
   const ten = (document.getElementById("f-tenDeTai")?.value || "").trim();
-  const linh_vuc = (document.getElementById("f-mang")?.value || "").trim();
   const cong_ty = (document.getElementById("f-congty")?.value || "").trim();
+  const linh_vuc = (document.getElementById("f-mang")?.value || "").trim();
   const loai_de_tai = (document.getElementById("f-topicType")?.value || "").trim();
   const gv_id = document.getElementById("f-gv")?.value || "";
   const dot_id = document.getElementById("f-dot")?.value || "";
-  if (!ten || !linh_vuc || !cong_ty || !loai_de_tai || !gv_id || !dot_id) {
+  if (!ten || !cong_ty || !linh_vuc || !loai_de_tai || !gv_id || !dot_id) {
     toast("Vui lòng nhập đủ thông tin đăng ký BCTT", "error");
     return;
   }
   try {
     await apiRequest("/api/bctt/register", {
       method: "POST",
-      body: JSON.stringify({ ten_de_tai: ten, linh_vuc, ten_cong_ty: cong_ty, loai_de_tai, gv_id, dot_id }),
+      body: JSON.stringify({ ten_de_tai: ten, ten_cong_ty: cong_ty, linh_vuc, loai_de_tai, gv_id, dot_id }),
     });
     toast("Gửi đăng ký BCTT thành công");
     await refreshCurrentView();
@@ -1099,6 +1335,10 @@ async function submitKLTN() {
   const dot_id = document.getElementById("fk-dot")?.value || "";
   const gv = getUser(gvEmail);
   const gv_id = gv ? gv.id : "";
+  if (loai_de_tai !== "ung_dung" && loai_de_tai !== "nghien_cuu") {
+    toast("BCTT của bạn chưa có loại đề tài hợp lệ để kế thừa sang KLTN", "error");
+    return;
+  }
   if (!ten || !linh_vuc || !loai_de_tai || !gv_id || !dot_id) {
     toast("Vui lòng nhập đủ thông tin đăng ký KLTN", "error");
     return;
@@ -1369,6 +1609,49 @@ async function chamDiemBCTT(bcttRecord) {
   }
 }
 
+async function chamBCTT(recordId) {
+  const record = findBcttRecord(recordId);
+  if (!record) {
+    toast('Không tìm thấy hồ sơ BCTT', 'error');
+    return;
+  }
+
+  const diem = document.getElementById(`bctt-diem-${recordId}`)?.value || '';
+  const nhanXet = document.getElementById(`bctt-nhanxet-${recordId}`)?.value || '';
+
+  if (!diem) {
+    toast('Vui lòng nhập điểm', 'error');
+    return;
+  }
+
+  const diemNum = parseFloat(diem);
+  if (isNaN(diemNum) || diemNum < 0 || diemNum > 10) {
+    toast('Điểm phải từ 0 đến 10', 'error');
+    return;
+  }
+
+  const dangKyId = record.dangKyId || extractId(record.id);
+  if (!dangKyId) {
+    toast('Mã đăng ký không hợp lệ', 'error');
+    return;
+  }
+
+  try {
+    await apiRequest('/api/bctt/grade', {
+      method: 'POST',
+      body: JSON.stringify({
+        dang_ky_id: dangKyId,
+        diem: diemNum,
+        nhan_xet: nhanXet,
+      }),
+    });
+    toast('✅ Lưu điểm BCTT thành công');
+    await refreshCurrentView();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
 async function saveScore(vaiTro, dangKyId) {
   const kltnObj = DB.kltnList.find(k => k.dangKyId == dangKyId);
   if (!kltnObj) {
@@ -1547,8 +1830,6 @@ function renderBCTT() {
     html += `<div class="card" style="margin-bottom:20px">
       <div class="card-header"><div><div class="card-title">📋 Thông tin đăng ký BCTT</div></div>${statusBadge(b.trangThai)}</div>
       <div class="info-row"><span class="info-label">Tên đề tài:</span><span class="info-value" style="font-weight:700">${b.tenDeTai}</span></div>
-      <div class="info-row"><span class="info-label">Loại đề tài:</span><span class="info-value">${getTopicTypeLabel(b.topicType)}</span></div>
-      <div class="info-row"><span class="info-label">Mảng đề tài:</span><span class="info-value">${b.mangDeTai}</span></div>
       <div class="info-row"><span class="info-label">Công ty:</span><span class="info-value">${b.tenCongTy}</span></div>
       <div class="info-row"><span class="info-label">Giảng viên HD:</span><span class="info-value">${gv?.name || b.gvEmail}</span></div>
       <div class="info-row"><span class="info-label">Đợt đăng ký:</span><span class="info-value">${DB.dotDangKy.find(d=>d.id===b.dotId)?.ten || b.dotId}</span></div>
@@ -1608,17 +1889,19 @@ function renderBCTT() {
         <div class="form-group"><label>Tên đề tài *</label><input type="text" id="f-tenDeTai" placeholder="Nhập tên đề tài thực tập..."></div>
         <div class="form-group"><label>Tên công ty *</label><input type="text" id="f-congty" placeholder="Tên doanh nghiệp thực tập..."></div>
         <div class="form-group"><label>Ngành *</label><select id="f-nganh" disabled><option value="TMĐT">Thương mại điện tử</option></select></div>
-        <div class="form-group"><label>Giảng viên hướng dẫn *</label><select id="f-gv"><option value="">-- Chọn giảng viên hướng dẫn --</option></select></div>
-        <div class="form-group"><label>Lĩnh vực *</label><select id="f-mang" onchange="renderTopicTypesByField(); renderGVOptionsByField();"><option value="">-- Chọn lĩnh vực --</option>${fieldOptions.map((field) => `<option value="${escapeHtml(field)}">${escapeHtml(field)}</option>`).join('')}</select></div>
+        <div class="form-group"><label>Lĩnh vực *</label><select id="f-mang" onchange="renderTopicTypesByField();renderGVOptionsByField();"><option value="">-- Chọn lĩnh vực --</option>${fieldOptions.map((field) => `<option value="${escapeHtml(field)}">${escapeHtml(field)}</option>`).join('')}</select></div>
         <div class="form-group"><label>Loại đề tài *</label><select id="f-topicType"><option value="">-- Chọn loại đề tài --</option></select></div>
-        <div class="form-note" style="grid-column:1/-1;font-size:13px;color:var(--text3);margin-top:6px;margin-bottom:0;line-height:1.5">*Ghi chú: Lĩnh vực AI có thể chọn cả đề tài ứng dụng và nghiên cứu; Chất lượng, Mô phỏng, Quản lý công nghiệp ưu tiên đề tài nghiên cứu; các lĩnh vực kinh doanh và kỹ thuật ứng dụng ưu tiên đề tài ứng dụng.</div>
+        <div class="form-group"><label>Giảng viên hướng dẫn *</label><select id="f-gv"><option value="">-- Chọn giảng viên hướng dẫn --</option></select></div>
       </div>
       <button class="btn btn-primary" style="margin-top:20px;min-width:200px" onclick="submitBCTT()">Gửi đăng ký</button>
     </div>`;
   }
   el.innerHTML = html;
   if (document.getElementById('f-gv') && document.getElementById('f-dot')) {
-    queueMicrotask(() => renderGVOptionsByField());
+    queueMicrotask(() => {
+      renderTopicTypesByField();
+      renderGVOptionsByField();
+    });
   }
 }
 
@@ -1640,11 +1923,19 @@ function renderKLTN() {
       <div class="info-row"><span class="info-label">Mảng đề tài:</span><span class="info-value">${k.mangDeTai}</span></div>
       <div class="info-row"><span class="info-label">GV Hướng dẫn:</span><span class="info-value">${gvHD?.name || k.gvHDEmail}</span></div>
       <div class="info-row"><span class="info-label">GV Phản biện:</span><span class="info-value">${gvPB ? gvPB.name : '<span style="color:var(--text3)">Chưa phân công</span>'}</span></div>
-      ${k.hoiDong ? `<div class="info-row"><span class="info-label">Chủ tịch HĐ:</span><span class="info-value">${getUser(k.hoiDong.ct)?.name || k.hoiDong.ct}</span></div>` : ''}
+      ${k.hoiDong ? `
+      <div class="info-row"><span class="info-label">Chủ tịch HĐ:</span><span class="info-value">${getUser(k.hoiDong.ct)?.name || k.hoiDong.ct}</span></div>
+      <div class="info-row"><span class="info-label">Thư ký HĐ:</span><span class="info-value">${getUser(k.hoiDong.tk)?.name || k.hoiDong.tk}</span></div>
+      <div class="info-row"><span class="info-label">Ủy viên HĐ:</span><span class="info-value">${k.hoiDong.tv.map(email => getUser(email)?.name || email).join(', ')}</span></div>
+      ` : '<div class="info-row"><span class="info-label">Hội đồng:</span><span class="info-value" style="color:var(--text3)">Chưa phân công</span></div>'}
     </div>`;
 
     if (k.trangThai === 'thuc_hien') {
+      const hasAssignments = k.gvPBEmail && k.hoiDong;
       html += `<div class="card"><div class="card-title" style="margin-bottom:16px">📤 Nộp bài KLTN</div>
+        ${!hasAssignments ? `<div style="background:#FFF7D6;border:1px solid var(--accent3);border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;font-size:13px;color:#974F0C">
+            ⏳ Vui lòng chờ Trưởng bộ môn phân công Giảng viên phản biện và Hội đồng trước khi nộp bài.
+           </div>` : ''}
         <div class="grid-2">
           <div><label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">📄 File bài KLTN (PDF/ZIP)</label>
         <div class="upload-area ${k.fileBaiWord ? 'has-file' : ''}" onclick="fakeUploadKLTN('${k.id}','fileBaiWord')">
@@ -1658,7 +1949,7 @@ function renderKLTN() {
           </div>
           <div><label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">📅 Hạn nộp</label><div class="uploaded-file">Hạn nộp KLTN: 23:59 ngày 15/06/2026</div></div>
         </div>
-        ${k.fileBai ? `<button class="btn btn-success" style="margin-top:16px;width:100%" onclick="hoanTatKLTN('${k.id}')">✅ Hoàn tất nộp KLTN</button>` : ''}
+        ${k.fileBai && hasAssignments ? `<button class="btn btn-success" style="margin-top:16px;width:100%" onclick="hoanTatKLTN('${k.id}')">✅ Hoàn tất nộp KLTN</button>` : ''}
       </div>`;
     }
 
@@ -1666,17 +1957,16 @@ function renderKLTN() {
     if (k.diemHD !== null && k.diemPB !== null && hoiDongScores.length) {
       const fa = computeKLTNFinalAvg(k);
       const avgHoiDong = hoiDongScores.reduce((sum, score) => sum + score, 0) / hoiDongScores.length;
-      const tvLine =
-        k.tvScores && k.tvScores.length
-          ? k.tvScores.map((t) => `${escapeHtml(getUser(t.email)?.name || t.email)}: ${t.diem ?? '–'}`).join(' • ')
-          : '';
+      const councilLine = getKLTNCouncilBreakdown(k)
+        .map((row) => `${escapeHtml(row.role === 'CT' ? 'Chủ tịch HĐ' : row.name)}: ${row.score != null ? row.score : '–'}`)
+        .join(' • ');
       html += `<div class="card"><div class="card-title" style="margin-bottom:16px">📊 Kết quả điểm</div>
         <div class="score-grid">
           <div class="score-item"><label>Điểm GV HD (20%)</label><input type="text" value="${k.diemHD ?? '–'}" readonly style="background:var(--bg)"></div>
           <div class="score-item"><label>Điểm GV PB (20%)</label><input type="text" value="${k.diemPB ?? '–'}" readonly style="background:var(--bg)"></div>
           <div class="score-item"><label>Điểm trung bình Hội đồng (60%)</label><input type="text" value="${avgHoiDong.toFixed(2)}" readonly style="background:var(--bg)"></div>
         </div>
-        ${tvLine ? `<div style="font-size:12px;color:var(--text2);margin-top:8px"><strong>Điểm TV:</strong> ${tvLine}</div>` : ''}
+        ${councilLine ? `<div style="font-size:12px;color:var(--text2);margin-top:8px"><strong>Điểm hội đồng:</strong> ${councilLine}</div>` : ''}
         <div class="score-total">
           <div class="score-total-label">Điểm tổng hợp (20% HD + 20% PB + 60% TB HĐ)</div>
           <div class="score-total-value">${fa != null ? Math.min(fa, 10).toFixed(2) : '–'}</div>
@@ -1692,8 +1982,8 @@ function renderKLTN() {
          </div>` : ''}
       ${k.tuChoiCTHD !== undefined && k.tuChoiCTHD !== null
       ? `<div style="background:#FFEBE6;border:1px solid #FF8F73;border-radius:var(--radius);padding:12px 16px;margin-bottom:12px;font-size:13px">
-          ❌ <strong>Chủ tịch HĐ yêu cầu chỉnh sửa lại:</strong> ${escapeHtml(k.tuChoiCTHD || 'Vui lòng xem lại và nộp bài mới.')}
-          <div style="font-size:12px;color:#BF2600;margin-top:4px">Hãy upload lại bài chỉnh sửa bên dưới.</div>
+          ❌ <strong>Chủ tịch HĐ không đồng ý báo cáo:</strong> ${escapeHtml(k.tuChoiCTHD || 'Vui lòng xem lại nội dung báo cáo theo góp ý của hội đồng.')}
+          <div style="font-size:12px;color:#BF2600;margin-top:4px">Bạn cần điều chỉnh theo góp ý trước khi thực hiện bước tiếp theo.</div>
          </div>` : ''}
       ${k.tkBienBan
         ? `<div style="background:#E3FCEF;border:1px solid #57D9A3;border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;font-size:13px">
@@ -1720,7 +2010,7 @@ function renderKLTN() {
         </div>
       </div>
       </div>
-      <div style="margin-top:10px;font-size:12px;color:var(--text3)">Trạng thái duyệt sửa: GVHD ${k.xacNhanGVHD ? 'Đồng ý' : 'Chờ'} • Chủ tịch ${k.xacNhanCTHD ? 'Đồng ý' : 'Chờ'}</div>
+      <div style="margin-top:10px;font-size:12px;color:var(--text3)">Trạng thái sau bảo vệ: GVHD ${k.xacNhanGVHD ? 'Đã duyệt bài chỉnh sửa' : 'Chờ duyệt bài chỉnh sửa'} • CTHĐ ${k.xacNhanCTHD ? 'Đã xác nhận đồng ý báo cáo' : 'Chờ xác nhận đồng ý/không đồng ý báo cáo'}</div>
       </div>`;
     }
   } else {
@@ -1740,9 +2030,13 @@ function renderKLTN() {
           <div class="form-group" style="grid-column:1/-1"><label>Tên đề tài *</label><input type="text" id="fk-ten" value="${myBCTT.tenDeTai}" placeholder="Tên đề tài KLTN..."></div>
           <div class="form-group" style="grid-column:1/-1"><label>Đợt đăng ký *</label><select id="fk-dot"><option value="">-- Chọn đợt --</option>${DB.dotDangKy.filter(d => d.trangThai === 'dang_mo' && d.loai === 'KLTN' && dotMatchesStudentHeAndMajor(d)).map(d => `<option value="${d.id}">${d.ten}</option>`).join('')}</select></div>
           <div class="form-group"><label>Ngành *</label><select id="fk-nganh" disabled><option value="TMĐT">Thương mại điện tử</option></select></div>
-          <div class="form-group"><label>Lĩnh vực *</label><select id="fk-mang" onchange="renderKLTNTopicTypesByField();"><option value="">-- Chọn lĩnh vực --</option>${getCurrentStudentFields().map((field) => `<option value="${escapeHtml(field)}" ${myBCTT.mangDeTai === field ? 'selected' : ''}>${escapeHtml(field)}</option>`).join('')}</select></div>
-          <div class="form-group"><label>Loại đề tài *</label><select id="fk-topicType"><option value="">-- Chọn loại đề tài --</option></select></div>
-          <div class="form-note" style="font-size:13px;color:var(--text3);margin-top:8px;margin-bottom:0;line-height:1.5">*Ghi chú: Lĩnh vực AI có thể chọn cả đề tài ứng dụng và nghiên cứu; Chất lượng, Mô phỏng, Quản lý công nghiệp ưu tiên đề tài nghiên cứu; các lĩnh vực kinh doanh và kỹ thuật ứng dụng ưu tiên đề tài ứng dụng.</div>
+          <div class="form-group"><label>Lĩnh vực *</label><select id="fk-mang"><option value="">-- Chọn lĩnh vực --</option>${getCurrentStudentFields().map((field) => `<option value="${escapeHtml(field)}" ${myBCTT.mangDeTai === field ? 'selected' : ''}>${escapeHtml(field)}</option>`).join('')}</select></div>
+          <div class="form-group">
+            <label>Loại đề tài *</label>
+            <input type="text" value="${escapeHtml(getTopicTypeLabel(myBCTT.topicType))}" readonly style="background:var(--bg)">
+            <input type="hidden" id="fk-topicType" value="${escapeHtml(normalizeTopicType(myBCTT.topicType))}">
+          </div>
+          <div class="form-note" style="font-size:13px;color:var(--text3);margin-top:8px;margin-bottom:0;line-height:1.5">Loại đề tài KLTN được giữ nguyên theo BCTT đã đạt của bạn.</div>
           <div class="form-group" style="grid-column:1/-1" ><label>GV Hướng dẫn</label><input type="text" value="${getUser(myBCTT.gvEmail)?.name || myBCTT.gvEmail}" readonly style="background:var(--bg)" id="fk-gvhd-display"><input type="hidden" id="fk-gvhd" value="${myBCTT.gvEmail}"></div>
         </div>
         <button class="btn btn-primary" style="margin-top:8px;min-width:200px" onclick="submitKLTN()">📤 Gửi đăng ký KLTN</button>
@@ -1768,14 +2062,13 @@ function renderDeTai() {
     <div id="tab-bctt-list" class="tab-content ${activeTab === 'tab-bctt-list' ? 'active' : ''}">`;
 
   if (bcttData.length) {
-    html += `<div class="table-wrap"><table><thead><tr><th>Sinh viên</th><th>Đề tài</th><th>Mảng</th><th>Công ty</th><th>GV HD</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>`;
+    html += `<div class="table-wrap"><table><thead><tr><th>Sinh viên</th><th>Đề tài</th><th>Lĩnh vực</th><th>Giảng viên hướng dẫn</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>`;
     bcttData.forEach(b => {
       const sv = getUser(b.svEmail); const gv = getUser(b.gvEmail);
       html += `<tr>
         <td><div style="font-weight:600">${sv?.name || b.svEmail}</div><div style="font-size:11px;color:var(--text3)">${b.svEmail}</div></td>
         <td style="max-width:200px"><div style="font-weight:500;cursor:pointer;color:var(--primary)" title="Xem chi tiết" onclick="viewBCTTDetail('${b.id}')">${escapeHtml(b.tenDeTai)}</div></td>
         <td><span class="badge badge-blue" style="white-space:nowrap">${b.mangDeTai}</span></td>
-        <td style="font-size:12px">${b.tenCongTy}</td>
         <td style="font-size:12px">${gv?.name || b.gvEmail}</td>
         <td>${statusBadge(b.trangThai)}</td>
         <td><button class="btn btn-ghost btn-sm" onclick="viewBCTTDetail('${b.id}')">👁 Chi tiết</button></td>
@@ -1803,6 +2096,69 @@ function renderDeTai() {
   } else { html += `<div class="empty-state"><div class="empty-state-icon">📭</div><div class="empty-state-title">Chưa có KLTN nào</div></div>`; }
   html += `</div>`;
   el.innerHTML = html;
+}
+
+function renderNhapDiem() {
+  const u = DB.currentUser;
+  const el = document.getElementById('page-nhapDiem');
+  if (!el) return;
+  let html = `<div class="page-header"><h1>📊 Chấm điểm</h1><p>Trang quản lý chấm điểm KLTN theo vai trò của bạn</p></div>`;
+  if (!u || (u.role !== 'gv' && u.role !== 'bm')) {
+    html += `<div class="card"><div class="empty-state"><div class="empty-state-icon">🚫</div><div class="empty-state-title">Bạn không có quyền truy cập trang này</div><div style="margin-top:12px"><button class="btn btn-primary btn-sm" onclick="navigateTo('dashboard')">Về trang chính</button></div></div></div>`;
+    el.innerHTML = html;
+    return;
+  }
+
+  const list = getKLTNRoleRecords((assignment) => assignment.canGrade);
+  if (!list.length) {
+    html += `<div class="card"><div class="empty-state"><div class="empty-state-icon">📭</div><div class="empty-state-title">Không có đề tài KLTN nào để chấm</div><div style="margin-top:8px;color:var(--text3)">Kiểm tra lại phân công hội đồng, vai trò GV hoặc PB.</div></div></div>`;
+    el.innerHTML = html;
+    return;
+  }
+
+  list.forEach((k) => {
+    const assignment = getKLTNAssignment(u, k);
+    html += renderKLTNRoleCardStart(k);
+    if (assignment.isAdvisor) {
+      html += renderKLTNScoreBlock(
+        k,
+        'HD',
+        '🎯 Giảng viên hướng dẫn — phiếu chấm',
+        'Nhập điểm và nhận xét theo mẫu chấm HD.',
+        { existingScore: k.diemHD, noteValue: k.hdNote || '' }
+      );
+    }
+    if (assignment.isReviewer) {
+      html += renderKLTNScoreBlock(
+        k,
+        'PB',
+        '🧾 Giảng viên phản biện — phiếu chấm',
+        'Nhập điểm, nhận xét và câu hỏi phản biện.',
+        { existingScore: k.diemPB, noteValue: k.pbNote || '', questionValue: k.pbCauHoi || '', showQuestion: true }
+      );
+    }
+    if (assignment.isCommitteeMember) {
+      const myTVScore = getCurrentTVScore(k);
+      html += renderKLTNScoreBlock(
+        k,
+        'TV',
+        '🏛️ Thành viên hội đồng — phiếu chấm',
+        'Nhập điểm và nhận xét riêng cho hội đồng.',
+        { existingScore: myTVScore?.diem, noteValue: myTVScore?.nhanXet || '' }
+      );
+    }
+    if (!assignment.isAdvisor && !assignment.isReviewer && !assignment.isCommitteeMember) {
+      html += `<div style="font-size:13px;color:var(--text3);margin-top:12px">Bạn chưa được phân công vai trò chấm điểm cho đề tài này.</div>`;
+    }
+    html += renderKLTNRoleCardEnd();
+  });
+
+  el.innerHTML = html;
+  list.forEach((k) => {
+    if (getKLTNAssignment(u, k).isAdvisor) recalcKLTNRoleTotal(k.id, 'HD');
+    if (getKLTNAssignment(u, k).isReviewer) recalcKLTNRoleTotal(k.id, 'PB');
+    if (getKLTNAssignment(u, k).isCommitteeMember) recalcKLTNRoleTotal(k.id, 'TV');
+  });
 }
 
 function viewBCTTDetail(id) {
@@ -1935,7 +2291,7 @@ function viewKLTNDetail(id) {
   showModal(`
     ${customStyles}
     <div class="modal-header">
-      <div class="modal-title">📄 Chi tiết Khóa Luận Tốt Nghiệp</div>
+      <div class="modal-title">Chi tiết Khóa Luận Tốt Nghiệp</div>
       <button class="modal-close" onclick="closeModalForce()">✕</button>
     </div>
    
@@ -1944,7 +2300,8 @@ function viewKLTNDetail(id) {
       <div class="kltn-row"><span class="kltn-label">MSSV:</span><span class="kltn-value" style="font-weight: 600;">${escapeHtml(mssv)}</span></div>
       <div class="kltn-row"><span class="kltn-label">Sinh viên:</span><span class="kltn-value">${escapeHtml(sv?.name || '')}</span></div>
       <div class="kltn-row"><span class="kltn-label">Tên đề tài:</span><span class="kltn-value" style="font-weight:700; color: var(--accent, #0284c7); font-size: 15px;">${escapeHtml(k.tenDeTai)}</span></div>
-      <div class="kltn-row"><span class="kltn-label">Ngành:</span><span class="kltn-value">${escapeHtml(k.mangDeTai)}</span></div>
+      <div class="kltn-row"><span class="kltn-label">Ngành:</span><span class="kltn-value">Thương mại Điện tử</span></div>
+      <div class="kltn-row"><span class="kltn-label">Lĩnh vực:</span><span class="kltn-value">${escapeHtml(k.mangDeTai)}</span></div>
       <div class="kltn-row"><span class="kltn-label">Trạng thái:</span><span class="kltn-value">${statusBadge(k.trangThai)}</span></div>
     </div>
 
@@ -1966,10 +2323,10 @@ function viewKLTNDetail(id) {
       </div>
      
       <div class="kltn-row" style="margin-top: 15px; background: var(--bg, #fff); padding: 10px 12px; border-radius: 6px; border: 1px solid var(--border, #e5e7eb);">
-        <span class="kltn-label" style="min-width: 130px;">Duyệt chỉnh sửa:</span>
+        <span class="kltn-label" style="min-width: 130px;">Xác nhận sau bảo vệ:</span>
         <span class="kltn-value">
-          <span style="display:inline-block; margin-right: 15px;"><b>GVHD:</b> ${k.xacNhanGVHD ? '<span style="color:#16a34a; font-weight:bold;">✅ Đồng ý</span>' : '<span style="color:#d97706;">⏳ Chờ</span>'}</span>
-          <span><b>Chủ tịch:</b> ${k.xacNhanCTHD ? '<span style="color:#16a34a; font-weight:bold;">✅ Đồng ý</span>' : '<span style="color:#d97706;">⏳ Chờ</span>'}</span>
+          <span style="display:inline-block; margin-right: 15px;"><b>GVHD:</b> ${k.xacNhanGVHD ? '<span style="color:#16a34a; font-weight:bold;">✅ Đã duyệt bài chỉnh sửa</span>' : '<span style="color:#d97706;">⏳ Chờ duyệt bài chỉnh sửa</span>'}</span>
+          <span><b>Chủ tịch:</b> ${k.xacNhanCTHD ? '<span style="color:#16a34a; font-weight:bold;">✅ Đã xác nhận đồng ý báo cáo</span>' : '<span style="color:#d97706;">⏳ Chờ xác nhận báo cáo sau bảo vệ</span>'}</span>
         </span>
       </div>
      
@@ -2070,6 +2427,11 @@ function renderDuyetDe() {
 }
 // Phân công hội đồng 
 function renderPhanCong() {
+  const u = DB.currentUser;
+  if (u.role !== 'bm') {
+    document.getElementById('page-phancong').innerHTML = `<div class="page-header"><h1>🚫 Truy cập bị từ chối</h1><p>Chỉ trưởng bộ môn mới có quyền phân công.</p></div>`;
+    return;
+  }
   const el = document.getElementById('page-phancong');
   const needPB = DB.kltnList.filter(k => !k.gvPBEmail);
   const needHD = DB.kltnList.filter(k => !k.hoiDong);
@@ -2678,6 +3040,98 @@ function renderHuongDan() {
   el.innerHTML = html;
 }
 
+function renderNhapDiem() {
+  const u = DB.currentUser;
+  const el = document.getElementById('page-nhapDiem');
+  const list = gvKLTNListForNhapDiem(u);
+  let html = `<div class="page-header"><h1>📊 Chấm điểm đề tài</h1><p>Danh sách KLTN bạn đang được phân công chấm điểm</p></div>`;
+
+  if (!list.length) {
+    el.innerHTML = `${html}<div class="card"><div class="empty-state"><div class="empty-state-icon">📊</div><div class="empty-state-title">Hiện chưa có đề tài nào cần bạn chấm điểm</div></div></div>`;
+    return;
+  }
+
+  list.sort((a, b) => String(a.tenDeTai || '').localeCompare(String(b.tenDeTai || ''), 'vi'));
+  list.forEach((k) => {
+    const sv = getUser(k.svEmail);
+    const assignment = getKLTNAssignment(u, k);
+    const roles = [];
+    if (assignment.isAdvisor) roles.push('Hướng dẫn');
+    if (assignment.isReviewer) roles.push('Phản biện');
+    if (assignment.isChair) roles.push('Chủ tịch');
+    if (assignment.isSecretary) roles.push('Thư ký');
+    if (assignment.isCommitteeMember) roles.push('Thành viên HĐ');
+    const isHD = Boolean(assignment.isAdvisor);
+    const isPB = Boolean(assignment.isReviewer);
+    const isCT = Boolean(assignment.isChair);
+    const isTK = Boolean(assignment.isSecretary);
+    const isTVMember = Boolean(assignment.isCommitteeMember);
+
+    html += `<div class="card" style="margin-bottom:12px">
+      <div class="card-header">
+        <div>
+          <div class="card-title" style="cursor:pointer;color:var(--primary)" onclick="viewKLTNDetail('${k.id}')">${escapeHtml(k.tenDeTai)}</div>
+          <div style="font-size:12px;color:var(--text3);margin-top:4px">${escapeHtml(sv?.name || k.svEmail)} • ${escapeHtml(getTopicTypeLabel(k.topicType))}</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:6px">Vai trò chấm: ${escapeHtml(roles.join(', ') || 'Được phân công')}</div>
+        </div>
+        ${statusBadge(k.trangThai)}
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+        <button class="btn btn-ghost btn-sm" onclick="viewKLTNDetail('${k.id}')">👁 Chi tiết</button>
+      </div>`;
+
+    if (isHD) {
+      html += renderKLTNScoreBlock(
+        k,
+        'HD',
+        '🎯 Giảng viên hướng dẫn — phiếu chấm',
+        'Phiếu chấm thay đổi theo loại đề tài mà sinh viên đã đăng ký.',
+        { existingScore: k.diemHD, noteValue: k.hdNote || '' }
+      );
+    }
+
+    if (isPB) {
+      html += renderKLTNScoreBlock(
+        k,
+        'PB',
+        '🧾 Giảng viên phản biện — phiếu chấm',
+        'Vai trò phản biện cần nhập đủ nhận xét và câu hỏi để đưa vào biên bản.',
+        { existingScore: k.diemPB, noteValue: k.pbNote || '', questionValue: k.pbCauHoi || '', showQuestion: true }
+      );
+    }
+
+    if (isCT) {
+      html += `<div style="font-size:13px;color:var(--text3);margin-top:12px">👨‍⚖️ Bạn đang là Chủ tịch hội đồng. Ở tab này, bạn chỉ xác nhận đồng ý hoặc không đồng ý buổi báo cáo/bảo vệ sau khi hội đồng đã chấm; đây không phải bước duyệt bài chỉnh sửa của sinh viên.</div>`;
+    }
+
+    if (isTK) {
+      html += `<div style="font-size:13px;color:var(--text3);margin-top:12px">📝 Bạn đang là Thư ký hội đồng. Vai trò này không chấm điểm riêng, nhưng sẽ tổng hợp nội dung và xuất biên bản ở tab Thư ký.</div>`;
+    }
+
+    if (isTVMember) {
+      const myTVScore = getCurrentTVScore(k);
+      html += renderKLTNScoreBlock(
+        k,
+        'TV',
+        '🏛️ Thành viên hội đồng — phiếu chấm riêng',
+        'Mỗi thành viên hội đồng có một phiếu chấm riêng theo loại đề tài.',
+        { existingScore: myTVScore?.diem, noteValue: myTVScore?.nhanXet || '' }
+      );
+    }
+
+    html += `</div>`;
+  });
+
+  el.innerHTML = html;
+  list.forEach((k) => {
+    ['HD', 'PB', 'TV'].forEach((vaiTro) => {
+      if (document.getElementById(totalInputId(k.id, vaiTro))) {
+        recalcKLTNRoleTotal(k.id, vaiTro);
+      }
+    });
+  });
+}
+
 function renderUsers() {
   const el = document.getElementById('page-users');
   let html = `<div class="page-header"><h1>👥 Quản lý Người dùng</h1><p>Tổng cộng ${DB.users.length} tài khoản</p></div>
@@ -2767,10 +3221,17 @@ function renderKLTNFileLinks(k, options = {}) {
 function renderKLTNRoleMeta(k) {
   const sv = getUser(k.svEmail);
   const avg = computeKLTNFinalAvg(k);
-  return `<div style="font-size:12px;color:var(--text3);margin-top:4px">
-    ${escapeHtml(sv?.name || k.svEmail)} • ${escapeHtml(sv?.mssv || sv?.ma || '')}
-    ${k.hoiDong ? ` • HĐ: ${escapeHtml(getUser(k.hoiDong.ct)?.name || k.hoiDong.ct || '')}` : ''}
-    ${avg != null ? ` • Điểm TB: ${avg.toFixed(2)}` : ''}
+  const studentCode = sv?.mssv || sv?.ma || '';
+  return `<div class="kltn-role-meta">
+    <div class="kltn-role-meta-main">
+      <span>${escapeHtml(sv?.name || k.svEmail)}</span>
+      ${studentCode ? `<span class="kltn-role-meta-code">MSSV ${escapeHtml(studentCode)}</span>` : ''}
+    </div>
+    <div class="kltn-role-meta-chips">
+      <span class="kltn-role-chip kltn-role-chip-advisor">Giảng viên hướng dẫn: ${escapeHtml(getUser(k.gvHDEmail)?.name || k.gvHDEmail || '')}</span>
+      ${k.hoiDong ? `<span class="kltn-role-chip">Chủ tịch hội đồng: ${escapeHtml(getUser(k.hoiDong.ct)?.name || k.hoiDong.ct || '')}</span>` : ''}
+      ${avg != null ? `<span class="kltn-role-chip kltn-role-chip-score">Điểm trung bình: ${avg.toFixed(2)}</span>` : ''}
+    </div>
   </div>`;
 }
 
@@ -2804,9 +3265,64 @@ function buildSecretaryCouncilNotes(k) {
   return [reviewerSection, memberSection].filter(Boolean).join('\n\n');
 }
 
-function buildBienBanPayload(k, extraNotes) {
+function buildSecretaryScoreLines(k) {
+  const lines = [];
+  lines.push(`GVHD: ${k.diemHD != null ? k.diemHD : '–'}`);
+  lines.push(`GVPB: ${k.diemPB != null ? k.diemPB : '–'}`);
+  getKLTNCouncilBreakdown(k).forEach((row) => {
+    const label = row.role === 'CT' ? 'Chủ tịch HĐ' : row.name;
+    lines.push(`${label}: ${row.score != null ? row.score : '–'}`);
+  });
+  const councilScores = getKLTNCouncilScores(k);
+  if (councilScores.length) {
+    const councilAvg = councilScores.reduce((a, b) => a + b, 0) / councilScores.length;
+    lines.push(`TB Hội đồng: ${councilAvg.toFixed(2)}`);
+  }
+  const finalAvg = computeKLTNFinalAvg(k);
+  if (finalAvg != null) lines.push(`Điểm tổng hợp: ${finalAvg.toFixed(2)}`);
+  return lines;
+}
+
+function buildSecretaryScoreRows(k) {
+  const rows = [];
+  rows.push({
+    role: 'GVHD',
+    name: getUser(k.gvHDEmail)?.name || k.gvHDEmail || 'Giảng viên hướng dẫn',
+    score: k.diemHD != null ? String(k.diemHD) : '–',
+  });
+  rows.push({
+    role: 'GVPB',
+    name: getUser(k.gvPBEmail)?.name || k.gvPBEmail || 'Giảng viên phản biện',
+    score: k.diemPB != null ? String(k.diemPB) : '–',
+  });
+  getKLTNCouncilBreakdown(k).forEach((row) => {
+    rows.push({
+      role: row.role,
+      name: row.role === 'CT' ? (getUser(k.hoiDong?.ct)?.name || k.hoiDong?.ct || 'Chủ tịch hội đồng') : row.name,
+      score: row.score != null ? String(row.score) : '–',
+    });
+  });
+  const councilScores = getKLTNCouncilScores(k);
+  if (councilScores.length) {
+    const councilAvg = councilScores.reduce((a, b) => a + b, 0) / councilScores.length;
+    rows.push({ role: 'Trung bình hội đồng', name: '', score: councilAvg.toFixed(2), emphasis: true, mergeName: true });
+  }
+  const finalAvg = computeKLTNFinalAvg(k);
+  if (finalAvg != null) {
+    rows.push({ role: 'TỔNG', name: 'Điểm tổng hợp', score: finalAvg.toFixed(2), highlight: true });
+  }
+  return rows;
+}
+
+function buildBienBanPayload(k, extraNotes, councilNotesOverride = null) {
   const sv = getUser(k.svEmail) || {};
+  const svMajor = Array.isArray(sv.chuyenMon)
+    ? (sv.chuyenMon.find((item) => String(item || '').trim()) || '')
+    : '';
   const today = new Date();
+  const councilScores = getKLTNCouncilScores(k);
+  const councilAvg = councilScores.length ? (councilScores.reduce((a, b) => a + b, 0) / councilScores.length) : null;
+  const finalAvg = computeKLTNFinalAvg(k);
   const tvNotes = (k.tvScores || [])
     .map((row) => {
       const name = getUser(row.email)?.name || row.email;
@@ -2815,14 +3331,24 @@ function buildBienBanPayload(k, extraNotes) {
     .filter(Boolean)
     .join('\n');
 
+  const councilNotes = councilNotesOverride != null ? String(councilNotesOverride) : [k.pbNote ? `GV phản biện: ${k.pbNote}` : '', k.pbCauHoi ? `Câu hỏi PB: ${k.pbCauHoi}` : '', tvNotes].filter(Boolean).join('\n\n');
+
   return {
     dangKyId: k.dangKyId || extractId(k.id),
-    tenKhoa: k.mangDeTai || '',
+    tenKhoa: svMajor || k.mangDeTai || '',
     tenDeTai: k.tenDeTai || '',
     sinhVien: sv.name || k.svEmail,
     maSV: sv.ma || sv.mssv || '',
+    tenGVHD: getUser(k.gvHDEmail)?.name || k.gvHDEmail || '',
+    tenGVPB: getUser(k.gvPBEmail)?.name || k.gvPBEmail || '',
+    tenChuTich: getUser(k.hoiDong?.ct)?.name || k.hoiDong?.ct || '',
+    diemGVHD: k.diemHD != null ? String(k.diemHD) : '',
+    diemGVPB: k.diemPB != null ? String(k.diemPB) : '',
+    diemHoiDongTB: councilAvg != null ? councilAvg.toFixed(2) : '',
+    diemTongHop: finalAvg != null ? finalAvg.toFixed(2) : '',
+    diemThanhVien: buildSecretaryScoreLines(k).join('\n'),
     nhanXetCT: k.ctNote || '',
-    nhanXetTV: [k.pbNote ? `GV phản biện: ${k.pbNote}` : '', k.pbCauHoi ? `Câu hỏi PB: ${k.pbCauHoi}` : '', tvNotes].filter(Boolean).join('\n\n'),
+    nhanXetTV: councilNotes,
     yeuCauChinhSua: extraNotes || '',
     chuTichHD: getUser(k.hoiDong?.ct)?.name || k.hoiDong?.ct || '',
     thuKy: getUser(k.hoiDong?.tk)?.name || k.hoiDong?.tk || '',
@@ -2870,7 +3396,7 @@ async function approveKLTNRevision(recordId, step, dongY) {
   if (!record) return toast('Không tìm thấy hồ sơ KLTN', 'error');
   let ly_do = '';
   if (!dongY) {
-    ly_do = window.prompt('Nhập lý do từ chối chỉnh sửa', '') || '';
+    ly_do = window.prompt(step === 'cthd' ? 'Nhập lý do không đồng ý báo cáo' : 'Nhập lý do từ chối chỉnh sửa', '') || '';
   }
   try {
     await apiRequest('/api/kltn/revision-approve', {
@@ -2882,7 +3408,11 @@ async function approveKLTNRevision(recordId, step, dongY) {
         ly_do,
       }),
     });
-    toast(dongY ? 'Đã duyệt chỉnh sửa' : 'Đã từ chối chỉnh sửa');
+    if (step === 'cthd') {
+      toast(dongY ? 'CTHĐ đã đồng ý báo cáo' : 'CTHĐ đã không đồng ý báo cáo');
+    } else {
+      toast(dongY ? 'Đã duyệt chỉnh sửa' : 'Đã từ chối chỉnh sửa');
+    }
     await refreshCurrentView();
   } catch (err) {
     toast(err.message, 'error');
@@ -2892,6 +3422,9 @@ async function approveKLTNRevision(recordId, step, dongY) {
 async function finalizeKLTNResult(recordId) {
   const record = findKltnRecord(recordId);
   if (!record) return toast('Không tìm thấy hồ sơ KLTN', 'error');
+  if (!Boolean(record.cthdApproved ?? record.xacNhanCTHD)) {
+    return toast('CTHĐ cần xác nhận đồng ý báo cáo trước khi kết thúc KLTN', 'error');
+  }
   if (computeKLTNFinalAvg(record) == null) {
     return toast('Chưa đủ điểm để kết thúc KLTN', 'error');
   }
@@ -2912,15 +3445,20 @@ async function finalizeKLTNResult(recordId) {
 async function exportSecretaryBienBan(recordId, saveToServer = false) {
   const record = findKltnRecord(recordId);
   if (!record) return toast('Không tìm thấy hồ sơ KLTN', 'error');
+  const councilNotes = (document.getElementById(`tk-council-note-${record.id}`)?.value || '').trim();
   const extraNotes = (document.getElementById(`tk-note-${record.id}`)?.value || '').trim();
-  const payload = buildBienBanPayload(record, extraNotes);
+  const payload = buildBienBanPayload(record, extraNotes, councilNotes);
   const sv = getUser(record.svEmail);
+  const current = DB.currentUser || {};
+  const authHeaders = {};
+  if (current.id) authHeaders["X-User-Id"] = String(current.id);
+  if (current.role_raw || current.role) authHeaders["X-User-Role"] = String(current.role_raw || toApiRole(current.role));
 
   try {
     const res = await fetch(`${API_BASE}/api/bien-ban/xuat-docx`, {
       method: 'POST',
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify(payload),
     });
     if (!res.ok) {
@@ -2996,7 +3534,9 @@ function renderPhanBien() {
 
 function renderHoiDong() {
   const el = document.getElementById('page-hoidong');
-  const list = getKLTNRoleRecords((assignment) => assignment.isCommitteeMember);
+  const list = DB.kltnList
+    .filter((k) => Boolean(k.myAssignment?.isCommitteeMember) || isUserCommitteeMemberOnRecord(DB.currentUser, k))
+    .sort((a, b) => Number(b.dangKyId || 0) - Number(a.dangKyId || 0));
   let html = renderKLTNRoleHeader('🏛️ Hội đồng', 'thuộc hội đồng bạn tham gia', list.length);
 
   if (!list.length) {
@@ -3034,21 +3574,30 @@ function renderChuTich() {
 
   list.forEach((k) => {
     const finalAvg = computeKLTNFinalAvg(k);
-    const canReviewRevision = Boolean(k.fileBaiChinhSua && k.fileGiaiTrinh);
+    const gvhdApproved = Boolean(k.gvhdApproved ?? k.xacNhanGVHD);
+    const cthdApproved = Boolean(k.cthdApproved ?? k.xacNhanCTHD);
+    const canConfirmReport = k.trangThai === 'bao_ve' && !cthdApproved;
     html += renderKLTNRoleCardStart(k);
     html += `<div style="margin-top:12px;font-size:13px;color:var(--text2)">
-      Chủ tịch không chấm điểm riêng. Vai trò này xem hồ sơ, tổng hợp kết quả và duyệt chỉnh sửa sau bảo vệ.
+      Chủ tịch hội đồng xem hồ sơ, theo dõi kết quả và xác nhận đồng ý hoặc không đồng ý buổi báo cáo/bảo vệ sau khi hội đồng đã chấm. Bước này không phải duyệt bài chỉnh sửa; phần đó thuộc GVHD. Nếu hồ sơ đã có điểm Chủ tịch, điểm này cũng được tính vào trung bình hội đồng.
     </div>`;
     html += `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
       ${finalAvg != null ? `<div class="badge badge-purple">Điểm tổng hợp: ${finalAvg.toFixed(2)}</div>` : `<div class="badge badge-orange">Chưa đủ điểm để tổng hợp</div>`}
-      <div class="badge badge-blue">GVHD: ${k.xacNhanGVHD ? 'Đã duyệt sửa' : 'Chưa duyệt sửa'}</div>
-      <div class="badge badge-blue">CT.HĐ: ${k.xacNhanCTHD ? 'Đã duyệt sửa' : 'Chưa duyệt sửa'}</div>
+      <div class="badge badge-blue">GVHD: ${gvhdApproved ? 'Đã duyệt bài chỉnh sửa' : 'Chưa duyệt bài chỉnh sửa'}</div>
+      <div class="badge badge-blue">CT.HĐ: ${cthdApproved ? 'Đã xác nhận đồng ý báo cáo' : 'Chưa xác nhận báo cáo'}</div>
+    </div>`;
+    html += `<div style="margin-top:10px;font-size:12px;color:var(--text3)">
+      ${k.trangThai !== 'bao_ve' && k.trangThai !== 'pass' && k.trangThai !== 'fail' && k.trangThai !== 'hoan_thanh'
+        ? 'Bước xác nhận này chỉ thực hiện sau khi sinh viên đã bảo vệ/báo cáo.'
+        : cthdApproved
+          ? 'Chủ tịch hội đồng đã xác nhận đồng ý báo cáo cho hồ sơ này.'
+          : 'Đã đủ điều kiện để CTHĐ xác nhận đồng ý hoặc không đồng ý buổi báo cáo/bảo vệ.'}
     </div>`;
     html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
       <button class="btn btn-ghost btn-sm" onclick="viewKLTNDetail('${k.id}')">👁 Chi tiết</button>
-      <button class="btn btn-primary btn-sm" onclick="finalizeKLTNResult('${k.id}')">🏁 Kết thúc KLTN</button>
-      ${canReviewRevision ? `<button class="btn btn-success btn-sm" onclick="approveKLTNRevision('${k.id}','cthd',true)">Duyệt chỉnh sửa</button>` : ''}
-      ${canReviewRevision ? `<button class="btn btn-danger btn-sm" onclick="approveKLTNRevision('${k.id}','cthd',false)">Từ chối chỉnh sửa</button>` : ''}
+      <button class="btn btn-primary btn-sm" onclick="finalizeKLTNResult('${k.id}')" ${cthdApproved ? '' : 'disabled'}>🏁 Kết thúc KLTN</button>
+      <button class="btn btn-success btn-sm" onclick="approveKLTNRevision('${k.id}','cthd',true)" ${canConfirmReport ? '' : 'disabled'}>Đồng ý báo cáo</button>
+      <button class="btn btn-danger btn-sm" onclick="approveKLTNRevision('${k.id}','cthd',false)" ${canConfirmReport ? '' : 'disabled'}>Không đồng ý báo cáo</button>
     </div>`;
     if (k.pbNote || k.pbCauHoi || buildSecretaryCouncilNotes(k)) {
       html += `<div class="form-group" style="margin-top:12px"><label>Nhận xét để tham chiếu khi duyệt</label><textarea readonly style="min-height:120px;background:var(--bg)">${escapeHtml([k.pbNote ? `Nhận xét PB: ${k.pbNote}` : '', k.pbCauHoi ? `Câu hỏi PB: ${k.pbCauHoi}` : '', buildSecretaryCouncilNotes(k)].filter(Boolean).join('\n\n'))}</textarea></div>`;
@@ -3073,17 +3622,81 @@ function renderThuKy() {
     const finalAvg = computeKLTNFinalAvg(k);
     const councilScores = getKLTNCouncilScores(k);
     const councilAvg = councilScores.length ? (councilScores.reduce((a, b) => a + b, 0) / councilScores.length) : null;
+    const scoreRows = buildSecretaryScoreRows(k);
+    const summaryCards = [
+      {
+        label: 'GVHD',
+        value: k.diemHD != null ? String(k.diemHD) : 'Chưa có',
+        tone: 'neutral',
+        note: 'Điểm giảng viên hướng dẫn',
+      },
+      {
+        label: 'GVPB',
+        value: k.diemPB != null ? String(k.diemPB) : 'Chưa có',
+        tone: 'neutral',
+        note: 'Điểm giảng viên phản biện',
+      },
+      {
+        label: 'Trung bình hội đồng',
+        value: councilAvg != null ? councilAvg.toFixed(2).replace(/\.00$/, '') : 'Chưa có',
+        tone: 'neutral',
+        note: `${councilScores.length || 0} phiếu hội đồng`,
+      },
+      {
+        label: 'Tổng hợp',
+        value: finalAvg != null ? finalAvg.toFixed(2) : 'Chưa đủ',
+        tone: finalAvg != null ? 'accent' : 'muted',
+        note: '20% HD + 20% PB + 60% HĐ',
+      },
+    ];
     html += renderKLTNRoleCardStart(k);
     html += `<div style="margin-top:12px;font-size:13px;color:var(--text2)">
       Thư ký không chấm điểm. Bạn có thể xem điểm HD/PB/HĐ, tổng hợp góp ý và xuất biên bản hội đồng cho từng sinh viên.
     </div>`;
-    html += `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px">
-      <div class="kltn-score-box" style="min-width:130px"><span class="kltn-score-label">GVHD</span><div class="kltn-score-val">${k.diemHD != null ? escapeHtml(String(k.diemHD)) : '–'}</div></div>
-      <div class="kltn-score-box" style="min-width:130px"><span class="kltn-score-label">GVPB</span><div class="kltn-score-val">${k.diemPB != null ? escapeHtml(String(k.diemPB)) : '–'}</div></div>
-      <div class="kltn-score-box" style="min-width:130px"><span class="kltn-score-label">TB Hội đồng</span><div class="kltn-score-val">${councilAvg != null ? escapeHtml(councilAvg.toFixed(2).replace(/\.00$/, '')) : '–'}</div></div>
-      <div class="kltn-score-box" style="min-width:130px;background:#fff1f2;border-color:#fecdd3"><span class="kltn-score-label" style="color:#9f1239">Tổng hợp</span><div class="kltn-score-val" style="color:#e11d48">${finalAvg != null ? finalAvg.toFixed(2) : '–'}</div></div>
+    html += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:14px">
+      ${summaryCards.map((card) => `
+        <div style="
+          border:1px solid ${card.tone === 'accent' ? '#fecdd3' : card.tone === 'muted' ? '#e5e7eb' : 'var(--border)'};
+          background:${card.tone === 'accent' ? 'linear-gradient(180deg,#fff1f2 0%,#fff7f7 100%)' : card.tone === 'muted' ? '#fafafa' : 'linear-gradient(180deg,#ffffff 0%,#f8fafc 100%)'};
+          border-radius:12px;
+          padding:14px 16px;
+          min-height:110px;
+          display:flex;
+          flex-direction:column;
+          justify-content:space-between;
+          box-shadow:${card.tone === 'accent' ? '0 8px 20px rgba(244,63,94,0.08)' : '0 4px 12px rgba(15,23,42,0.04)'};
+        ">
+          <div style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:${card.tone === 'accent' ? '#9f1239' : '#64748b'}">${escapeHtml(card.label)}</div>
+          <div style="font-size:${card.value.length > 6 ? '18px' : '24px'};font-weight:900;color:${card.tone === 'accent' ? '#e11d48' : card.tone === 'muted' ? '#94a3b8' : '#1e3a8a'};line-height:1.1;margin:6px 0">${escapeHtml(card.value)}</div>
+          <div style="font-size:12px;color:#64748b">${escapeHtml(card.note)}</div>
+        </div>
+      `).join('')}
     </div>`;
-    html += `<div class="form-group" style="margin-top:12px"><label>Góp ý phản biện và hội đồng</label><textarea readonly style="min-height:120px;background:var(--bg)">${escapeHtml(buildSecretaryCouncilNotes(k))}</textarea></div>`;
+    html += `<div class="form-group" style="margin-top:12px">
+      <label>Bảng điểm tổng hợp</label>
+      <div class="table-wrap">
+        <table>
+          <thead class="secretary-score-head">
+            <tr>
+              <th style="width:110px">Vai trò</th>
+              <th>Họ tên</th>
+              <th style="width:120px;text-align:center">Điểm</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${scoreRows.map((row) => `
+              <tr ${row.highlight ? `style="background:#fff1f2"` : row.emphasis ? `style="background:#f8fbff"` : ''}>
+                ${row.mergeName
+                  ? `<td colspan="2" style="font-weight:${row.emphasis ? '800' : '700'};${row.emphasis ? 'color:#1e3a8a;' : ''}">${escapeHtml(row.role)}</td>`
+                  : `<td style="font-weight:${row.emphasis ? '800' : '700'};${row.emphasis ? 'color:#1e3a8a;' : ''}">${escapeHtml(row.role)}</td><td style="${row.emphasis ? 'font-weight:700;color:#35507a;' : ''}">${escapeHtml(row.name)}</td>`}
+                <td style="text-align:center;font-weight:${row.emphasis ? '900' : '800'};${row.highlight ? 'color:#be123c;' : row.emphasis ? 'color:#1e3a8a;' : ''}">${escapeHtml(row.score)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+    html += `<div class="form-group" style="margin-top:12px"><label>Góp ý phản biện và hội đồng</label><textarea id="tk-council-note-${k.id}" style="min-height:120px" placeholder="Nhập góp ý phản biện và hội đồng vào đây">${escapeHtml(buildSecretaryCouncilNotes(k))}</textarea></div>`;
     html += `<div class="form-group"><label>Nội dung yêu cầu chỉnh sửa / tổng hợp biên bản</label><textarea id="tk-note-${k.id}" style="min-height:120px" placeholder="Nhập thêm góp ý của hội đồng để đưa vào biên bản">${escapeHtml(getSecretaryDraftValue(k))}</textarea></div>`;
     html += `<div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn btn-ghost btn-sm" onclick="viewKLTNDetail('${k.id}')">👁 Chi tiết</button>
@@ -3097,9 +3710,91 @@ function renderThuKy() {
 }
 function renderGoiY() { document.getElementById('page-goiy').innerHTML = `<div class="page-header"><h1>💡 Gợi ý đề tài</h1></div>`; }
 function renderThongKe() { document.getElementById('page-thongke').innerHTML = `<div class="page-header"><h1>📈 Thống kê</h1></div>`; }
-function renderTheoDoi() { document.getElementById('page-theodoi').innerHTML = `<div class="page-header"><h1>⏱️ Theo dõi trạng thái</h1></div>`; }
+function renderTheoDoi() {
+  const u = DB.currentUser;
+  const el = document.getElementById('page-theodoi');
+  const myBCTT = getBCTTBySV(u.email)[0] || null;
+  const myKLTN = getKLTNBySV(u.email)[0] || null;
+
+  let html = `<div class="page-header"><h1>⏱️ Theo dõi trạng thái</h1><p>Theo dõi tiến độ BCTT, KLTN và các đợt đăng ký của bạn</p></div>`;
+
+  const buildProgress = (steps) => `<div class="progress-steps">${steps.map((s, i) => `
+    <div class="step">
+      <div class="step-circle ${s.done ? 'done' : i === steps.findIndex(x => !x.done) ? 'active' : ''}">${s.done ? '✓' : i + 1}</div>
+      <span class="step-label">${s.label}</span>
+    </div>${i < steps.length - 1 ? `<div class="step-line ${s.done ? 'done' : ''}"></div>` : ''}`).join('')}</div>`;
+
+  html += `<div class="grid-2">`;
+
+  html += `<div class="card"><div class="card-header"><div><div class="card-title">📝 Báo cáo Thực tập</div></div>${myBCTT ? statusBadge(myBCTT.trangThai) : ''}</div>`;
+  if (!myBCTT) {
+    html += `<div class="empty-state"><div class="empty-state-icon">📝</div><div class="empty-state-title">Bạn chưa đăng ký BCTT</div><button class="btn btn-primary btn-sm" style="margin-top:12px" onclick="navigateTo('bctt')">Đăng ký BCTT</button></div>`;
+  } else {
+    const st = myBCTT.trangThai;
+    const steps = [
+      { label: 'Đăng ký', done: true },
+      { label: 'GV duyệt', done: ['gv_xac_nhan', 'cho_cham', 'pass', 'fail'].includes(st) },
+      { label: 'Nộp hồ sơ', done: ['cho_cham', 'pass', 'fail'].includes(st) },
+      { label: 'Chấm điểm', done: ['pass', 'fail'].includes(st) },
+      { label: 'Hoàn tất', done: ['pass', 'fail'].includes(st) },
+    ];
+    html += `<div class="info-row"><span class="info-label">Tên đề tài:</span><span class="info-value" style="font-weight:700">${escapeHtml(myBCTT.tenDeTai)}</span></div>
+      <div class="info-row"><span class="info-label">Công ty:</span><span class="info-value">${escapeHtml(myBCTT.tenCongTy || '—')}</span></div>
+      <div class="info-row"><span class="info-label">GV hướng dẫn:</span><span class="info-value">${escapeHtml(getUser(myBCTT.gvEmail)?.name || myBCTT.gvEmail)}</span></div>
+      <div class="info-row"><span class="info-label">Loại đề tài:</span><span class="info-value">${escapeHtml(getTopicTypeLabel(myBCTT.topicType))}</span></div>
+      <div style="margin-top:16px">${buildProgress(steps)}</div>`;
+  }
+  html += `</div>`;
+
+  html += `<div class="card"><div class="card-header"><div><div class="card-title">🎓 Khóa Luận Tốt Nghiệp</div></div>${myKLTN ? statusBadge(myKLTN.trangThai) : ''}</div>`;
+  if (!myKLTN) {
+    html += `<div class="empty-state"><div class="empty-state-icon">🎓</div><div class="empty-state-title">Bạn chưa đăng ký KLTN</div>${myBCTT && myBCTT.trangThai === 'pass' ? `<button class="btn btn-primary btn-sm" style="margin-top:12px" onclick="navigateTo('kltn')">Đăng ký KLTN</button>` : ''}</div>`;
+  } else {
+    const st = myKLTN.trangThai;
+    const steps = [
+      { label: 'Đăng ký', done: true },
+      { label: 'Thực hiện', done: ['thuc_hien', 'cham_diem', 'bao_ve', 'hoan_thanh', 'pass', 'fail'].includes(st) },
+      { label: 'Chấm điểm', done: ['cham_diem', 'bao_ve', 'hoan_thanh', 'pass', 'fail'].includes(st) },
+      { label: 'Bảo vệ', done: ['bao_ve', 'hoan_thanh', 'pass', 'fail'].includes(st) },
+      { label: 'CTHĐ xác nhận báo cáo', done: Boolean(myKLTN.xacNhanCTHD) || ['hoan_thanh', 'pass', 'fail'].includes(st) },
+      { label: 'Hoàn tất', done: ['hoan_thanh', 'pass', 'fail'].includes(st) },
+    ];
+    html += `<div class="info-row"><span class="info-label">Tên đề tài:</span><span class="info-value" style="font-weight:700">${escapeHtml(myKLTN.tenDeTai)}</span></div>
+      <div class="info-row"><span class="info-label">Lĩnh vực:</span><span class="info-value">${escapeHtml(myKLTN.mangDeTai || '—')}</span></div>
+      <div class="info-row"><span class="info-label">Loại đề tài:</span><span class="info-value">${escapeHtml(getTopicTypeLabel(myKLTN.topicType))}</span></div>
+      <div class="info-row"><span class="info-label">GV hướng dẫn:</span><span class="info-value">${escapeHtml(getUser(myKLTN.gvHDEmail)?.name || myKLTN.gvHDEmail || '—')}</span></div>
+      <div class="info-row"><span class="info-label">GV phản biện:</span><span class="info-value">${escapeHtml(getUser(myKLTN.gvPBEmail)?.name || myKLTN.gvPBEmail || 'Chưa phân công')}</span></div>
+      <div style="margin-top:16px">${buildProgress(steps)}</div>`;
+  }
+  html += `</div>`;
+
+  html += `</div>`;
+
+  html += `<div class="card" style="margin-top:20px"><div class="card-header"><div class="card-title">📅 Các đợt đăng ký</div></div>`;
+  if (!DB.dotDangKy.length) {
+    html += `<div class="empty-state"><div class="empty-state-icon">📅</div><div class="empty-state-title">Chưa có đợt đăng ký nào</div></div>`;
+  } else {
+    html += DB.dotDangKy
+      .filter((d) => dotMatchesStudentHeAndMajor(d))
+      .map((d) => `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">
+        <div>
+          <div style="font-size:13px;font-weight:600">${escapeHtml(d.ten)}</div>
+          <div style="font-size:11px;color:var(--text3)">${escapeHtml(d.loai)} • ${escapeHtml(d.batDau || '—')} → ${escapeHtml(d.ketThuc || '—')}</div>
+        </div>
+        <span class="badge ${d.trangThai === 'dang_mo' ? 'badge-green' : 'badge-gray'}">${d.trangThai === 'dang_mo' ? '🟢 Đang mở' : '🔒 Đóng'}</span>
+      </div>`).join('');
+  }
+  html += `</div>`;
+
+  el.innerHTML = html;
+}
 
 async function phanCongPBKLTN(kId) {
+  const u = DB.currentUser;
+  if (u.role !== 'bm') {
+    toast('Chỉ trưởng bộ môn mới được phân công PB & Hội đồng', 'error');
+    return;
+  }
   const k = DB.kltnList.find(x => x.id === kId);
   if (!k) {
     toast('Không tìm thấy KLTN', 'error');
@@ -3108,14 +3803,36 @@ async function phanCongPBKLTN(kId) {
   const sv = getUser(k.svEmail);
   const gvList = DB.users.filter(u => u.role === 'gv' || u.role === 'bm');
 
-  let html = `<div class="modal-header"><div class="modal-title">👥 Phân công PB & Hội đồng cho KLTN</div><button class="modal-close" onclick="closeModalForce()">✕</button></div>
-    <div class="info-row"><span class="info-label">Sinh viên:</span><span class="info-value">${escapeHtml(sv?.name || '')}</span></div>
-    <div class="info-row"><span class="info-label">Tên đề tài:</span><span class="info-value" style="font-weight:700">${escapeHtml(k.tenDeTai)}</span></div>
-    <div class="info-row"><span class="info-label">Ngành:</span><span class="info-value">${escapeHtml(k.mangDeTai)}</span></div>
+  let html = `<div class="modal-header"><div class="modal-title">Phân công Phản biện & Hội đồng cho Khóa luận tốt nghiệp</div><button class="modal-close" onclick="closeModalForce()">✕</button></div>
+    <div class="assignment-summary">
+      <div class="assignment-summary-label">Tên đề tài</div>
+      <div class="assignment-summary-title">${escapeHtml(k.tenDeTai)}</div>
+      <div class="assignment-summary-meta">
+        <div class="assignment-meta-item">
+          <span class="assignment-meta-key">Sinh viên</span>
+          <span class="assignment-meta-value">${escapeHtml(sv?.name || '—')}</span>
+        </div>
+      </div>
+      <div class="assignment-summary-chips">
+        <span class="assignment-chip">Ngành: Thương mại Điện tử</span>
+        <span class="assignment-chip">Lĩnh vực: ${escapeHtml(k.mangDeTai || 'Chưa xác định')}</span>
+      </div>
+    </div>
     <div class="form-group"><label>GV Phản biện</label><select id="select-gv-pb"><option value="">-- Chọn GV phản biện --</option>${gvList.map(g => `<option value="${g.id}" ${k.gvPBEmail === g.email ? 'selected' : ''}>${escapeHtml(g.name)}</option>`).join('')}</select></div>
     <div class="form-group"><label>Chủ tịch Hội đồng</label><select id="select-ct"><option value="">-- Chọn Chủ tịch --</option>${gvList.map(g => `<option value="${g.id}" ${k.hoiDong?.ct === g.email ? 'selected' : ''}>${escapeHtml(g.name)}</option>`).join('')}</select></div>
     <div class="form-group"><label>Thư ký Hội đồng</label><select id="select-tk"><option value="">-- Chọn Thư ký --</option>${gvList.map(g => `<option value="${g.id}" ${k.hoiDong?.tk === g.email ? 'selected' : ''}>${escapeHtml(g.name)}</option>`).join('')}</select></div>
-    <div class="form-group"><label>Ủy viên Hội đồng (có thể chọn nhiều)</label><select id="select-tv" multiple style="height:100px">${gvList.map(g => `<option value="${g.id}" ${k.hoiDong?.tv?.includes(g.email) ? 'selected' : ''}>${escapeHtml(g.name)}</option>`).join('')}</select></div>
+    <div class="form-group">
+      <label>Ủy viên Hội đồng</label>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:8px">Tick chọn một hoặc nhiều giảng viên để thêm vào hội đồng.</div>
+      <div class="committee-picker">
+        ${gvList.map(g => `
+          <label class="committee-option">
+            <input type="checkbox" class="committee-checkbox" value="${g.id}" ${k.hoiDong?.tv?.includes(g.email) ? 'checked' : ''}>
+            <span>${escapeHtml(g.name)}</span>
+          </label>
+        `).join('')}
+      </div>
+    </div>
     <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModalForce()">Hủy</button><button class="btn btn-primary" onclick="submitPhanCong('${kId}')">💾 Lưu phân công</button></div>`;
 
   showModal(html);
@@ -3131,8 +3848,7 @@ async function submitPhanCong(kId) {
   const gvPbId = document.getElementById('select-gv-pb').value;
   const ctId = document.getElementById('select-ct').value;
   const tkId = document.getElementById('select-tk').value;
-  const tvSelect = document.getElementById('select-tv');
-  const tvIds = Array.from(tvSelect.selectedOptions).map(o => o.value);
+  const tvIds = Array.from(document.querySelectorAll('.committee-checkbox:checked')).map((o) => o.value);
 
   if (!ctId || !tkId || tvIds.length === 0) {
     toast('Vui lòng chọn đầy đủ thành viên hội đồng (CT, TK, ít nhất 1 TV)', 'error');

@@ -26,17 +26,24 @@ from utils.response import fail, ok, send_file_response
 
 
 def register_routes(app):
+    def _frontend_response(filename):
+        response = send_from_directory(os.path.join(app.root_path, "frontend"), filename)
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
+
     @app.errorhandler(413)
     def file_too_large(_):
         return fail("File vượt quá 20MB", 400)
 
     @app.route("/")
     def index():
-        return send_from_directory(os.path.join(app.root_path, "frontend"), "index.html")
+        return _frontend_response("index.html")
 
     @app.route("/<path:filename>")
     def static_files(filename):
-        return send_from_directory(os.path.join(app.root_path, "frontend"), filename)
+        return _frontend_response(filename)
 
     @app.route("/api/login", methods=["POST"])
     def login():
@@ -125,6 +132,24 @@ def register_routes(app):
         except (TypeError, ValueError):
             current_uid = None
 
+        if current_uid is not None:
+            for k in data.get("kltnList", []):
+                committee_members = k.get("committeeMembers") or []
+                is_advisor = k.get("advisorId") == current_uid
+                is_reviewer = k.get("reviewerId") == current_uid
+                is_chair = k.get("chairmanId") == current_uid
+                is_secretary = k.get("secretaryId") == current_uid
+                is_committee_member = current_uid in committee_members
+                k["myAssignment"] = {
+                    "isAdvisor": bool(is_advisor),
+                    "isReviewer": bool(is_reviewer),
+                    "isChair": bool(is_chair),
+                    "isSecretary": bool(is_secretary),
+                    "isCommitteeMember": bool(is_committee_member),
+                    "canGrade": bool(is_advisor or is_reviewer or is_committee_member),
+                    "canView": bool(is_advisor or is_reviewer or is_committee_member or is_chair or is_secretary),
+                }
+
         if str(role).upper() == "GV" and current_uid is not None:
             data["kltnList"] = [
                 k
@@ -150,7 +175,11 @@ def register_routes(app):
                     return any(n in (ten_dot or "") for n in nganh_list)
 
                 data["bcttList"] = [b for b in data["bcttList"] if thuoc_nganh(b.get("tenDot", ""))]
-                data["kltnList"] = [k for k in data["kltnList"] if thuoc_nganh(k.get("tenDot", ""))]
+                data["kltnList"] = [
+                    k
+                    for k in data["kltnList"]
+                    if thuoc_nganh(k.get("tenDot", "")) or bool((k.get("myAssignment") or {}).get("canView"))
+                ]
 
         conn.close()
         return ok("Lấy dữ liệu giao diện", data)
@@ -165,9 +194,9 @@ def register_routes(app):
         loai_de_tai = (data.get("loai_de_tai") or "").strip()
         gv_id = data.get("gv_id")
         dot_id = data.get("dot_id")
-        if not all([ten, linh_vuc, cong_ty, loai_de_tai, gv_id, dot_id]):
+        if not all([ten, cong_ty, gv_id, dot_id]):
             return fail("Thiếu thông tin đăng ký BCTT", 400)
-        if loai_de_tai not in ("ung_dung", "nghien_cuu"):
+        if loai_de_tai and loai_de_tai not in ("ung_dung", "nghien_cuu"):
             return fail("Loại đề tài BCTT không hợp lệ", 400)
 
         conn = get_db()
@@ -475,6 +504,10 @@ def register_routes(app):
         if "kltn_bai_pdf" not in types or "kltn_bai_word" not in types:
             conn.close()
             return fail("Cần upload đủ file Word và PDF của bài KLTN trước khi nộp", 400)
+        # Validate that reviewer and committee have been assigned by TBM
+        if not reg["gv_pb_id"] or not reg["chu_tich_id"] or not reg["thu_ky_id"] or not reg["uy_vien_ids"]:
+            conn.close()
+            return fail("Cần trưởng bộ môn phân công phản biện và hội đồng trước khi nộp KLTN", 400)
         conn.execute("UPDATE dang_ky SET trang_thai = 'cham_diem' WHERE id = ?", (dang_ky_id,))
         conn.commit()
         conn.close()
@@ -495,15 +528,15 @@ def register_routes(app):
         if not reg:
             conn.close()
             return fail("Không tìm thấy KLTN", 404)
-        uploads = conn.execute(
-            "SELECT loai_file FROM nop_bai WHERE dang_ky_id = ? AND loai_file IN ('kltn_chinhsua','bien_ban_giai_trinh')",
-            (dang_ky_id,),
-        ).fetchall()
-        up_types = {u["loai_file"] for u in uploads}
-        if "kltn_chinhsua" not in up_types or "bien_ban_giai_trinh" not in up_types:
-            conn.close()
-            return fail("SV chưa nộp đủ bài chỉnh sửa và biên bản giải trình", 400)
         if step == "gvhd":
+            uploads = conn.execute(
+                "SELECT loai_file FROM nop_bai WHERE dang_ky_id = ? AND loai_file IN ('kltn_chinhsua','bien_ban_giai_trinh')",
+                (dang_ky_id,),
+            ).fetchall()
+            up_types = {u["loai_file"] for u in uploads}
+            if "kltn_chinhsua" not in up_types or "bien_ban_giai_trinh" not in up_types:
+                conn.close()
+                return fail("SV chưa nộp đủ bài chỉnh sửa và biên bản giải trình", 400)
             if gv["id"] != reg["gv_id"]:
                 conn.close()
                 return fail("Chỉ GVHD mới được duyệt bước này", 403)
@@ -546,23 +579,16 @@ def register_routes(app):
             if not hd or hd["ct"] != gv["id"]:
                 conn.close()
                 return fail("Chỉ Chủ tịch hội đồng mới được duyệt bước này", 403)
-            has_gvhd = conn.execute(
-                "SELECT id FROM nop_bai WHERE dang_ky_id = ? AND loai_file = 'xac_nhan_gvhd' LIMIT 1",
-                (dang_ky_id,),
-            ).fetchone()
-            if not has_gvhd:
-                conn.close()
-                return fail("GVHD chưa duyệt chỉnh sửa — Chủ tịch HĐ chưa được thao tác", 400)
             conn.execute(
                 "DELETE FROM nop_bai WHERE dang_ky_id = ? AND loai_file = 'xac_nhan_cthd'",
                 (dang_ky_id,),
             )
             if not dong_y:
+                ly_do = data.get("ly_do", "").strip()
                 conn.execute(
-                    "DELETE FROM nop_bai WHERE dang_ky_id = ? AND loai_file IN ('kltn_chinhsua','bien_ban_giai_trinh','xac_nhan_gvhd','xac_nhan_cthd')",
+                    "DELETE FROM nop_bai WHERE dang_ky_id = ? AND loai_file = 'tu_choi_cthd'",
                     (dang_ky_id,),
                 )
-                ly_do = data.get("ly_do", "").strip()
                 conn.execute(
                     "INSERT INTO nop_bai (dang_ky_id, loai_file, file_path) VALUES (?, 'tu_choi_cthd', ?)",
                     (dang_ky_id, ly_do),
@@ -577,20 +603,19 @@ def register_routes(app):
                         reg["sv_id"],
                         gv["id"],
                         dang_ky_id,
-                        ly_do if ly_do else "Chủ tịch HĐ yêu cầu bạn chỉnh sửa và nộp lại bài KLTN",
+                        ly_do if ly_do else "Chủ tịch HĐ không đồng ý báo cáo KLTN",
                     ),
                 )
                 conn.commit()
                 conn.close()
-                return ok("Chủ tịch HĐ đã từ chối; sinh viên cần chỉnh sửa và nộp lại")
+                return ok("Chủ tịch HĐ đã không đồng ý báo cáo")
             conn.execute(
                 "INSERT INTO nop_bai (dang_ky_id, loai_file, file_path) VALUES (?, 'xac_nhan_cthd', ?)",
                 (dang_ky_id, str(gv["id"])),
             )
-            conn.execute("UPDATE dang_ky SET trang_thai = 'hoan_thanh' WHERE id = ?", (dang_ky_id,))
         conn.commit()
         conn.close()
-        return ok("Duyệt chỉnh sửa thành công")
+        return ok("Xác nhận thành công")
 
     @app.route("/api/kltn/bien-ban-tk", methods=["POST"])
     @role_required("GV")
@@ -929,11 +954,9 @@ def register_routes(app):
                 conn.close()
                 return fail("Chỉ phân công phản biện cho KLTN", 400)
 
+            conn.execute("UPDATE dang_ky SET gv_pb_id = ? WHERE id = ?", (gv_pb_id, dang_ky_id))
+            # Remove old assignment if any
             conn.execute("DELETE FROM nop_bai WHERE dang_ky_id = ? AND loai_file = 'phanbien_gv'", (dang_ky_id,))
-            conn.execute(
-                "INSERT INTO nop_bai (dang_ky_id, loai_file, file_path) VALUES (?, 'phanbien_gv', ?)",
-                (dang_ky_id, str(gv_pb_id)),
-            )
 
         conn.commit()
         conn.close()
@@ -947,8 +970,8 @@ def register_routes(app):
         conn = get_db()
         gv = get_current_user(conn)
         assigned = conn.execute(
-            "SELECT id FROM nop_bai WHERE dang_ky_id = ? AND loai_file = 'phanbien_gv' AND file_path = ? LIMIT 1",
-            (dang_ky_id, str(gv["id"])),
+            "SELECT id FROM dang_ky WHERE id = ? AND gv_pb_id = ? LIMIT 1",
+            (dang_ky_id, gv["id"]),
         ).fetchone()
         if not assigned:
             conn.close()
@@ -975,6 +998,12 @@ def register_routes(app):
         single_tv = data.get("tv_id")
         if tv_ids is None:
             tv_ids = [single_tv] if single_tv else []
+        try:
+            ct_id = int(ct_id)
+            tk_id = int(tk_id)
+            tv_ids = [int(v) for v in tv_ids]
+        except (TypeError, ValueError):
+            return fail("ID hội đồng không hợp lệ", 400)
         if not all([dang_ky_id, ct_id, tk_id]) or not tv_ids:
             return fail("Thiếu thông tin hội đồng (cần CT, TK và ít nhất 1 TV)", 400)
 
@@ -996,6 +1025,12 @@ def register_routes(app):
 
         all_member_ids = [str(ct_id), str(tk_id), *[str(tv_id) for tv_id in tv_ids]]
         hoi_dong_path = "|".join(all_member_ids)
+
+        # Update dang_ky table with committee assignments
+        conn.execute(
+            "UPDATE dang_ky SET chu_tich_id = ?, thu_ky_id = ?, uy_vien_ids = ? WHERE id = ?",
+            (ct_id, tk_id, _json_mod.dumps(tv_ids), dang_ky_id),
+        )
 
         conn.execute(
             "DELETE FROM nop_bai WHERE dang_ky_id = ? AND loai_file = 'hoi_dong'",
@@ -1043,14 +1078,8 @@ def register_routes(app):
             (dang_ky_id, gv["id"], vai_tro),
         ).fetchone()
         if old:
-            conn.execute(
-                """
-                UPDATE cham_diem
-                SET diem = ?, nhan_xet = ?, cau_hoi = ?, criteria_json = ?
-                WHERE id = ?
-                """,
-                (diem, nhan_xet, cau_hoi, criteria_json, old["id"]),
-            )
+            conn.close()
+            return fail("Bạn đã chấm điểm đề tài này rồi. Không thể thay đổi điểm sau khi lưu", 400)
         else:
             conn.execute(
                 """
@@ -1142,6 +1171,13 @@ def register_routes(app):
         else:
             conn.close()
             return fail("Chỉ Chủ tịch hội đồng hoặc TBM được kết thúc (pass/fail) KLTN", 403)
+        cthd_confirmed = conn.execute(
+            "SELECT id FROM nop_bai WHERE dang_ky_id = ? AND loai_file = 'xac_nhan_cthd' LIMIT 1",
+            (dang_ky_id,),
+        ).fetchone()
+        if not cthd_confirmed:
+            conn.close()
+            return fail("CTHĐ cần xác nhận đồng ý báo cáo trước khi kết thúc KLTN", 400)
         rows = conn.execute(
             "SELECT vai_tro, diem FROM cham_diem WHERE dang_ky_id = ?",
             (dang_ky_id,),
