@@ -378,7 +378,7 @@ def register_routes(app):
         conn.execute(
             """
             INSERT INTO dang_ky (sv_id, gv_id, dot_id, loai, ten_de_tai, linh_vuc, trang_thai)
-            VALUES (?, ?, ?, 'KLTN', ?, ?, 'thuc_hien')
+            VALUES (?, ?, ?, 'KLTN', ?, ?, 'cho_duyet')
             """,
             (sv["id"], gv_id, dot_id, ten, build_kltn_meta(linh_vuc, loai_de_tai)),
         )
@@ -787,7 +787,7 @@ def register_routes(app):
                 else:
                     dk = cursor.execute(
                         """
-                        SELECT dk.dot_id, dk.trang_thai, sv.he_dao_tao
+                        SELECT dk.dot_id, dk.trang_thai, sv.he_dao_tao, dk.gv_id
                         FROM dang_ky dk
                         JOIN users sv ON sv.id = dk.sv_id
                         WHERE dk.id = ? AND dk.gv_id = ? AND dk.loai = 'BCTT'
@@ -810,7 +810,10 @@ def register_routes(app):
                     ).fetchone()
 
                     if slot and slot["slot_con_lai"] > 0:
-                        cursor.execute("UPDATE dang_ky SET trang_thai = 'gv_xac_nhan' WHERE id = ?", (dk_id,))
+                        cursor.execute(
+                            "UPDATE dang_ky SET gv_id = ?, trang_thai = 'gv_xac_nhan' WHERE id = ?",
+                            (gv["id"], dk_id),
+                        )
                         cursor.execute("UPDATE gv_slot SET slot_con_lai = slot_con_lai - 1 WHERE id = ?", (slot["id"],))
                         success_count += 1
 
@@ -848,6 +851,85 @@ def register_routes(app):
         conn.commit()
         conn.close()
         return ok("Đã đổi tên và xác nhận đề tài BCTT")
+
+    @app.route("/api/kltn/approve", methods=["POST"])
+    @role_required("GV", "TBM")
+    def approve_kltn():
+        data = request.json or {}
+        ids = data.get("dang_ky_ids") or []
+        action = data.get("action")
+
+        if action not in ("dong_y", "tu_choi"):
+            return fail("Action không hợp lệ", 400)
+        if not ids:
+            return fail("Danh sách đăng ký trống", 400)
+
+        conn = get_db()
+        gv = get_current_user(conn)
+        cursor = conn.cursor()
+
+        if action == "tu_choi":
+            placeholders = ",".join(["?"] * len(ids))
+            if gv["role"] == "TBM":
+                cursor.execute(
+                    f"""
+                    UPDATE dang_ky SET trang_thai = 'tu_choi'
+                    WHERE id IN ({placeholders}) AND loai = 'KLTN'
+                    """,
+                    [*ids],
+                )
+            else:
+                # GV có thể từ chối tất cả đề tài chờ duyệt
+                cursor.execute(
+                    f"""
+                    UPDATE dang_ky SET trang_thai = 'tu_choi'
+                    WHERE id IN ({placeholders}) AND loai = 'KLTN'
+                    """,
+                    [*ids],
+                )
+            success_count = cursor.rowcount
+
+        else:
+            success_count = 0
+            for dk_id in ids:
+                if gv["role"] == "TBM":
+                    dk = cursor.execute(
+                        """
+                        SELECT dk.dot_id, dk.trang_thai, sv.he_dao_tao, dk.gv_id
+                        FROM dang_ky dk
+                        JOIN users sv ON sv.id = dk.sv_id
+                        WHERE dk.id = ? AND dk.loai = 'KLTN'
+                        """,
+                        (dk_id,),
+                    ).fetchone()
+                else:
+                    dk = cursor.execute(
+                        """
+                        SELECT dk.dot_id, dk.trang_thai, sv.he_dao_tao
+                        FROM dang_ky dk
+                        JOIN users sv ON sv.id = dk.sv_id
+                        WHERE dk.id = ? AND dk.loai = 'KLTN'
+                        """,
+                        (dk_id,),
+                    ).fetchone()
+
+                if not dk or dk["trang_thai"] != "cho_duyet":
+                    continue
+
+                sv_he = normalize_sv_slot_he(dk)
+                if gv["role"] == "TBM":
+                    # Cho bm, không giảm slot, chỉ update trạng thái
+                    cursor.execute("UPDATE dang_ky SET trang_thai = 'thuc_hien' WHERE id = ?", (dk_id,))
+                    success_count += 1
+                else:
+                    # GV duyệt đề tài, không giảm slot cho KLTN
+                    cursor.execute("UPDATE dang_ky SET trang_thai = 'thuc_hien' WHERE id = ?", (dk_id,))
+                    success_count += 1
+
+        conn.commit()
+        conn.close()
+
+        return ok(f"Đã xử lý thành công {success_count} đề tài KLTN.")
 
     @app.route("/api/gv-slot/duyet", methods=["POST"])
     @role_required("TBM")

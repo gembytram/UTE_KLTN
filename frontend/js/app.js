@@ -1585,6 +1585,32 @@ async function duyetBCTT(recordId, dongY) {
   }
 }
 
+async function duyetKLTN(recordId, dongY) {
+  const record = findKltnRecord(recordId);
+  if (!record) {
+    toast("Không tìm thấy đề tài KLTN", "error");
+    return;
+  }
+  const dangKyId = record.dangKyId || extractId(record.id);
+  if (!dangKyId) {
+    toast("Mã đăng ký không hợp lệ", "error");
+    return;
+  }
+  try {
+    await apiRequest("/api/kltn/approve", {
+      method: "POST",
+      body: JSON.stringify({
+        dang_ky_ids: [dangKyId],
+        action: dongY ? "dong_y" : "tu_choi",
+      }),
+    });
+    toast(dongY ? "Đã duyệt đề tài KLTN" : "Đã từ chối đề tài KLTN");
+    await refreshCurrentView();
+  } catch (err) {
+    toast(err.message, "error");
+  }
+}
+
 async function chamDiemBCTT(bcttRecord) {
   const diem = document.getElementById('bctt-diem').value;
   const nhanXet = document.getElementById('bctt-nhanxet').value;
@@ -2521,21 +2547,41 @@ function renderDuyetDe() {
     el.innerHTML = html;
     return;
   }
-  let list = [];
-  if (u.role === 'gv') list = DB.bcttList.filter(b => b.gvEmail === u.email && b.trangThai === 'cho_duyet');
+  let bcttList = [];
+  let kltnList = [];
+  if (u.role === 'gv') {
+    bcttList = DB.bcttList.filter(b => b.gvEmail === u.email && b.trangThai === 'cho_duyet');
+    kltnList = DB.kltnList.filter(k => k.trangThai === 'cho_duyet'); // GV có thể duyệt tất cả KLTN chờ duyệt
+  }
   const el = document.getElementById('page-duyetde');
-  let html = `<div class="page-header"><h1>${u.role === 'bm' ? '👥 Duyệt & phân công PB' : '✅ Duyệt đề tài BCTT'}</h1><p>${list.length} đề tài cần xử lý</p></div>`;
+  const activeTab = DB.nextDetaiTab === 'tab-kltn-duyet' ? 'tab-kltn-duyet' : 'tab-bctt-duyet';
+  DB.nextDetaiTab = null;
+  let html = `<div class="page-header"><h1>${u.role === 'bm' ? '👥 Duyệt & phân công PB' : '✅ Duyệt đề tài'}</h1><p>Duyệt đề tài chờ xử lý</p></div>`;
 
-  if (!list.length) {
-    html += `<div class="card"><div class="empty-state"><div class="empty-state-icon">✅</div><div class="empty-state-title">Không có đề tài nào cần duyệt</div></div></div>`;
+  if (u.role === 'gv') {
+    html += `<div class="tabs">
+      <button class="tab-btn ${activeTab === 'tab-bctt-duyet' ? 'active' : ''}" onclick="switchTab(event,'tab-bctt-duyet')">📝 BCTT (${bcttList.length})</button>
+      <button class="tab-btn ${activeTab === 'tab-kltn-duyet' ? 'active' : ''}" onclick="switchTab(event,'tab-kltn-duyet')">🎓 KLTN (${kltnList.length})</button>
+    </div>`;
+  }
+
+  html += `<div id="tab-bctt-duyet" class="tab-content ${activeTab === 'tab-bctt-duyet' ? 'active' : ''}">`;
+  if (!bcttList.length) {
+    html += `<div class="card"><div class="empty-state"><div class="empty-state-icon">✅</div><div class="empty-state-title">Không có đề tài BCTT nào cần duyệt</div></div></div>`;
   } else {
-    list.forEach(b => {
+    html += `<div class="form-group" style="margin-bottom:12px"><label><input type="checkbox" id="select-all-bctt" onchange="toggleSelectAll('bctt')"> Chọn tất cả</label></div>`;
+    bcttList.forEach(b => {
       const sv = getUser(b.svEmail);
       html += `<div class="card" style="margin-bottom:12px">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
           <div style="flex:1">
-            <div style="font-size:16px;font-weight:700;margin-bottom:6px;cursor:pointer;color:var(--primary)" onclick="viewBCTTDetail('${b.id}')">${escapeHtml(b.tenDeTai)}</div>
-            <div style="font-size:12px;color:var(--text3);margin-bottom:8px">${escapeHtml(b.mangDeTai)} • ${escapeHtml(b.tenCongTy)}</div>
+            <label style="display:flex;align-items:flex-start;gap:8px">
+              <input type="checkbox" class="select-bctt" value="${b.dangKyId || extractId(b.id)}">
+              <div>
+                <div style="font-size:16px;font-weight:700;margin-bottom:6px;cursor:pointer;color:var(--primary)" onclick="viewBCTTDetail('${b.id}')">${escapeHtml(b.tenDeTai)}</div>
+                <div style="font-size:12px;color:var(--text3);margin-bottom:8px">${escapeHtml(b.mangDeTai)} • ${escapeHtml(b.tenCongTy)}</div>
+              </div>
+            </label>
           </div>
           <div class="action-row">
             <button class="btn btn-ghost btn-sm" onclick="viewBCTTDetail('${b.id}')">👁 Chi tiết</button>
@@ -2545,7 +2591,46 @@ function renderDuyetDe() {
         </div>
       </div>`;
     });
+    html += `<div class="action-row" style="margin-top:16px">
+      <button class="btn btn-success" onclick="duyetSelectedBCTT(true)">✓ Duyệt các đề tài đã chọn</button>
+      <button class="btn btn-danger" onclick="duyetSelectedBCTT(false)">✗ Từ chối các đề tài đã chọn</button>
+    </div>`;
   }
+  html += `</div>`;
+
+  html += `<div id="tab-kltn-duyet" class="tab-content ${activeTab === 'tab-kltn-duyet' ? 'active' : ''}">`;
+  if (!kltnList.length) {
+    html += `<div class="card"><div class="empty-state"><div class="empty-state-icon">✅</div><div class="empty-state-title">Không có đề tài KLTN nào cần duyệt</div></div></div>`;
+  } else {
+    html += `<div class="form-group" style="margin-bottom:12px"><label><input type="checkbox" id="select-all-kltn" onchange="toggleSelectAll('kltn')"> Chọn tất cả</label></div>`;
+    kltnList.forEach(k => {
+      const sv = getUser(k.svEmail);
+      html += `<div class="card" style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
+          <div style="flex:1">
+            <label style="display:flex;align-items:flex-start;gap:8px">
+              <input type="checkbox" class="select-kltn" value="${k.dangKyId || extractId(k.id)}">
+              <div>
+                <div style="font-size:16px;font-weight:700;margin-bottom:6px;cursor:pointer;color:var(--primary)" onclick="viewKLTNDetail('${k.id}')">${escapeHtml(k.tenDeTai)}</div>
+                <div style="font-size:12px;color:var(--text3);margin-bottom:8px">${escapeHtml(k.mangDeTai)} • ${escapeHtml(k.tenDot || '')}</div>
+              </div>
+            </label>
+          </div>
+          <div class="action-row">
+            <button class="btn btn-ghost btn-sm" onclick="viewKLTNDetail('${k.id}')">👁 Chi tiết</button>
+            <button class="btn btn-success btn-sm" onclick="duyetKLTN('${k.id}',true)">✓ Xác nhận</button>
+            <button class="btn btn-danger btn-sm" onclick="duyetKLTN('${k.id}',false)">✗ Từ chối</button>
+          </div>
+        </div>
+      </div>`;
+    });
+    html += `<div class="action-row" style="margin-top:16px">
+      <button class="btn btn-success" onclick="duyetSelectedKLTN(true)">✓ Duyệt các đề tài đã chọn</button>
+      <button class="btn btn-danger" onclick="duyetSelectedKLTN(false)">✗ Từ chối các đề tài đã chọn</button>
+    </div>`;
+  }
+  html += `</div>`;
+
   el.innerHTML = html;
 }
 
@@ -3233,15 +3318,25 @@ function renderHuongDan() {
   if (!list.length) {
     html += `<div class="empty-state"><div class="empty-state-icon">✅</div><div class="empty-state-title">Không có đề tài chờ duyệt</div></div>`;
   } else {
+    html += `<div class="form-group" style="margin-bottom:12px"><label><input type="checkbox" id="select-all-bctt-huongdan" onchange="toggleSelectAllHuongDan('bctt')"> Chọn tất cả</label></div>`;
     list.forEach(b => {
       const sv = getUser(b.svEmail);
       html += `<div class="card" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap">
       <div style="flex:1;min-width:160px">
-        <div style="font-weight:700;cursor:pointer;color:var(--primary)" onclick="viewBCTTDetail('${b.id}')">${escapeHtml(b.tenDeTai)}</div>
-        <div style="font-size:12px;color:var(--text3);margin-top:4px">${escapeHtml(sv?.name || b.svEmail)} • ${escapeHtml(b.tenCongTy || '')}</div>
+        <label style="display:flex;align-items:flex-start;gap:8px">
+          <input type="checkbox" class="select-bctt-huongdan" value="${b.dangKyId || extractId(b.id)}">
+          <div>
+            <div style="font-weight:700;cursor:pointer;color:var(--primary)" onclick="viewBCTTDetail('${b.id}')">${escapeHtml(b.tenDeTai)}</div>
+            <div style="font-size:12px;color:var(--text3);margin-top:4px">${escapeHtml(sv?.name || b.svEmail)} • ${escapeHtml(b.tenCongTy || '')}</div>
+          </div>
+        </label>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-ghost btn-sm" onclick="viewBCTTDetail('${b.id}')">👁 Chi tiết</button><button class="btn btn-success btn-sm" onclick="duyetBCTT('${b.id}',true)">Đồng ý</button> <button class="btn btn-danger btn-sm" onclick="duyetBCTT('${b.id}',false)">Không đồng ý</button></div></div></div>`;
     });
+    html += `<div class="action-row" style="margin-top:16px">
+      <button class="btn btn-success" onclick="duyetSelectedBCTTHuongDan(true)">✓ Duyệt các đề tài đã chọn</button>
+      <button class="btn btn-danger" onclick="duyetSelectedBCTTHuongDan(false)">✗ Từ chối các đề tài đã chọn</button>
+    </div>`;
   }
 
   html += `</div>`;
@@ -4226,6 +4321,82 @@ function taoDuLieuTest() {
 
   }
 }
+// New functions for bulk approval
+function toggleSelectAll(type) {
+  const selectAll = document.getElementById(`select-all-${type}`);
+  const checkboxes = document.querySelectorAll(`.select-${type}`);
+  checkboxes.forEach(cb => cb.checked = selectAll.checked);
+}
+
+async function duyetSelectedBCTT(dongY) {
+  const selected = Array.from(document.querySelectorAll('.select-bctt:checked')).map(cb => parseInt(cb.value));
+  if (!selected.length) {
+    toast("Chưa chọn đề tài nào", "error");
+    return;
+  }
+  try {
+    await apiRequest("/api/bctt/approve", {
+      method: "POST",
+      body: JSON.stringify({
+        dang_ky_ids: selected,
+        action: dongY ? "dong_y" : "tu_choi",
+      }),
+    });
+    toast(dongY ? `Đã duyệt ${selected.length} đề tài BCTT` : `Đã từ chối ${selected.length} đề tài BCTT`);
+    await refreshCurrentView();
+  } catch (err) {
+    toast(err.message, "error");
+  }
+}
+
+async function duyetSelectedKLTN(dongY) {
+  const selected = Array.from(document.querySelectorAll('.select-kltn:checked')).map(cb => parseInt(cb.value));
+  if (!selected.length) {
+    toast("Chưa chọn đề tài nào", "error");
+    return;
+  }
+  try {
+    await apiRequest("/api/kltn/approve", {
+      method: "POST",
+      body: JSON.stringify({
+        dang_ky_ids: selected,
+        action: dongY ? "dong_y" : "tu_choi",
+      }),
+    });
+    toast(dongY ? `Đã duyệt ${selected.length} đề tài KLTN` : `Đã từ chối ${selected.length} đề tài KLTN`);
+    await refreshCurrentView();
+  } catch (err) {
+    toast(err.message, "error");
+  }
+}
+
+function toggleSelectAllHuongDan(type) {
+  const selectAll = document.getElementById(`select-all-${type}-huongdan`);
+  const checkboxes = document.querySelectorAll(`.select-${type}-huongdan`);
+  checkboxes.forEach(cb => cb.checked = selectAll.checked);
+}
+
+async function duyetSelectedBCTTHuongDan(dongY) {
+  const selected = Array.from(document.querySelectorAll('.select-bctt-huongdan:checked')).map(cb => parseInt(cb.value));
+  if (!selected.length) {
+    toast("Chưa chọn đề tài nào", "error");
+    return;
+  }
+  try {
+    await apiRequest("/api/bctt/approve", {
+      method: "POST",
+      body: JSON.stringify({
+        dang_ky_ids: selected,
+        action: dongY ? "dong_y" : "tu_choi",
+      }),
+    });
+    toast(dongY ? `Đã duyệt ${selected.length} đề tài BCTT` : `Đã từ chối ${selected.length} đề tài BCTT`);
+    await refreshCurrentView();
+  } catch (err) {
+    toast(err.message, "error");
+  }
+}
+
 // 2. In bảng kiểm tra
 if (window.DB && window.DB.kltnList && window.DB.kltnList.length > 0) {
     console.log(`%c📚 ĐÃ NẠP THÀNH CÔNG ${DB.kltnList.length} ĐỀ TÀI VÀO BỘ NHỚ`, "color: #4caf50; font-size: 14px; font-weight: bold;");
