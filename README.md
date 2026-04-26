@@ -1,4 +1,4 @@
-# He Thong Quan Ly BCTT - KLTN
+# He Thong Quan Ly BCTT - KLTN test deploy
 
 Ung dung quan ly de tai Bao cao thuc tap (BCTT) va Khoa luan tot nghiep (KLTN) cho Khoa FE.
 
@@ -180,3 +180,4 @@ npm install
 - Gioi han upload: 20MB
 - File upload chap nhan: PDF, DOC, DOCX
 - Session login su dung cookie cua Flask
+
