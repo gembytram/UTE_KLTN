@@ -1,0 +1,6 @@
+{
+  "buildCommand": "python build.py",
+  "env": {
+    "VERCEL": "1"
+  }
+}

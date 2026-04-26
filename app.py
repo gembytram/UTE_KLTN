@@ -14,10 +14,16 @@ FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
 app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path="")
 configure_app(app)
 CORS(app, supports_credentials=True)
-if os.environ.get("VERCEL") == "1":
-    init_db()
-else:
-    init_db()
+
+# Khởi tạo database nếu chưa có
+# Local: luôn khởi tạo
+# Vercel: dùng API endpoint /api/admin/init-db thay vì tự động
+try:
+    if os.environ.get("VERCEL") != "1":
+        init_db()
+except Exception as e:
+    print(f"⚠️ Database init warning: {e}")
+
 register_routes(app)
 
 

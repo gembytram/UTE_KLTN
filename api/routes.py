@@ -71,6 +71,23 @@ def register_routes(app):
         session.clear()
         return ok("Đăng xuất thành công")
 
+    @app.route("/api/admin/init-db", methods=["POST"])
+    def init_db_endpoint():
+        """Khởi tạo database - chỉ dùng để setup trên Vercel."""
+        # Bảo vệ: cần gửi đúng token
+        auth_header = request.headers.get("Authorization", "")
+        admin_token = os.environ.get("ADMIN_INIT_TOKEN", "admin-token-default")
+        
+        if auth_header != f"Bearer {admin_token}":
+            return fail("Unauthorized", 401)
+        
+        try:
+            from database import init_db
+            init_db()
+            return ok("✅ Database initialized thành công")
+        except Exception as e:
+            return fail(f"❌ Lỗi khởi tạo database: {str(e)}", 500)
+
     @app.route("/api/me", methods=["GET"])
     @login_required
     def me():
