@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Hệ thống KLTN – UTE FE</title>
 <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/styles.css?v=20260425-1">
+<link rel="stylesheet" href="css/styles.css?v=20260426-1">
 </head>
 <body>
 
@@ -31,6 +31,10 @@
       <input type="password" id="login-password" placeholder="••••••••">
     </div>
     <button class="btn btn-primary btn-full" onclick="doLogin()">Đăng nhập</button>
+    <div class="oauth-divider"><span>Hoặc đăng nhập nhanh</span></div>
+    <div class="oauth-actions">
+      <button class="btn btn-oauth btn-oauth-google btn-full" onclick="startGoogleLogin()" type="button">Google</button>
+    </div>
   </div>
 </div>
 
@@ -104,6 +108,6 @@
 
 <div class="toast-container" id="toast-container"></div>
 
-<script src="js/app.js?v=20260425-1"></script>
+<script src="js/app.js?v=20260426-1"></script>
 </body>
 </html>

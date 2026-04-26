@@ -113,6 +113,50 @@ body { font-family: 'Be Vietnam Pro', sans-serif; background: var(--bg); color: 
 .btn-primary:hover { background: var(--primary-light); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,82,204,.3); }
 .btn-primary:active { transform: translateY(0); }
 .btn-full { width: 100%; padding: 12px; font-size: 15px; }
+.oauth-divider {
+  position: relative;
+  margin: 18px 0 12px;
+  text-align: center;
+}
+.oauth-divider::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  border-top: 1px solid var(--border);
+}
+.oauth-divider span {
+  position: relative;
+  z-index: 1;
+  display: inline-block;
+  padding: 0 10px;
+  background: rgba(255, 255, 255, 0.97);
+  color: var(--text3);
+  font-size: 12px;
+  font-weight: 600;
+}
+.oauth-actions {
+  display: grid;
+  gap: 10px;
+}
+.btn-oauth {
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text);
+  font-weight: 700;
+}
+.btn-oauth:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(9, 30, 66, 0.12);
+}
+.btn-oauth-google {
+  border-color: #dadce0;
+}
+.btn-oauth-google:hover {
+  border-color: #c7cbcf;
+  background: #f8f9fa;
+}
 .btn-danger { background: var(--accent); color: #fff; }
 .btn-danger:hover { background: #FF3015; }
 .btn-success { background: var(--accent2); color: #fff; }

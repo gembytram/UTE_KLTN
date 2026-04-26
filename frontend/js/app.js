@@ -1087,6 +1087,56 @@ function getScoreSheetTitle(topicType, vaiTro) {
   return 'BIÊN BẢN CHẤM ĐIỂM';
 }
 
+function mapApiUserToCurrentUser(user) {
+  return {
+    id: user.id,
+    ma: user.ma,
+    email: user.email,
+    name: user.ho_ten,
+    role: user.role,
+    role_raw: user.role_raw,
+    heDaoTao: user.heDaoTao || "",
+    password: "",
+    mssv: user.role === "sv" ? user.ma : undefined,
+    msgv: user.role !== "sv" ? user.ma : undefined,
+  };
+}
+
+function openAppScreen() {
+  document.getElementById("screen-login").classList.remove("active");
+  document.getElementById("screen-app").classList.add("active");
+}
+
+function toOauthErrorMessage(code) {
+  const mapping = {
+    google_oauth_not_configured: "Google OAuth chưa được cấu hình.",
+    google_auth_failed: "Đăng nhập Google thất bại.",
+    google_userinfo_failed: "Không lấy được thông tin tài khoản Google.",
+  };
+  return mapping[code] || "Đăng nhập OAuth thất bại.";
+}
+
+function clearAuthQueryParams() {
+  const url = new URL(window.location.href);
+  ["oauth", "error", "page"].forEach((key) => url.searchParams.delete(key));
+  const next = url.pathname + (url.search ? url.search : "") + (url.hash || "");
+  window.history.replaceState({}, document.title, next);
+}
+
+async function establishSessionFromApi() {
+  const out = await apiRequest("/api/me", { method: "GET" });
+  const mapped = mapApiUserToCurrentUser(out.data.user);
+  DB.currentUser = mapped;
+  localStorage.setItem("currentUser", JSON.stringify(mapped));
+  openAppScreen();
+  await initApp();
+  return mapped;
+}
+
+function startGoogleLogin() {
+  window.location.href = `${API_BASE}/api/auth/google/login`;
+}
+
 async function doLogin() {
   try {
     const ma = toMaFromLoginInput(document.getElementById("login-email").value);
@@ -1095,23 +1145,10 @@ async function doLogin() {
       method: "POST",
       body: JSON.stringify({ ma, mat_khau }),
     });
-    const user = out.data.user;
-    const mapped = {
-      id: user.id,
-      ma: user.ma,
-      email: user.email,
-      name: user.ho_ten,
-      role: user.role,
-      role_raw: user.role_raw,
-      heDaoTao: user.heDaoTao || "",
-      password: "",
-      mssv: user.role === "sv" ? user.ma : undefined,
-      msgv: user.role !== "sv" ? user.ma : undefined,
-    };
+    const mapped = mapApiUserToCurrentUser(out.data.user);
     DB.currentUser = mapped;
     localStorage.setItem("currentUser", JSON.stringify(mapped));
-    document.getElementById("screen-login").classList.remove("active");
-    document.getElementById("screen-app").classList.add("active");
+    openAppScreen();
     await initApp();
     if (mapped.role === "sv") navigateTo("dashboard");
     if (mapped.role === "gv") navigateTo("huongdan");
@@ -4151,6 +4188,32 @@ function switchTab(e, tabId) {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+  const params = new URLSearchParams(window.location.search);
+  const oauthState = params.get("oauth");
+  const oauthError = params.get("error");
+  const oauthTargetPage = params.get("page");
+
+  if (oauthError) {
+    toast(toOauthErrorMessage(oauthError), "error");
+    clearAuthQueryParams();
+  }
+
+  if (oauthState === "success") {
+    try {
+      const mapped = await establishSessionFromApi();
+      const nextPage = oauthTargetPage || (mapped.role === "sv" ? "dashboard" : mapped.role === "gv" ? "huongdan" : "duyetde");
+      navigateTo(nextPage);
+      toast("Đăng nhập thành công");
+    } catch (_) {
+      DB.currentUser = null;
+      localStorage.removeItem("currentUser");
+      toast("Phiên đăng nhập OAuth không hợp lệ.", "error");
+    } finally {
+      clearAuthQueryParams();
+    }
+    return;
+  }
+
   const saved = localStorage.getItem("currentUser");
   if (!saved) return;
   let parsed;
@@ -4167,8 +4230,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   DB.currentUser = parsed;
   try {
     await apiRequest("/api/me", { method: "GET" });
-    document.getElementById("screen-login").classList.remove("active");
-    document.getElementById("screen-app").classList.add("active");
+    openAppScreen();
     await initApp();
     try {
       localStorage.setItem("currentUser", JSON.stringify(DB.currentUser));
