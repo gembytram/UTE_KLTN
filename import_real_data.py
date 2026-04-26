@@ -138,11 +138,41 @@ def normalize_he(raw):
     return ""
 
 
-def run_import():
+def seed_default_data():
+    """Tạo tài khoản test mặc định nếu Google Sheet không khả dụng."""
+    conn = get_db()
+    c = conn.cursor()
+    
+    # Seed tài khoản test
+    test_users = [
+        ("ADMIN001", "Admin Test", "123456", "TBM", "", ""),
+        ("GV001", "Giảng Viên Test", "123456", "GV", "QLCN", ""),
+        ("SV001", "Sinh Viên Test", "123456", "SV", "QLCN", "DaiTra"),
+        ("SV002", "Sinh Viên CLC", "123456", "SV", "QLCN", "CLC"),
+    ]
+    
+    c.executemany("""
+        INSERT OR IGNORE INTO users (ma, ho_ten, mat_khau, role, linh_vuc, he_dao_tao)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, test_users)
+    
+    # Seed đợt
+    c.executemany("""
+        INSERT INTO dot (ten_dot, loai, han_dang_ky, han_nop, trang_thai, he_dao_tao, nganh)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, [(d[0], d[1], d[2], d[3], d[4], d[5], d[6]) for d in NEW_DOTS])
+    
+    conn.commit()
+    conn.close()
+    print("✅ Đã seed dữ liệu test mặc định (tài khoản: ADMIN001/GV001/SV001, mật khẩu: 123456)")
+
+
+def import_from_sheets(delete_old_db=True):
+    """Import dữ liệu từ Google Sheet."""
     db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "db.sqlite")
     
-    # Xóa database cũ
-    if os.path.exists(db_path):
+    # Xóa database cũ (chỉ khi chạy local, không trên Vercel)
+    if delete_old_db and os.path.exists(db_path):
         os.remove(db_path)
         print("🗑️ Đã xóa database cũ: db.sqlite")
 
@@ -156,10 +186,12 @@ def run_import():
     print("⏳ Đang tải dữ liệu từ Google Sheets...")
     try:
         req = urllib.request.Request(csv_url)
-        with urllib.request.urlopen(req) as response:
+        with urllib.request.urlopen(req, timeout=10) as response:
             lines = [line.decode('utf-8-sig') for line in response.readlines()]
     except Exception as e:
-        print("❌ Lỗi khi tải Google Sheets:", e)
+        print(f"❌ Lỗi khi tải Google Sheets: {e}")
+        print("📌 Sử dụng seed data mặc định thay vào...")
+        seed_default_data()
         return
 
     reader = csv.DictReader(lines)
@@ -248,7 +280,13 @@ def run_import():
     print("✅ Đã cập nhật chi tiết chuyên ngành (Ví dụ: QLCN, Mô phỏng, Sản xuất...)")
     print(f"✅ Đã tạo {len(NEW_DOTS)} đợt đăng ký (chung Đại trà & CLC, theo ngành).")
     print("✅ Đã cấp slot: mỗi (GV, đợt) có 2 pool — Đại trà (QUOTA_LEGACY.DaiTra) & CLC (QUOTA_LEGACY.CLC).")
+
+
+def run_import(delete_old_db=True):
+    """Chạy import dữ liệu (local: xóa DB cũ, Vercel: không xóa)."""
+    import_from_sheets(delete_old_db=delete_old_db)
     print("🚀 Hãy chạy lệnh 'python app.py' để thưởng thức hệ thống mới!")
+
 
 if __name__ == "__main__":
     run_import()

@@ -73,7 +73,7 @@ def register_routes(app):
 
     @app.route("/api/admin/init-db", methods=["POST"])
     def init_db_endpoint():
-        """Khởi tạo database - chỉ dùng để setup trên Vercel."""
+        """Khởi tạo database + import dữ liệu - chỉ dùng để setup trên Vercel."""
         # Bảo vệ: cần gửi đúng token
         auth_header = request.headers.get("Authorization", "")
         admin_token = os.environ.get("ADMIN_INIT_TOKEN", "admin-token-default")
@@ -82,10 +82,15 @@ def register_routes(app):
             return fail("Unauthorized", 401)
         
         try:
-            from database import init_db
-            init_db()
-            return ok("✅ Database initialized thành công")
+            from import_real_data import import_from_sheets
+            
+            # Import từ Google Sheet, không xóa DB cũ (Vercel safe)
+            import_from_sheets(delete_old_db=False)
+            
+            return ok("✅ Database initialized + dữ liệu import thành công")
         except Exception as e:
+            import traceback
+            print(f"❌ Database init error: {traceback.format_exc()}")
             return fail(f"❌ Lỗi khởi tạo database: {str(e)}", 500)
 
     @app.route("/api/me", methods=["GET"])
