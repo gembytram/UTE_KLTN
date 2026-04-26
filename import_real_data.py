@@ -139,7 +139,7 @@ def normalize_he(raw):
 
 
 def run_import():
-    db_path = "db.sqlite"
+    db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "db.sqlite")
     
     # Xóa database cũ
     if os.path.exists(db_path):
