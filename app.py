@@ -14,7 +14,8 @@ FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
 app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path="")
 configure_app(app)
 CORS(app, supports_credentials=True)
-init_db()
+if os.environ.get("VERCEL") != "1":
+    init_db()
 register_routes(app)
 
 
