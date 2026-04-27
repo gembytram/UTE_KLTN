@@ -246,7 +246,7 @@ function getCurrentStudentMajor() {
 }
 
 function getCurrentStudentFields() {
-  return ['AI', 'Chất lượng', 'HR', 'Kinh doanh quốc tế', 'Kế toán', 'Logistic', 'Marketing', 'Mô phỏng', 'Quản lý công nghiệp', 'Sản xuất', 'Startup', 'TMĐT'];
+  return ['AI', 'Chất lượng', 'HR', 'Kinh doanh quốc tế', 'Kế toán', 'Logistic', 'Marketing', 'Mô phỏng', 'Quản lý công nghiệp', 'Sản xuất'];
 }
 
 function getTopicTypesForField(field) {
