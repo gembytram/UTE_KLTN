@@ -110,6 +110,58 @@ GV_LINH_VUC = {
     "ngocnpn@hcmute.edu.vn": ["TMĐT"]
 }
 
+GV_LINH_VUC_PHU_TRACH = {
+    "trangltd@hcmute.edu.vn": ["Kinh doanh"],
+    "hoatrt@hcmute.edu.vn": ["Chất lượng"],
+    "phuongthuynt@hcmute.edu.vn": ["Marketing"],
+    "quanhnm@hcmute.edu.vn": ["Mô phỏng"],
+    "nguyenthuyphuong@hcmute.edu.vn": ["Sản xuất"],
+    "thanhmv@hcmute.edu.vn": ["Chất lượng"],
+    "trucldt@hcmute.edu.vn": ["Sản xuất"],
+    "minhta@hcmute.edu.vn": ["AI"],
+    "longntc@hcmute.edu.vn": ["Mô phỏng"],
+    "vangdq@hcmute.edu.vn": ["Kinh doanh"],
+    "huongltm@hcmute.edu.vn": ["Khởi nghiệp"],
+    "yendtk@hcmute.edu.vn": ["HR"],
+    "phuongtta@hcmute.edu.vn": ["AI"],
+    "anhctn@hcmute.edu.vn": ["Kinh doanh"],
+    "nuongltm@hcmute.edu.vn": ["Chất lượng"],
+    "nghianh@hcmute.edu.vn": ["Marketing"],
+    "anhnth@hcmute.edu.vn": ["Mô phỏng"],
+    "tramnth@hcmute.edu.vn": ["Sản xuất"],
+    "duyvq@hcmute.edu.vn": ["Chất lượng"],
+    "hongntt@hcmute.edu.vn": ["Sản xuất"],
+    "phamhieu@hcmute.edu.vn": ["AI"],
+    "xuyenhth@hcmute.edu.vn": ["Mô phỏng"],
+    "huect@hcmute.edu.vn": ["Kinh doanh"],
+    "thinhbt@hcmute.edu.vn": ["Khởi nghiệp"],
+    "nguyenpk@hcmute.edu.vn": ["HR"],
+    "tothihang@hcmute.edu.vn": ["AI"],
+    "hanhvtx@hcmute.edu.vn": ["Khởi nghiệp"],
+    "hieunk@hcmute.edu.vn": ["Chất lượng"],
+    "thanhltt@hcmute.edu.vn": ["Marketing"],
+    "thaindh@hcmute.edu.vn": ["Mô phỏng", "Sản xuất"],
+    "thiennd@hcmute.edu.vn": ["Chất lượng", "Sản xuất", "AI", "Mô phỏng"],
+    "lamgiangkkt@hcmute.edu.vn": ["Chất lượng"],
+    "vanngta@hcmute.edu.vn": ["Chất lượng"],
+    "tramntm@hcmute.edu.vn": ["Sản xuất"],
+    "btanh@hcmute.edu.vn": ["Khởi nghiệp"],
+    "vanntt@hcmute.edu.vn": ["AI"],
+    "thupx@hcmute.edu.vn": ["Kinh doanh"],
+    "tuhtc@hcmute.edu.vn": ["Kinh doanh"],
+    "thangpvh@hcmute.edu.vn": ["Sản xuất"],
+    "thuynguyen@hcmute.edu.vn": ["HR"],
+    "hienptt@hcmute.edu.vn": ["HR"],
+    "ise.thien@gmail.com": ["Mô phỏng"],
+    "toaitk@hcmute.edu.vn": ["Chất lượng"],
+    "lananhnt@hcmute.edu.vn": ["Marketing"],
+    "viltt@hcmute.edu.vn": ["Mô phỏng"],
+    "linhtd@hcmute.edu.vn": ["Sản xuất"],
+    "huynpa@hcmute.edu.vn": ["Chất lượng"],
+    "ngocnpn@hcmute.edu.vn": ["Sản xuất"],
+    "hongnt@hcmute.edu.vn": ["AI"]
+}
+
 # 3. Danh sách Đợt đăng ký (chung, không tách Đại trà / CLC — chỉ phân theo ngành)
 # Tuple: (Tên Đợt, Loại, Ngày BĐ, Ngày KT, Trạng Thái, he_dao_tao, nganh) — he_dao_tao luôn rỗng
 NEW_DOTS = [
@@ -138,6 +190,14 @@ def normalize_he(raw):
     return ""
 
 
+def pick_primary_field(value):
+    """Mỗi user có một lĩnh vực phụ trách chính."""
+    text = (value or "").strip()
+    if not text:
+        return ""
+    return text.split(",")[0].strip()
+
+
 def seed_default_data():
     """Tạo tài khoản test mặc định nếu Google Sheet không khả dụng."""
     conn = get_db()
@@ -145,15 +205,15 @@ def seed_default_data():
     
     # Seed tài khoản test
     test_users = [
-        ("ADMIN001", "Admin Test", "123456", "TBM", "", ""),
-        ("GV001", "Giảng Viên Test", "123456", "GV", "QLCN", ""),
-        ("SV001", "Sinh Viên Test", "123456", "SV", "QLCN", "DaiTra"),
-        ("SV002", "Sinh Viên CLC", "123456", "SV", "QLCN", "CLC"),
+        ("ADMIN001", "admin001@hcmute.edu.vn", "Admin Test", "123456", "TBM", "", "", ""),
+        ("GV001", "gv001@hcmute.edu.vn", "Giảng Viên Test", "123456", "GV", "QLCN", "", ""),
+        ("SV001", "sv001@hcmute.edu.vn", "Sinh Viên Test", "123456", "SV", "QLCN", "", "DaiTra"),
+        ("SV002", "sv002@hcmute.edu.vn", "Sinh Viên CLC", "123456", "SV", "QLCN", "", "CLC"),
     ]
     
     c.executemany("""
-        INSERT OR IGNORE INTO users (ma, ho_ten, mat_khau, role, linh_vuc, he_dao_tao)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT OR IGNORE INTO users (ma, gmail, ho_ten, mat_khau, role, linh_vuc, linh_vuc_phu_trach, he_dao_tao)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """, test_users)
     
     # Seed đợt
@@ -193,13 +253,23 @@ def import_from_sheets(delete_old_db=True):
     reader = csv.DictReader(lines)
     users = []
     gv_email_mapping = {}
+    gv_fields_by_email = {}
+
+    def add_unique_field(email_key, field_value):
+        field_value = (field_value or "").strip()
+        if not email_key or not field_value:
+            return
+        bucket = gv_fields_by_email.setdefault(email_key, [])
+        if field_value not in bucket:
+            bucket.append(field_value)
 
     for row in reader:
-        email = row.get("Email", "").strip()
+        email = row.get("Email", "").strip().lower()
         ma = row.get("MS", "").strip()
         ho_ten = row.get("Ten", "").strip()
         role_raw = row.get("Role", "").strip()
         linh_vuc = row.get("Major", "").strip()  # Default lấy từ Google Sheet
+        field_raw = row.get("Field", "").strip()
         he_raw = (
             row.get("He", "").strip()
             or row.get("Hệ", "").strip()
@@ -223,16 +293,34 @@ def import_from_sheets(delete_old_db=True):
         if email in GV_LINH_VUC:
             linh_vuc = ", ".join(GV_LINH_VUC[email])
 
+        if role in ("GV", "TBM"):
+            add_unique_field(email, field_raw)
+
+        # Nếu có mapping email -> linh_vuc_phu_trach do bạn cung cấp, ưu tiên dùng mapping này.
+        if email in GV_LINH_VUC_PHU_TRACH:
+            for value in GV_LINH_VUC_PHU_TRACH[email]:
+                add_unique_field(email, value)
+
+        linh_vuc = pick_primary_field(linh_vuc)
+        linh_vuc_phu_trach = ", ".join(gv_fields_by_email.get(email, []))
+
         mat_khau = "123456"
-        users.append((ma.upper(), ho_ten, mat_khau, role, linh_vuc, he_dao_tao))
+        users.append((ma.upper(), email, ho_ten, mat_khau, role, linh_vuc, linh_vuc_phu_trach, he_dao_tao))
 
     conn = get_db()
     c = conn.cursor()
 
     # Insert Users
     c.executemany("""
-        INSERT OR IGNORE INTO users (ma, ho_ten, mat_khau, role, linh_vuc, he_dao_tao)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO users (ma, gmail, ho_ten, mat_khau, role, linh_vuc, linh_vuc_phu_trach, he_dao_tao)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (ma) DO UPDATE SET
+            gmail = EXCLUDED.gmail,
+            ho_ten = EXCLUDED.ho_ten,
+            role = EXCLUDED.role,
+            linh_vuc = EXCLUDED.linh_vuc,
+            linh_vuc_phu_trach = EXCLUDED.linh_vuc_phu_trach,
+            he_dao_tao = EXCLUDED.he_dao_tao
     """, users)
 
     # Insert Đợt đăng ký (kèm hệ + ngành trong DB)
@@ -251,7 +339,7 @@ def import_from_sheets(delete_old_db=True):
     for gv in gvs:
         gv_id = gv['id']
         gv_ma = gv['ma']
-        gv_linh_vuc_str = gv['linh_vuc'] or ""
+        gv_primary = (gv['linh_vuc'] or "").strip()
         gv_email = gv_email_mapping.get(gv_ma, "")
         leg = QUOTA_LEGACY.get(gv_email, {})
         q_dt = int(leg.get("DaiTra", 5))
@@ -260,7 +348,7 @@ def import_from_sheets(delete_old_db=True):
         for db_dot in dot_records:
             dot_major = (db_dot["nganh"] or "").strip()
 
-            if dot_major in gv_linh_vuc_str:
+            if dot_major == gv_primary:
                 slots.append((gv_id, db_dot["id"], q_dt, q_dt, 1, "DaiTra"))
                 slots.append((gv_id, db_dot["id"], q_clc, q_clc, 1, "CLC"))
 

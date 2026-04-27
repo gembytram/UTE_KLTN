@@ -79,11 +79,12 @@ def google_callback():
         """
         SELECT *
         FROM users
-        WHERE lower(trim(ma)) = ?
+          WHERE lower(trim(gmail)) = ?
+              OR lower(trim(ma)) = ?
            OR lower(trim(ma) || '@hcmute.edu.vn') = ?
            OR lower(trim(ma) || '@student.hcmute.edu.vn') = ?
         """,
-        (email_local, email, email),
+          (email, email_local, email, email),
     ).fetchall()
     conn.close()
 

@@ -11,15 +11,20 @@ from services.kltn_service import _kltn_assignment
 
 
 def serialize_user(row):
+    email = (row["gmail"] or "").strip() if "gmail" in row.keys() else ""
+    if not email:
+        email = build_email(row["ma"])
     return {
         "id": row["id"],
         "ma": row["ma"],
-        "email": build_email(row["ma"]),
+        "email": email,
+        "gmail": email,
         "ho_ten": row["ho_ten"],
         "name": row["ho_ten"],
         "role_raw": row["role"],
         "role": map_role(row["role"]),
         "linh_vuc": row["linh_vuc"] or "",
+        "linh_vuc_phu_trach": row["linh_vuc_phu_trach"] or "",
         "heDaoTao": (row["he_dao_tao"] or "").strip(),
     }
 
@@ -94,13 +99,13 @@ def fetch_bootstrap(conn):
         record = {
             "id": f"{r['loai'].lower()}{r['id']}",
             "dangKyId": r["id"],
-            "svEmail": build_email(r["sv_ma"]),
+            "svEmail": user_map.get(r["sv_id"], {}).get("email") or build_email(r["sv_ma"]),
             "tenDot": r["ten_dot"] if "ten_dot" in r.keys() else "",
             "tenDeTai": r["ten_de_tai"],
             "mangDeTai": meta["mangDeTai"],
             "topicType": meta["topicType"],
-            "gvEmail": build_email(r["gv_ma"]),
-            "gvHDEmail": build_email(r["gv_ma"]),
+            "gvEmail": user_map.get(r["gv_id"], {}).get("email") or build_email(r["gv_ma"]),
+            "gvHDEmail": user_map.get(r["gv_id"], {}).get("email") or build_email(r["gv_ma"]),
             "dotId": str(r["dot_id"]),
             "trangThai": map_status_for_ui(r["loai"], r["trang_thai"]),
             "ngayDangKy": now_date_string(),
@@ -228,7 +233,8 @@ def fetch_bootstrap(conn):
         user_data = {
             "id": u["id"],
             "ma": u["ma"],
-            "email": build_email(u["ma"]),
+            "email": (u["gmail"] or "").strip() or build_email(u["ma"]),
+            "gmail": (u["gmail"] or "").strip(),
             "password": u["mat_khau"],
             "name": u["ho_ten"],
             "role": role,
@@ -236,6 +242,8 @@ def fetch_bootstrap(conn):
             "msgv": u["ma"] if role in ("gv", "bm") else None,
             "khoa": "",
             "chuyenMon": [x.strip() for x in (u["linh_vuc"] or "").split(",") if x.strip()],
+            "linhVucPhuTrach": (u["linh_vuc_phu_trach"] or "").strip(),
+            "linh_vuc_phu_trach": (u["linh_vuc_phu_trach"] or "").strip(),
             "heDaoTao": (u["he_dao_tao"] or "").strip(),
         }
         if role in ("gv", "bm"):

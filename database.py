@@ -215,6 +215,46 @@ def migrate_db(conn):
     ucols = _table_columns(conn, "users")
     if "he_dao_tao" not in ucols:
         cur.execute("ALTER TABLE users ADD COLUMN he_dao_tao TEXT DEFAULT ''")
+    if "linh_vuc_phu_trach" not in ucols:
+        cur.execute("ALTER TABLE users ADD COLUMN linh_vuc_phu_trach TEXT DEFAULT ''")
+    if "gmail" not in ucols:
+        cur.execute("ALTER TABLE users ADD COLUMN gmail TEXT DEFAULT ''")
+    if USE_POSTGRES:
+        cur.execute(
+            """
+            UPDATE users
+            SET gmail = lower(trim(ma) || '@hcmute.edu.vn')
+            WHERE coalesce(trim(gmail), '') = ''
+            """
+        )
+        cur.execute(
+            """
+            UPDATE users
+            SET linh_vuc = trim(split_part(coalesce(linh_vuc, ''), ',', 1))
+            WHERE coalesce(trim(linh_vuc), '') <> ''
+            """
+        )
+    else:
+        cur.execute(
+            """
+            UPDATE users
+            SET gmail = lower(trim(ma) || '@hcmute.edu.vn')
+            WHERE coalesce(trim(gmail), '') = ''
+            """
+        )
+        cur.execute(
+            """
+            UPDATE users
+            SET linh_vuc = trim(
+                CASE
+                    WHEN instr(coalesce(linh_vuc, ''), ',') > 0
+                        THEN substr(linh_vuc, 1, instr(linh_vuc, ',') - 1)
+                    ELSE coalesce(linh_vuc, '')
+                END
+            )
+            WHERE coalesce(trim(linh_vuc), '') <> ''
+            """
+        )
     dcols = _table_columns(conn, "dot")
     if "he_dao_tao" not in dcols:
         cur.execute("ALTER TABLE dot ADD COLUMN he_dao_tao TEXT DEFAULT ''")
@@ -249,10 +289,12 @@ def init_db():
             CREATE TABLE IF NOT EXISTS users (
                 id SERIAL PRIMARY KEY,
                 ma TEXT UNIQUE NOT NULL,
+                gmail TEXT DEFAULT '',
                 ho_ten TEXT NOT NULL,
                 mat_khau TEXT NOT NULL,
                 role TEXT NOT NULL,
                 linh_vuc TEXT,
+                linh_vuc_phu_trach TEXT DEFAULT '',
                 he_dao_tao TEXT DEFAULT ''
             )
             """
@@ -346,10 +388,12 @@ def init_db():
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 ma TEXT UNIQUE NOT NULL,        -- MSSV hoặc MAGV
+                gmail TEXT DEFAULT '',          -- email lấy từ Google Sheet
                 ho_ten TEXT NOT NULL,
                 mat_khau TEXT NOT NULL,
                 role TEXT NOT NULL,             -- SV / GV / TBM
                 linh_vuc TEXT,                  -- major / chuyên môn (chuỗi phân tách bởi dấu phẩy)
+                linh_vuc_phu_trach TEXT DEFAULT '', -- lĩnh vực phụ trách chính (mỗi người 1 lĩnh vực)
                 he_dao_tao TEXT DEFAULT ''      -- DaiTra / CLC (SV & có thể dùng cho GV)
             );
 

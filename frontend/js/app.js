@@ -838,6 +838,7 @@ async function syncFromServer() {
     chuyenMon: Array.isArray(u.chuyenMon)
       ? u.chuyenMon
       : (u.linh_vuc ? u.linh_vuc.split(',').map(s => s.trim()) : []),
+    linhVucPhuTrach: String(u.linhVucPhuTrach || u.linh_vuc_phu_trach || '').trim(),
   }));
   DB.dotDangKy = data.dotDangKy || [];
   DB.bcttList = data.bcttList || [];
@@ -1495,7 +1496,17 @@ function renderGVOptionsByField() {
 
   const candidates = DB.users.filter((u) => {
     if (u.role !== "gv" && u.role !== "bm") return false;
-    if (major && Array.isArray(u.chuyenMon) && u.chuyenMon.length && !u.chuyenMon.includes(major)) return false;
+    const primaryFields = String(u.linhVucPhuTrach || u.linh_vuc_phu_trach || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (major) {
+      if (primaryFields.length) {
+        if (!primaryFields.some((field) => majorMatches(field, major))) return false;
+      } else if (Array.isArray(u.chuyenMon) && u.chuyenMon.length && !u.chuyenMon.some((m) => majorMatches(m, major))) {
+        return false;
+      }
+    }
     const slot = (DB.gvSlots || []).find(
       (s) => Number(s.gvId) === Number(u.id) && String(s.dotId) === String(dotId) && String(s.heDaoTao || "DaiTra") === he
     );
@@ -1512,7 +1523,8 @@ function renderGVOptionsByField() {
     candidates
       .map((u) => {
         const slot = gvBcttSlotRow(u.id, dotId);
-        const majors = (u.chuyenMon || []).join(", ");
+        const primaryField = String(u.linhVucPhuTrach || u.linh_vuc_phu_trach || '').trim();
+        const majors = primaryField || (u.chuyenMon || []).join(", ");
         const quota = slot ? slot.slotConLai : 0;
         return `<option value="${u.id}">${escapeHtml(u.name)}${majors ? ` - ${escapeHtml(majors)}` : ""} (${quota} slot)</option>`;
       })
