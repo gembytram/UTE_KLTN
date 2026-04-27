@@ -230,7 +230,19 @@ function applyIconsToDom(root) {
 }
 
 function getCurrentStudentMajor() {
-  return 'TMĐT';
+  const u = DB.currentUser || {};
+  const majors = Array.isArray(u.chuyenMon)
+    ? u.chuyenMon.map((m) => String(m).trim()).filter(Boolean)
+    : [];
+  if (majors.length) return majors[0];
+  if (u.linh_vuc) {
+    const parsed = String(u.linh_vuc)
+      .split(',')
+      .map((m) => m.trim())
+      .filter(Boolean);
+    if (parsed.length) return parsed[0];
+  }
+  return '';
 }
 
 function getCurrentStudentFields() {
@@ -1494,6 +1506,15 @@ function renderGVOptionsByField() {
     return;
   }
 
+  const studentMajor = getCurrentStudentMajor();
+  const nganhSelect = document.getElementById('f-nganh');
+  if (nganhSelect) {
+    const nganhText = (studentMajor || '').trim();
+    nganhSelect.innerHTML = nganhText
+      ? `<option value="${escapeHtml(nganhText)}">${escapeHtml(nganhText)}</option>`
+      : '<option value="">-- Chưa có ngành --</option>';
+  }
+
   const candidates = DB.users.filter((u) => {
     if (u.role !== "gv" && u.role !== "bm") return false;
     const primaryFields = String(u.linhVucPhuTrach || u.linh_vuc_phu_trach || '')
@@ -1501,9 +1522,7 @@ function renderGVOptionsByField() {
       .map((s) => s.trim())
       .filter(Boolean);
     if (major) {
-      if (primaryFields.length) {
-        if (!primaryFields.some((field) => majorMatches(field, major))) return false;
-      } else if (Array.isArray(u.chuyenMon) && u.chuyenMon.length && !u.chuyenMon.some((m) => majorMatches(m, major))) {
+      if (!primaryFields.length || !primaryFields.some((field) => majorMatches(field, major))) {
         return false;
       }
     }
@@ -2022,7 +2041,7 @@ function renderBCTT() {
         <div class="form-group" style="grid-column:1/-1"><label>Đợt đăng ký *</label><select id="f-dot" onchange="renderGVOptionsByField()"><option value="">-- Chọn đợt --</option>${DB.dotDangKy.filter(d => d.trangThai === 'dang_mo' && d.loai === 'BCTT' && dotMatchesStudentHeAndMajor(d)).map(d => `<option value="${d.id}">${d.ten}</option>`).join('')}</select></div>
         <div class="form-group"><label>Tên đề tài *</label><input type="text" id="f-tenDeTai" placeholder="Nhập tên đề tài thực tập..."></div>
         <div class="form-group"><label>Tên công ty *</label><input type="text" id="f-congty" placeholder="Tên doanh nghiệp thực tập..."></div>
-        <div class="form-group"><label>Ngành *</label><select id="f-nganh" disabled><option value="TMĐT">Thương mại điện tử</option></select></div>
+        <div class="form-group"><label>Ngành *</label><select id="f-nganh" disabled><option value="${escapeHtml(getCurrentStudentMajor())}">${escapeHtml(getCurrentStudentMajor() || '-- Chưa có ngành --')}</option></select></div>
         <div class="form-group"><label>Lĩnh vực *</label><select id="f-mang" onchange="renderTopicTypesByField();renderGVOptionsByField();"><option value="">-- Chọn lĩnh vực --</option>${fieldOptions.map((field) => `<option value="${escapeHtml(field)}">${escapeHtml(field)}</option>`).join('')}</select></div>
         <div class="form-group"><label>Loại đề tài *</label><select id="f-topicType"><option value="">-- Chọn loại đề tài --</option></select></div>
         <div class="form-group"><label>Giảng viên hướng dẫn *</label><select id="f-gv"><option value="">-- Chọn giảng viên hướng dẫn --</option></select></div>

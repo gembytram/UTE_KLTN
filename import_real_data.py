@@ -159,7 +159,8 @@ GV_LINH_VUC_PHU_TRACH = {
     "linhtd@hcmute.edu.vn": ["Sản xuất"],
     "huynpa@hcmute.edu.vn": ["Chất lượng"],
     "ngocnpn@hcmute.edu.vn": ["Sản xuất"],
-    "hongnt@hcmute.edu.vn": ["AI"]
+    "hongnt@hcmute.edu.vn": ["AI"],
+    "namvt@hcmute.edu.vn": ["HR"],
 }
 
 # 3. Danh sách Đợt đăng ký (chung, không tách Đại trà / CLC — chỉ phân theo ngành)
@@ -332,14 +333,17 @@ def import_from_sheets(delete_old_db=True):
     # Lấy đợt từ DB (đã có he_dao_tao, nganh)
     dot_records = c.execute("SELECT id, ten_dot, he_dao_tao, nganh FROM dot").fetchall()
 
-    # Cấp slot: mỗi (GV, đợt, hệ) — quota Đại trà / CLC lấy từ QUOTA_LEGACY; SV đăng ký BCTT dùng đúng pool theo he_dao_tao
-    gvs = c.execute("SELECT id, ma, linh_vuc FROM users WHERE role IN ('GV', 'TBM')").fetchall()
+    # Cấp slot: mỗi (GV, đợt, hệ) — quota Đại trà / CLC lấy từ QUOTA_LEGACY.
+    # GV có field phụ trách cũng có slot, không chỉ khi primary major trùng với dot.nganh.
+    gvs = c.execute("SELECT id, ma, linh_vuc, linh_vuc_phu_trach FROM users WHERE role IN ('GV', 'TBM')").fetchall()
     slots = []
 
     for gv in gvs:
         gv_id = gv['id']
         gv_ma = gv['ma']
         gv_primary = (gv['linh_vuc'] or "").strip()
+        gv_fields_raw = (gv.get('linh_vuc_phu_trach') or "").strip()
+        gv_fields = [f.strip() for f in gv_fields_raw.split(',') if f.strip()]
         gv_email = gv_email_mapping.get(gv_ma, "")
         leg = QUOTA_LEGACY.get(gv_email, {})
         q_dt = int(leg.get("DaiTra", 5))
@@ -348,7 +352,7 @@ def import_from_sheets(delete_old_db=True):
         for db_dot in dot_records:
             dot_major = (db_dot["nganh"] or "").strip()
 
-            if dot_major == gv_primary:
+            if dot_major == gv_primary or gv_fields:
                 slots.append((gv_id, db_dot["id"], q_dt, q_dt, 1, "DaiTra"))
                 slots.append((gv_id, db_dot["id"], q_clc, q_clc, 1, "CLC"))
 
