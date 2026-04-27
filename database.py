@@ -1,18 +1,212 @@
 import os
+import re
 import sqlite3
+
+try:
+    import psycopg2  # type: ignore[import-not-found]
+    from psycopg2.extras import RealDictCursor  # type: ignore[import-not-found]
+except Exception:
+    psycopg2 = None
+    RealDictCursor = None
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_DB_PATH = "/tmp/db.sqlite" if os.environ.get("VERCEL") == "1" else os.path.join(BASE_DIR, "db.sqlite")
 DB_PATH = os.environ.get("DB_PATH", DEFAULT_DB_PATH)
+DATABASE_URL = (os.environ.get("DATABASE_URL") or "").strip()
+USE_POSTGRES = DATABASE_URL.lower().startswith("postgresql://") or DATABASE_URL.lower().startswith("postgres://")
+
+
+def _rewrite_insert_or_ignore(sql):
+    pattern = re.compile(r"^\s*INSERT\s+OR\s+IGNORE\s+INTO\s+", re.IGNORECASE | re.DOTALL)
+    if not pattern.search(sql):
+        return sql
+    rewritten = pattern.sub("INSERT INTO ", sql, count=1)
+    trimmed = rewritten.rstrip()
+    has_semicolon = trimmed.endswith(";")
+    if has_semicolon:
+        trimmed = trimmed[:-1]
+    trimmed = f"{trimmed} ON CONFLICT DO NOTHING"
+    return f"{trimmed};" if has_semicolon else trimmed
+
+
+def _rewrite_qmark_placeholders(sql):
+    out = []
+    in_single = False
+    in_double = False
+    i = 0
+    while i < len(sql):
+        ch = sql[i]
+        if ch == "'" and not in_double:
+            if in_single and i + 1 < len(sql) and sql[i + 1] == "'":
+                out.append("''")
+                i += 2
+                continue
+            in_single = not in_single
+            out.append(ch)
+            i += 1
+            continue
+        if ch == '"' and not in_single:
+            in_double = not in_double
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "?" and not in_single and not in_double:
+            out.append("%s")
+            i += 1
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _rewrite_sql(sql, engine):
+    if engine != "postgres":
+        return sql
+    rewritten = _rewrite_insert_or_ignore(sql)
+    rewritten = _rewrite_qmark_placeholders(rewritten)
+    return rewritten
+
+
+def _split_sql_statements(script):
+    stmts = []
+    buf = []
+    in_single = False
+    in_double = False
+    i = 0
+    while i < len(script):
+        ch = script[i]
+        if ch == "'" and not in_double:
+            if in_single and i + 1 < len(script) and script[i + 1] == "'":
+                buf.append("''")
+                i += 2
+                continue
+            in_single = not in_single
+            buf.append(ch)
+            i += 1
+            continue
+        if ch == '"' and not in_single:
+            in_double = not in_double
+            buf.append(ch)
+            i += 1
+            continue
+        if ch == ";" and not in_single and not in_double:
+            statement = "".join(buf).strip()
+            if statement:
+                stmts.append(statement)
+            buf = []
+            i += 1
+            continue
+        buf.append(ch)
+        i += 1
+    tail = "".join(buf).strip()
+    if tail:
+        stmts.append(tail)
+    return stmts
+
+
+class CursorCompat:
+    def __init__(self, connection, cursor, engine):
+        self._connection = connection
+        self._cursor = cursor
+        self._engine = engine
+        self.lastrowid = getattr(cursor, "lastrowid", None)
+
+    def execute(self, query, params=None):
+        sql = _rewrite_sql(query, self._engine)
+        args = params or ()
+        self._cursor.execute(sql, args)
+        if self._engine == "postgres":
+            self.lastrowid = None
+            if sql.lstrip().upper().startswith("INSERT"):
+                try:
+                    with self._connection._raw.cursor() as c2:
+                        c2.execute("SELECT LASTVAL()")
+                        self.lastrowid = c2.fetchone()[0]
+                except Exception:
+                    self.lastrowid = None
+        else:
+            self.lastrowid = getattr(self._cursor, "lastrowid", None)
+        return self
+
+    def executemany(self, query, seq_of_params):
+        sql = _rewrite_sql(query, self._engine)
+        self._cursor.executemany(sql, seq_of_params)
+        return self
+
+    def fetchone(self):
+        return self._cursor.fetchone()
+
+    def fetchall(self):
+        return self._cursor.fetchall()
+
+    @property
+    def rowcount(self):
+        return self._cursor.rowcount
+
+
+class ConnectionCompat:
+    def __init__(self, raw, engine):
+        self._raw = raw
+        self._engine = engine
+
+    def cursor(self):
+        if self._engine == "postgres":
+            cur = self._raw.cursor(cursor_factory=RealDictCursor)
+        else:
+            cur = self._raw.cursor()
+        return CursorCompat(self, cur, self._engine)
+
+    def execute(self, query, params=None):
+        cur = self.cursor()
+        return cur.execute(query, params)
+
+    def executemany(self, query, seq_of_params):
+        cur = self.cursor()
+        return cur.executemany(query, seq_of_params)
+
+    def executescript(self, script):
+        if self._engine == "sqlite":
+            self._raw.executescript(script)
+            return
+        for statement in _split_sql_statements(script):
+            self.execute(statement)
+
+    def commit(self):
+        self._raw.commit()
+
+    def rollback(self):
+        self._raw.rollback()
+
+    def close(self):
+        self._raw.close()
+
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row  # trả về dict thay vì tuple
-    return conn
+    if not USE_POSTGRES:
+        raise RuntimeError(
+            "Project đã chuyển sang PostgreSQL. Hãy set DATABASE_URL dạng "
+            "postgresql://user:password@host:port/database"
+        )
+    if psycopg2 is None:
+        raise RuntimeError("Thiếu package psycopg2. Hãy cài: pip install psycopg2-binary")
+    raw = psycopg2.connect(DATABASE_URL)
+    return ConnectionCompat(raw, "postgres")
 
 
 def _table_columns(conn, table):
-    return {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if USE_POSTGRES:
+        rows = conn.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = ?
+            """,
+            (table,),
+        ).fetchall()
+        return {row["column_name"] for row in rows}
+
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return {row[1] for row in rows}
 
 
 def migrate_db(conn):
@@ -49,101 +243,198 @@ def migrate_db(conn):
 
 def init_db():
     conn = get_db()
-    cursor = conn.cursor()
+    if USE_POSTGRES:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                ma TEXT UNIQUE NOT NULL,
+                ho_ten TEXT NOT NULL,
+                mat_khau TEXT NOT NULL,
+                role TEXT NOT NULL,
+                linh_vuc TEXT,
+                he_dao_tao TEXT DEFAULT ''
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS dot (
+                id SERIAL PRIMARY KEY,
+                ten_dot TEXT NOT NULL,
+                loai TEXT NOT NULL,
+                han_dang_ky TEXT,
+                han_nop TEXT,
+                trang_thai TEXT DEFAULT 'mo',
+                he_dao_tao TEXT DEFAULT '',
+                nganh TEXT DEFAULT ''
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS gv_slot (
+                id SERIAL PRIMARY KEY,
+                gv_id INTEGER REFERENCES users(id),
+                dot_id INTEGER REFERENCES dot(id),
+                quota INTEGER DEFAULT 5,
+                slot_con_lai INTEGER DEFAULT 5,
+                duyet_tbm INTEGER DEFAULT 0,
+                he_dao_tao TEXT DEFAULT 'DaiTra'
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS dang_ky (
+                id SERIAL PRIMARY KEY,
+                sv_id INTEGER REFERENCES users(id),
+                gv_id INTEGER REFERENCES users(id),
+                dot_id INTEGER REFERENCES dot(id),
+                loai TEXT NOT NULL,
+                ten_de_tai TEXT,
+                linh_vuc TEXT,
+                trang_thai TEXT DEFAULT 'cho_duyet',
+                gv_pb_id INTEGER REFERENCES users(id),
+                chu_tich_id INTEGER REFERENCES users(id),
+                thu_ky_id INTEGER REFERENCES users(id),
+                uy_vien_ids TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS nop_bai (
+                id SERIAL PRIMARY KEY,
+                dang_ky_id INTEGER REFERENCES dang_ky(id),
+                loai_file TEXT,
+                file_path TEXT,
+                uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS cham_diem (
+                id SERIAL PRIMARY KEY,
+                dang_ky_id INTEGER REFERENCES dang_ky(id),
+                gv_id INTEGER REFERENCES users(id),
+                vai_tro TEXT,
+                diem REAL,
+                nhan_xet TEXT,
+                cau_hoi TEXT,
+                criteria_json TEXT DEFAULT ''
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS thong_bao (
+                id SERIAL PRIMARY KEY,
+                nguoi_nhan_id INTEGER NOT NULL REFERENCES users(id),
+                nguoi_gui_id INTEGER REFERENCES users(id),
+                dang_ky_id INTEGER REFERENCES dang_ky(id),
+                loai TEXT,
+                noi_dung TEXT,
+                da_doc INTEGER DEFAULT 0,
+                tao_luc TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+    else:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ma TEXT UNIQUE NOT NULL,        -- MSSV hoặc MAGV
+                ho_ten TEXT NOT NULL,
+                mat_khau TEXT NOT NULL,
+                role TEXT NOT NULL,             -- SV / GV / TBM
+                linh_vuc TEXT,                  -- major / chuyên môn (chuỗi phân tách bởi dấu phẩy)
+                he_dao_tao TEXT DEFAULT ''      -- DaiTra / CLC (SV & có thể dùng cho GV)
+            );
 
-    cursor.executescript("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ma TEXT UNIQUE NOT NULL,        -- MSSV hoặc MAGV
-            ho_ten TEXT NOT NULL,
-            mat_khau TEXT NOT NULL,
-            role TEXT NOT NULL,             -- SV / GV / TBM
-            linh_vuc TEXT,                  -- major / chuyên môn (chuỗi phân tách bởi dấu phẩy)
-            he_dao_tao TEXT DEFAULT ''      -- DaiTra / CLC (SV & có thể dùng cho GV)
-        );
+            CREATE TABLE IF NOT EXISTS dot (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ten_dot TEXT NOT NULL,
+                loai TEXT NOT NULL,             -- BCTT / KLTN
+                han_dang_ky TEXT,
+                han_nop TEXT,
+                trang_thai TEXT DEFAULT 'mo',    -- mo / dong
+                he_dao_tao TEXT DEFAULT '',     -- để trống nếu đợt chung (không tách Đại trà/CLC)
+                nganh TEXT DEFAULT ''           -- QLCN, TMĐT, ... (khớp linh_vuc SV)
+            );
 
-        CREATE TABLE IF NOT EXISTS dot (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ten_dot TEXT NOT NULL,
-            loai TEXT NOT NULL,             -- BCTT / KLTN
-            han_dang_ky TEXT,
-            han_nop TEXT,
-            trang_thai TEXT DEFAULT 'mo',    -- mo / dong
-            he_dao_tao TEXT DEFAULT '',     -- để trống nếu đợt chung (không tách Đại trà/CLC)
-            nganh TEXT DEFAULT ''           -- QLCN, TMĐT, ... (khớp linh_vuc SV)
-        );
+            CREATE TABLE IF NOT EXISTS gv_slot (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                gv_id INTEGER,
+                dot_id INTEGER,
+                quota INTEGER DEFAULT 5,
+                slot_con_lai INTEGER DEFAULT 5,
+                duyet_tbm INTEGER DEFAULT 0,    -- 0/1
+                he_dao_tao TEXT DEFAULT 'DaiTra', -- DaiTra / CLC — pool slot theo hệ SV
+                FOREIGN KEY(gv_id) REFERENCES users(id),
+                FOREIGN KEY(dot_id) REFERENCES dot(id)
+            );
 
-        CREATE TABLE IF NOT EXISTS gv_slot (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            gv_id INTEGER,
-            dot_id INTEGER,
-            quota INTEGER DEFAULT 5,
-            slot_con_lai INTEGER DEFAULT 5,
-            duyet_tbm INTEGER DEFAULT 0,    -- 0/1
-            he_dao_tao TEXT DEFAULT 'DaiTra', -- DaiTra / CLC — pool slot theo hệ SV
-            FOREIGN KEY(gv_id) REFERENCES users(id),
-            FOREIGN KEY(dot_id) REFERENCES dot(id)
-        );
+            CREATE TABLE IF NOT EXISTS dang_ky (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sv_id INTEGER,
+                gv_id INTEGER,
+                dot_id INTEGER,
+                loai TEXT NOT NULL,             -- BCTT / KLTN
+                ten_de_tai TEXT,
+                linh_vuc TEXT,
+                trang_thai TEXT DEFAULT 'cho_duyet',  -- cho_duyet/dong_y/tu_choi/pass/fail
+                gv_pb_id INTEGER,               -- GV phản biện (assigned by TBM)
+                chu_tich_id INTEGER,            -- Chủ tịch hội đồng (assigned by TBM)
+                thu_ky_id INTEGER,              -- Thư ký hội đồng (assigned by TBM)
+                uy_vien_ids TEXT,               -- JSON array of uy vien IDs (assigned by TBM)
+                FOREIGN KEY(sv_id) REFERENCES users(id),
+                FOREIGN KEY(gv_id) REFERENCES users(id),
+                FOREIGN KEY(gv_pb_id) REFERENCES users(id),
+                FOREIGN KEY(chu_tich_id) REFERENCES users(id),
+                FOREIGN KEY(thu_ky_id) REFERENCES users(id),
+                FOREIGN KEY(dot_id) REFERENCES dot(id)
+            );
 
-        CREATE TABLE IF NOT EXISTS dang_ky (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            sv_id INTEGER,
-            gv_id INTEGER,
-            dot_id INTEGER,
-            loai TEXT NOT NULL,             -- BCTT / KLTN
-            ten_de_tai TEXT,
-            linh_vuc TEXT,
-            trang_thai TEXT DEFAULT 'cho_duyet',  -- cho_duyet/dong_y/tu_choi/pass/fail
-            gv_pb_id INTEGER,               -- GV phản biện (assigned by TBM)
-            chu_tich_id INTEGER,            -- Chủ tịch hội đồng (assigned by TBM)
-            thu_ky_id INTEGER,              -- Thư ký hội đồng (assigned by TBM)
-            uy_vien_ids TEXT,               -- JSON array of uy vien IDs (assigned by TBM)
-            FOREIGN KEY(sv_id) REFERENCES users(id),
-            FOREIGN KEY(gv_id) REFERENCES users(id),
-            FOREIGN KEY(gv_pb_id) REFERENCES users(id),
-            FOREIGN KEY(chu_tich_id) REFERENCES users(id),
-            FOREIGN KEY(thu_ky_id) REFERENCES users(id),
-            FOREIGN KEY(dot_id) REFERENCES dot(id)
-        );
+            CREATE TABLE IF NOT EXISTS nop_bai (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                dang_ky_id INTEGER,
+                loai_file TEXT,   -- bai_lam/phieu_xn/turnitin/bai_chinh_sua/bien_ban_giai_trinh
+                file_path TEXT,
+                uploaded_at TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY(dang_ky_id) REFERENCES dang_ky(id)
+            );
 
-        CREATE TABLE IF NOT EXISTS nop_bai (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            dang_ky_id INTEGER,
-            loai_file TEXT,   -- bai_lam/phieu_xn/turnitin/bai_chinh_sua/bien_ban_giai_trinh
-            file_path TEXT,
-            uploaded_at TEXT DEFAULT (datetime('now')),
-            FOREIGN KEY(dang_ky_id) REFERENCES dang_ky(id)
-        );
-
-        CREATE TABLE IF NOT EXISTS cham_diem (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            dang_ky_id INTEGER,
-            gv_id INTEGER,
-            vai_tro TEXT,     -- HD / PB / CT / TV
-            diem REAL,
-            nhan_xet TEXT,
-            cau_hoi TEXT,
-            criteria_json TEXT DEFAULT '',
-            FOREIGN KEY(dang_ky_id) REFERENCES dang_ky(id),
-            FOREIGN KEY(gv_id) REFERENCES users(id)
-        );
-                         
-        CREATE TABLE IF NOT EXISTS thong_bao (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nguoi_nhan_id INTEGER NOT NULL,
-            nguoi_gui_id INTEGER,
-            dang_ky_id INTEGER,
-            loai TEXT,          -- 'tu_choi_gvhd' / 'tu_choi_cthd'
-            noi_dung TEXT,      -- lý do từ chối GV ghi
-            da_doc INTEGER DEFAULT 0,
-            tao_luc TEXT DEFAULT (datetime('now')),
-            FOREIGN KEY(nguoi_nhan_id) REFERENCES users(id),
-            FOREIGN KEY(nguoi_gui_id) REFERENCES users(id),
-            FOREIGN KEY(dang_ky_id) REFERENCES dang_ky(id)
-        );
-    """)
+            CREATE TABLE IF NOT EXISTS cham_diem (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                dang_ky_id INTEGER,
+                gv_id INTEGER,
+                vai_tro TEXT,     -- HD / PB / CT / TV
+                diem REAL,
+                nhan_xet TEXT,
+                cau_hoi TEXT,
+                criteria_json TEXT DEFAULT '',
+                FOREIGN KEY(dang_ky_id) REFERENCES dang_ky(id),
+                FOREIGN KEY(gv_id) REFERENCES users(id)
+            );
+                             
+            CREATE TABLE IF NOT EXISTS thong_bao (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nguoi_nhan_id INTEGER NOT NULL,
+                nguoi_gui_id INTEGER,
+                dang_ky_id INTEGER,
+                loai TEXT,          -- 'tu_choi_gvhd' / 'tu_choi_cthd'
+                noi_dung TEXT,      -- lý do từ chối GV ghi
+                da_doc INTEGER DEFAULT 0,
+                tao_luc TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY(nguoi_nhan_id) REFERENCES users(id),
+                FOREIGN KEY(nguoi_gui_id) REFERENCES users(id),
+                FOREIGN KEY(dang_ky_id) REFERENCES dang_ky(id)
+            );
+        """)
 
     migrate_db(conn)
     conn.commit()
     conn.close()
-    print("✅ Database initialized!")
+    print("✅ Database initialized on PostgreSQL!")

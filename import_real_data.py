@@ -1,7 +1,7 @@
 import os
 import csv
 import urllib.request
-from database import get_db, init_db
+from database import USE_POSTGRES, get_db, init_db
 
 # 1. Quota GV theo HỆ (Đại trà / CLC): mỗi (GV, đợt) có 2 dòng gv_slot — SV đăng ký BCTT dùng đúng pool theo he_dao_tao.
 QUOTA_LEGACY = {
@@ -169,12 +169,8 @@ def seed_default_data():
 
 def import_from_sheets(delete_old_db=True):
     """Import dữ liệu từ Google Sheet."""
-    db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "db.sqlite")
-    
-    # Xóa database cũ (chỉ khi chạy local, không trên Vercel)
-    if delete_old_db and os.path.exists(db_path):
-        os.remove(db_path)
-        print("🗑️ Đã xóa database cũ: db.sqlite")
+    if not USE_POSTGRES:
+        raise RuntimeError("Project đã chuyển PostgreSQL-only. Hãy set DATABASE_URL trước khi import.")
 
     # Khởi tạo lại cấu trúc database
     init_db()
