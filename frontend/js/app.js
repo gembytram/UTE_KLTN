@@ -1172,6 +1172,46 @@ async function doLogout() {
   toast("Đăng xuất thành công");
 }
 
+async function changePassword() {
+  const oldEl = document.getElementById("pw-old");
+  const newEl = document.getElementById("pw-new");
+  const confirmEl = document.getElementById("pw-confirm");
+  if (!oldEl || !newEl || !confirmEl) {
+    toast("Không tìm thấy form đổi mật khẩu", "error");
+    return;
+  }
+
+  const old_password = oldEl.value.trim();
+  const new_password = newEl.value.trim();
+  const confirm_password = confirmEl.value.trim();
+
+  if (!old_password || !new_password) {
+    toast("Thiếu mật khẩu hiện tại hoặc mật khẩu mới", "error");
+    return;
+  }
+  if (new_password.length < 6) {
+    toast("Mật khẩu tối thiểu 6 ký tự", "error");
+    return;
+  }
+  if (new_password !== confirm_password) {
+    toast("Mật khẩu xác nhận không khớp", "error");
+    return;
+  }
+
+  try {
+    await apiRequest("/api/me/password", {
+      method: "POST",
+      body: JSON.stringify({ old_password, new_password, confirm_password }),
+    });
+    oldEl.value = "";
+    newEl.value = "";
+    confirmEl.value = "";
+    toast("Cập nhật mật khẩu thành công");
+  } catch (err) {
+    toast(err.message, "error");
+  }
+}
+
 async function initApp() {
   await syncFromServer();
   const u = DB.currentUser;
