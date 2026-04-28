@@ -230,11 +230,23 @@ function applyIconsToDom(root) {
 }
 
 function getCurrentStudentMajor() {
-  return 'TMĐT';
+  const u = DB.currentUser || {};
+  const majors = Array.isArray(u.chuyenMon)
+    ? u.chuyenMon.map((m) => String(m).trim()).filter(Boolean)
+    : [];
+  if (majors.length) return majors[0];
+  if (u.linh_vuc) {
+    const parsed = String(u.linh_vuc)
+      .split(',')
+      .map((m) => m.trim())
+      .filter(Boolean);
+    if (parsed.length) return parsed[0];
+  }
+  return '';
 }
 
 function getCurrentStudentFields() {
-  return ['AI', 'Chất lượng', 'HR', 'Kinh doanh quốc tế', 'Kế toán', 'Logistic', 'Marketing', 'Mô phỏng', 'Quản lý công nghiệp', 'Sản xuất', 'Startup', 'TMĐT'];
+  return ['AI', 'Chất lượng', 'HR', 'Kinh doanh quốc tế', 'Kế toán', 'Logistic', 'Marketing', 'Mô phỏng', 'Quản lý công nghiệp', 'Sản xuất'];
 }
 
 function getTopicTypesForField(field) {
@@ -838,6 +850,7 @@ async function syncFromServer() {
     chuyenMon: Array.isArray(u.chuyenMon)
       ? u.chuyenMon
       : (u.linh_vuc ? u.linh_vuc.split(',').map(s => s.trim()) : []),
+    linhVucPhuTrach: String(u.linhVucPhuTrach || u.linh_vuc_phu_trach || '').trim(),
   }));
   DB.dotDangKy = data.dotDangKy || [];
   DB.bcttList = data.bcttList || [];
@@ -1099,6 +1112,57 @@ function getScoreSheetTitle(topicType, vaiTro) {
   return 'BIÊN BẢN CHẤM ĐIỂM';
 }
 
+function mapApiUserToCurrentUser(user) {
+  return {
+    id: user.id,
+    ma: user.ma,
+    email: user.email,
+    name: user.ho_ten,
+    role: user.role,
+    role_raw: user.role_raw,
+    heDaoTao: user.heDaoTao || "",
+    password: "",
+    mssv: user.role === "sv" ? user.ma : undefined,
+    msgv: user.role !== "sv" ? user.ma : undefined,
+  };
+}
+
+function openAppScreen() {
+  document.getElementById("screen-login").classList.remove("active");
+  document.getElementById("screen-app").classList.add("active");
+}
+
+function toOauthErrorMessage(code) {
+  const mapping = {
+    google_oauth_not_configured: "Google OAuth chưa được cấu hình.",
+    google_auth_failed: "Đăng nhập Google thất bại.",
+    google_userinfo_failed: "Không lấy được thông tin tài khoản Google.",
+    google_access_denied: "Không có quyền truy cập hệ thống",
+  };
+  return mapping[code] || "Đăng nhập OAuth thất bại.";
+}
+
+function clearAuthQueryParams() {
+  const url = new URL(window.location.href);
+  ["oauth", "error", "page"].forEach((key) => url.searchParams.delete(key));
+  const next = url.pathname + (url.search ? url.search : "") + (url.hash || "");
+  window.history.replaceState({}, document.title, next);
+}
+
+async function establishSessionFromApi() {
+  const out = await apiRequest("/api/me", { method: "GET" });
+  const mapped = mapApiUserToCurrentUser(out.data.user);
+  DB.currentUser = mapped;
+  localStorage.setItem("currentUser", JSON.stringify(mapped));
+  openAppScreen();
+  await initApp();
+  return mapped;
+}
+
+function startGoogleLogin() {
+  window.location.href = `${API_BASE}/api/auth/google/login`;
+}
+
 async function doLogin() {
   try {
     const ma = toMaFromLoginInput(document.getElementById("login-email").value);
@@ -1107,23 +1171,10 @@ async function doLogin() {
       method: "POST",
       body: JSON.stringify({ ma, mat_khau }),
     });
-    const user = out.data.user;
-    const mapped = {
-      id: user.id,
-      ma: user.ma,
-      email: user.email,
-      name: user.ho_ten,
-      role: user.role,
-      role_raw: user.role_raw,
-      heDaoTao: user.heDaoTao || "",
-      password: "",
-      mssv: user.role === "sv" ? user.ma : undefined,
-      msgv: user.role !== "sv" ? user.ma : undefined,
-    };
+    const mapped = mapApiUserToCurrentUser(out.data.user);
     DB.currentUser = mapped;
     localStorage.setItem("currentUser", JSON.stringify(mapped));
-    document.getElementById("screen-login").classList.remove("active");
-    document.getElementById("screen-app").classList.add("active");
+    openAppScreen();
     await initApp();
     if (mapped.role === "sv") navigateTo("dashboard");
     if (mapped.role === "gv") navigateTo("huongdan");
@@ -1144,6 +1195,46 @@ async function doLogout() {
   document.getElementById("screen-login").classList.add("active");
   document.getElementById("notif-panel").classList.remove("open");
   toast("Đăng xuất thành công");
+}
+
+async function changePassword() {
+  const oldEl = document.getElementById("pw-old");
+  const newEl = document.getElementById("pw-new");
+  const confirmEl = document.getElementById("pw-confirm");
+  if (!oldEl || !newEl || !confirmEl) {
+    toast("Không tìm thấy form đổi mật khẩu", "error");
+    return;
+  }
+
+  const old_password = oldEl.value.trim();
+  const new_password = newEl.value.trim();
+  const confirm_password = confirmEl.value.trim();
+
+  if (!old_password || !new_password) {
+    toast("Thiếu mật khẩu hiện tại hoặc mật khẩu mới", "error");
+    return;
+  }
+  if (new_password.length < 6) {
+    toast("Mật khẩu tối thiểu 6 ký tự", "error");
+    return;
+  }
+  if (new_password !== confirm_password) {
+    toast("Mật khẩu xác nhận không khớp", "error");
+    return;
+  }
+
+  try {
+    await apiRequest("/api/me/password", {
+      method: "POST",
+      body: JSON.stringify({ old_password, new_password, confirm_password }),
+    });
+    oldEl.value = "";
+    newEl.value = "";
+    confirmEl.value = "";
+    toast("Cập nhật mật khẩu thành công");
+  } catch (err) {
+    toast(err.message, "error");
+  }
 }
 
 async function initApp() {
@@ -1504,9 +1595,26 @@ function renderGVOptionsByField() {
     return;
   }
 
+  const studentMajor = getCurrentStudentMajor();
+  const nganhSelect = document.getElementById('f-nganh');
+  if (nganhSelect) {
+    const nganhText = (studentMajor || '').trim();
+    nganhSelect.innerHTML = nganhText
+      ? `<option value="${escapeHtml(nganhText)}">${escapeHtml(nganhText)}</option>`
+      : '<option value="">-- Chưa có ngành --</option>';
+  }
+
   const candidates = DB.users.filter((u) => {
     if (u.role !== "gv" && u.role !== "bm") return false;
-    if (major && Array.isArray(u.chuyenMon) && u.chuyenMon.length && !u.chuyenMon.includes(major)) return false;
+    const primaryFields = String(u.linhVucPhuTrach || u.linh_vuc_phu_trach || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (major) {
+      if (!primaryFields.length || !primaryFields.some((field) => majorMatches(field, major))) {
+        return false;
+      }
+    }
     const slot = (DB.gvSlots || []).find(
       (s) => Number(s.gvId) === Number(u.id) && String(s.dotId) === String(dotId) && String(s.heDaoTao || "DaiTra") === he
     );
@@ -1523,7 +1631,8 @@ function renderGVOptionsByField() {
     candidates
       .map((u) => {
         const slot = gvBcttSlotRow(u.id, dotId);
-        const majors = (u.chuyenMon || []).join(", ");
+        const primaryField = String(u.linhVucPhuTrach || u.linh_vuc_phu_trach || '').trim();
+        const majors = primaryField || (u.chuyenMon || []).join(", ");
         const quota = slot ? slot.slotConLai : 0;
         return `<option value="${u.id}">${escapeHtml(u.name)}${majors ? ` - ${escapeHtml(majors)}` : ""} (${quota} slot)</option>`;
       })
@@ -2047,7 +2156,7 @@ function renderBCTT() {
         <div class="form-group" style="grid-column:1/-1"><label>Đợt đăng ký *</label><select id="f-dot" onchange="renderGVOptionsByField()"><option value="">-- Chọn đợt --</option>${DB.dotDangKy.filter(d => d.trangThai === 'dang_mo' && d.loai === 'BCTT' && dotMatchesStudentHeAndMajor(d)).map(d => `<option value="${d.id}">${d.ten}</option>`).join('')}</select></div>
         <div class="form-group"><label>Tên đề tài *</label><input type="text" id="f-tenDeTai" placeholder="Nhập tên đề tài thực tập..."></div>
         <div class="form-group"><label>Tên công ty *</label><input type="text" id="f-congty" placeholder="Tên doanh nghiệp thực tập..."></div>
-        <div class="form-group"><label>Ngành *</label><select id="f-nganh" disabled><option value="TMĐT">Thương mại điện tử</option></select></div>
+        <div class="form-group"><label>Ngành *</label><select id="f-nganh" disabled><option value="${escapeHtml(getCurrentStudentMajor())}">${escapeHtml(getCurrentStudentMajor() || '-- Chưa có ngành --')}</option></select></div>
         <div class="form-group"><label>Lĩnh vực *</label><select id="f-mang" onchange="renderTopicTypesByField();renderGVOptionsByField();"><option value="">-- Chọn lĩnh vực --</option>${fieldOptions.map((field) => `<option value="${escapeHtml(field)}">${escapeHtml(field)}</option>`).join('')}</select></div>
         <div class="form-group"><label>Loại đề tài *</label><select id="f-topicType"><option value="">-- Chọn loại đề tài --</option></select></div>
         <div class="form-group"><label>Giảng viên hướng dẫn *</label><select id="f-gv"><option value="">-- Chọn giảng viên hướng dẫn --</option></select></div>
@@ -4433,6 +4542,41 @@ function switchTab(e, tabId) {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+  const params = new URLSearchParams(window.location.search);
+  const oauthState = params.get("oauth");
+  const oauthError = params.get("error");
+  const oauthTargetPage = params.get("page");
+
+  if (oauthError) {
+    toast(toOauthErrorMessage(oauthError), "error");
+    try {
+      await apiRequest("/api/logout", { method: "POST", body: JSON.stringify({}) });
+    } catch (_) {}
+    DB.currentUser = null;
+    localStorage.removeItem("currentUser");
+    document.getElementById("screen-app").classList.remove("active");
+    document.getElementById("screen-login").classList.add("active");
+    document.getElementById("notif-panel").classList.remove("open");
+    clearAuthQueryParams();
+    return;
+  }
+
+  if (oauthState === "success") {
+    try {
+      const mapped = await establishSessionFromApi();
+      const nextPage = oauthTargetPage || (mapped.role === "sv" ? "dashboard" : mapped.role === "gv" ? "huongdan" : "duyetde");
+      navigateTo(nextPage);
+      toast("Đăng nhập thành công");
+    } catch (_) {
+      DB.currentUser = null;
+      localStorage.removeItem("currentUser");
+      toast("Phiên đăng nhập OAuth không hợp lệ.", "error");
+    } finally {
+      clearAuthQueryParams();
+    }
+    return;
+  }
+
   const saved = localStorage.getItem("currentUser");
   if (!saved) return;
   let parsed;
@@ -4449,8 +4593,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   DB.currentUser = parsed;
   try {
     await apiRequest("/api/me", { method: "GET" });
-    document.getElementById("screen-login").classList.remove("active");
-    document.getElementById("screen-app").classList.add("active");
+    openAppScreen();
     await initApp();
     try {
       localStorage.setItem("currentUser", JSON.stringify(DB.currentUser));

@@ -1,6 +1,33 @@
 import os
+from urllib.parse import urlparse
 
 UPLOAD_FOLDER = "uploads"
+
+
+def _normalize_google_redirect_uri(raw_value):
+    default_uri = "http://127.0.0.1:5000/api/auth/google/callback"
+    value = (raw_value or "").strip()
+    if not value:
+        return default_uri
+
+    value = value.rstrip("/")
+    callback_path = "/api/auth/google/callback"
+    if value.endswith(callback_path):
+        return value
+
+    parsed = urlparse(value)
+    if parsed.scheme and parsed.netloc and parsed.path in ("", "/"):
+        return f"{value}{callback_path}"
+
+    return value
+
+
+GOOGLE_REDIRECT_URI = _normalize_google_redirect_uri(
+    os.environ.get("GOOGLE_REDIRECT_URI")
+)
+FRONTEND_URL = os.environ.get(
+    "FRONTEND_URL", "http://127.0.0.1:5500/frontend/index.html"
+)
 
 
 def configure_app(app):
