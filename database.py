@@ -136,7 +136,7 @@ def init_db():
             loai TEXT,          -- 'tu_choi_gvhd' / 'tu_choi_cthd'
             noi_dung TEXT,      -- lý do từ chối GV ghi
             da_doc INTEGER DEFAULT 0,
-            tao_luc TEXT DEFAULT (datetime('now')),
+            tao_luc TEXT DEFAULT (datetime('now', '+7 hours')),
             FOREIGN KEY(nguoi_nhan_id) REFERENCES users(id),
             FOREIGN KEY(nguoi_gui_id) REFERENCES users(id),
             FOREIGN KEY(dang_ky_id) REFERENCES dang_ky(id)

@@ -234,7 +234,7 @@ def fetch_bootstrap(conn):
             "role": role,
             "mssv": u["ma"] if role == "sv" else None,
             "msgv": u["ma"] if role in ("gv", "bm") else None,
-            "khoa": "",
+            "khoa": "Kinh tế",
             "chuyenMon": [x.strip() for x in (u["linh_vuc"] or "").split(",") if x.strip()],
             "heDaoTao": (u["he_dao_tao"] or "").strip(),
         }

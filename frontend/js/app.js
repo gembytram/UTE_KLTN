@@ -869,6 +869,16 @@ async function syncFromServer() {
   
 }
 
+async function loadNotifications() {
+  try {
+    const res = await apiRequest('/api/thong-bao', { method: 'GET' });
+    DB.notifications = res.data?.thong_bao || [];
+  } catch (err) {
+    DB.notifications = DB.notifications || [];
+    console.error('Không tải được thông báo', err);
+  }
+}
+
 // ============================================================
 // AUTH & APP INIT
 // ============================================================
@@ -888,6 +898,7 @@ const NAV_CONFIG = {
     { id: 'huongdan', label: 'Hướng dẫn', icon: '✅', badge: true },
     { id: 'phanbien', label: 'Phản biện', icon: '🧾' },
     { id: 'hoidong', label: 'Hội đồng', icon: '🏛️' },
+    { id: 'thongbao', label: 'Thông báo', icon: '📣' },
     { id: 'chutich', label: 'Chủ tịch', icon: '👨‍⚖️' },
     { id: 'thuky', label: 'Thư ký', icon: '📝' },
     { id: 'goiy', label: 'Gợi ý đề tài', icon: '💡' },
@@ -904,6 +915,7 @@ const NAV_CONFIG = {
     { id: 'huongdan', label: 'Hướng dẫn', icon: '✅' },
     { id: 'phanbien', label: 'Phản biện', icon: '🧾' },
     { id: 'hoidong', label: 'Hội đồng', icon: '🏛️' },
+    { id: 'thongbao', label: 'Thông báo', icon: '📣' },
     { id: 'chutich', label: 'Chủ tịch', icon: '👨‍⚖️' },
     { id: 'thuky', label: 'Thư ký', icon: '📝' },
     { id: 'goiy', label: 'Gợi ý đề tài', icon: '💡' },
@@ -1136,6 +1148,7 @@ async function doLogout() {
 
 async function initApp() {
   await syncFromServer();
+  await loadNotifications();
   const u = DB.currentUser;
   document.getElementById('sb-name').textContent = u.name;
   document.getElementById('sb-email').textContent = u.email;
@@ -1198,6 +1211,7 @@ function navigateTo(page) {
     detai: 'Quản lý đề tài', duyetde: 'Duyệt đề tài', phancong: 'Phân công PB / Hội đồng',
     nhapDiem: 'Nhập điểm', hoithuong: 'Hội đồng', users: 'Quản lý người dùng', profile: 'Hồ sơ cá nhân',
     theodoi: 'Theo dõi trạng thái', huongdan: 'Hướng dẫn', phanbien: 'Phản biện', hoidong: 'Hội đồng',
+    thongbao: 'Thông báo',
     chutich: 'Chủ tịch hội đồng', thuky: 'Thư ký hội đồng', goiy: 'Gợi ý đề tài', thongke: 'Thống kê',
   };
   document.getElementById('topbar-title').textContent = titles[page] || page;
@@ -1207,6 +1221,7 @@ function navigateTo(page) {
     detai: renderDeTai, duyetde: renderDuyetDe, phancong: renderPhanCong,
     nhapDiem: renderNhapDiem, users: renderUsers, profile: renderProfile,
     theodoi: renderTheoDoi, huongdan: renderHuongDan, phanbien: renderPhanBien, hoidong: renderHoiDong,
+    thongbao: renderThongBao,
     chutich: renderChuTich, thuky: renderThuKy, goiy: renderGoiY, thongke: renderThongKe,
   };
   if (!renders[page]) return;
@@ -1241,6 +1256,7 @@ async function toggleNotif() {
   const panel = document.getElementById('notif-panel');
   panel.classList.toggle('open');
   if (panel.classList.contains('open')) {
+    await loadNotifications();
     await buildNotifPanel();
     // Với GV vẫn mark read trong RAM như cũ
     if (DB.currentUser && DB.currentUser.role !== 'sv') {
@@ -1262,28 +1278,37 @@ async function buildNotifPanel() {
         el.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text3);font-size:13px">Không có thông báo</div>';
         return;
       }
+      const unreadCount = list.filter(n => !n.da_doc).length;
       el.innerHTML = `
-        <div style="padding:10px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:flex-end">
-          <button class="btn btn-ghost btn-sm" onclick="markAllNotifRead()">✓ Đánh dấu tất cả đã đọc</button>
+        <div class="notif-panel-header">
+          <div>
+            <div class="notif-panel-title">Thông báo của bạn</div>
+            <div class="notif-panel-subtitle">${unreadCount} thông báo chưa đọc</div>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm${unreadCount === 0 ? ' btn-disabled' : ''}" onclick="markAllNotifRead()" ${unreadCount === 0 ? 'disabled' : ''}>✓ Đánh dấu tất cả đã đọc</button>
         </div>
       ` + list.map(n => {
         const chuaDoc = !n.da_doc;
-        const tieuDe = n.loai === 'tu_choi_gvhd' ? '❌ Giảng viên HD yêu cầu chỉnh sửa lại' : '❌ Chủ tịch HĐ không đồng ý báo cáo';
+        const tieuDe = n.loai === 'tu_choi_gvhd'
+          ? 'Giảng viên HD yêu cầu chỉnh sửa lại'
+          : n.loai === 'tu_choi_cthd'
+            ? 'Chủ tịch HĐ không đồng ý báo cáo'
+            : n.loai === 'gui_role'
+              ? 'Thông báo chung'
+              : 'Thông báo mới';
+        const contentLabel = n.loai === 'gui_role' ? 'Nội dung thông báo' : 'Lý do / Yêu cầu';
         return `
-          <div class="notif-item ${chuaDoc ? 'unread' : ''}" onclick="markOneNotifRead(${n.id}, this)">
+          <div class="notif-item ${chuaDoc ? 'unread' : 'read'}" onclick="openNotifDetail('${n.id}')">
             <div class="notif-item-title">${tieuDe}</div>
-            <div class="notif-item-body" style="color:var(--text);margin-top:6px">
-              <strong>Lý do / Yêu cầu:</strong><br>
-              <span style="background:#FFF7D6;padding:4px 8px;border-radius:4px;display:inline-block;margin-top:4px">
-                ${escapeHtml(n.noi_dung) || '(Không có ghi chú cụ thể)'}
-              </span>
+            <div class="notif-item-meta">Từ <strong>${escapeHtml(n.ten_nguoi_gui) || 'Giảng viên'}</strong> · ${escapeHtml(n.tao_luc)}</div>
+            <div class="notif-item-body notif-item-highlight">
+              <strong>${contentLabel}:</strong>
+              <div class="notif-message-box">${escapeHtml(n.noi_dung) || '(Không có nội dung)'}</div>
             </div>
-            <div class="notif-item-body" style="margin-top:4px">Từ: <strong>${escapeHtml(n.ten_nguoi_gui) || 'Giảng viên'}</strong></div>
-            <div class="notif-item-time">${n.tao_luc}</div>
           </div>`;
       }).join('');
 
-      const chuaDocCount = list.filter(n => !n.da_doc).length;
+      const chuaDocCount = unreadCount;
       document.getElementById('notif-dot').style.display = chuaDocCount > 0 ? 'block' : 'none';
     } catch (err) {
       el.innerHTML = '<div style="padding:24px;text-align:center;color:var(--accent);font-size:13px">Lỗi tải thông báo</div>';
@@ -1294,11 +1319,75 @@ async function buildNotifPanel() {
   const list = DB.notifications.filter(n => n.toEmail === u.email);
   if (!list.length) { el.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text3);font-size:13px">Không có thông báo</div>'; return; }
   el.innerHTML = list.map(n => `
-    <div class="notif-item ${n.read ? '' : 'unread'}">
-      <div class="notif-item-title">${n.title}</div>
-      <div class="notif-item-body">${n.body}</div>
-      <div class="notif-item-time">${n.time}</div>
+    <div class="notif-item ${n.read ? '' : 'unread'}" onclick="openNotifDetail('${n.id}')">
+      <div class="notif-item-title">${escapeHtml(n.title)}</div>
+      <div class="notif-item-body">${escapeHtml(n.body)}</div>
+      <div class="notif-item-time">${escapeHtml(n.time)}</div>
     </div>`).join('');
+}
+
+async function markOneNotifRead(id) {
+  try {
+    await apiRequest('/api/thong-bao/doc', {
+      method: 'POST',
+      body: JSON.stringify({ id }),
+    });
+    await loadNotifications();
+    await buildNotifPanel();
+    updateNotifDot();
+  } catch (err) {
+    console.error('Không thể đánh dấu thông báo đã đọc', err);
+  }
+}
+
+async function markAllNotifRead() {
+  try {
+    await apiRequest('/api/thong-bao/doc', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+    await loadNotifications();
+    await buildNotifPanel();
+    updateNotifDot();
+    toast('Đã đánh dấu tất cả thông báo là đã đọc', 'success');
+  } catch (err) {
+    console.error('Không thể đánh dấu tất cả thông báo đã đọc', err);
+    toast('Không thể đánh dấu tất cả thông báo đã đọc', 'error');
+  }
+}
+
+function openNotifDetail(id) {
+  const note = DB.notifications.find((n) => String(n.id) === String(id));
+  if (!note) return;
+  const title = note.loai === 'tu_choi_gvhd'
+    ? 'Giảng viên HD yêu cầu chỉnh sửa lại'
+    : note.loai === 'tu_choi_cthd'
+      ? 'Chủ tịch HĐ không đồng ý báo cáo'
+      : note.loai === 'gui_role'
+        ? 'Thông báo chung'
+        : 'Thông báo mới';
+  const contentLabel = note.loai === 'gui_role' ? 'Nội dung thông báo' : 'Lý do / Yêu cầu';
+  showModal(`
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">${escapeHtml(title)}</div>
+        <button class="modal-close" onclick="closeModalForce()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="notif-detail-meta"><strong>Người gửi:</strong> ${escapeHtml(note.ten_nguoi_gui || 'Giảng viên')}</div>
+        <div class="notif-detail-meta"><strong>Thời gian:</strong> ${escapeHtml(note.tao_luc)}</div>
+        <div class="notif-detail-content">
+          <h4>${contentLabel}</h4>
+          <p>${escapeHtml(note.noi_dung || '(Không có nội dung)')}</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="closeModalForce()">Đóng</button>
+      </div>
+    </div>`);
+  if (!note.da_doc) {
+    markOneNotifRead(id);
+  }
 }
 
 function getStudentUploadMa() {
@@ -3508,15 +3597,28 @@ function renderUsers() {
 function renderProfile() {
   const u = DB.currentUser;
   const roleNames = { sv: 'Sinh viên', gv: 'Giảng viên', bm: 'Trưởng Bộ Môn', admin: 'Quản trị viên' };
+  const idLabel = u.role === 'sv' ? 'Mã số sinh viên' : u.role === 'gv' || u.role === 'bm' ? 'Mã giảng viên' : 'Mã số';
+  const idValue = u.role === 'sv' ? (u.mssv || u.ma) : (u.msgv || u.ma || '–');
+  const majorValue = Array.isArray(u.chuyenMon) ? u.chuyenMon.join(', ') : (u.chuyenMon || '–');
+  const departmentValue = u.khoa || 'Kinh tế';
+  const trainingValue = u.heDaoTao === 'CLC' ? 'CLC' : u.heDaoTao === 'DaiTra' ? 'Đại trà' : (u.heDaoTao || '–');
   const el = document.getElementById('page-profile');
   el.innerHTML = `<div class="page-header"><h1>👤 Hồ sơ cá nhân</h1></div>
     <div class="grid-2">
       <div class="card">
         <div style="text-align:center;padding:20px 0">
-          <div style="width:80px;height:80px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:800;margin:0 auto 12px">${u.name.charAt(0)}</div>
-          <div style="font-size:20px;font-weight:700">${u.name}</div>
-          <div style="font-size:13px;color:var(--text3);margin-top:4px">${u.email}</div>
-          <span class="badge badge-blue" style="margin-top:8px">${roleNames[u.role]}</span>
+          <div style="width:80px;height:80px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:800;margin:0 auto 12px">${u.name ? u.name.charAt(0) : ''}</div>
+          <div style="font-size:20px;font-weight:700">${escapeHtml(u.name || '')}</div>
+          <div style="font-size:13px;color:var(--text3);margin-top:4px">${escapeHtml(u.email || '')}</div>
+          <span class="badge badge-blue" style="margin-top:8px">${roleNames[u.role] || 'Người dùng'}</span>
+        </div>
+        <div style="padding:0 20px 20px">
+          <div class="info-row"><span class="info-label">${escapeHtml(idLabel)}:</span><span class="info-value">${escapeHtml(idValue)}</span></div>
+          <div class="info-row"><span class="info-label">Email:</span><span class="info-value">${escapeHtml(u.email || '–')}</span></div>
+          <div class="info-row"><span class="info-label">Khoa:</span><span class="info-value">${escapeHtml(departmentValue)}</span></div>
+          <div class="info-row"><span class="info-label">Ngành:</span><span class="info-value">${escapeHtml(majorValue)}</span></div>
+          ${['gv','bm'].includes(u.role) ? '' : `<div class="info-row"><span class="info-label">Hệ đào tạo:</span><span class="info-value">${escapeHtml(trainingValue)}</span></div>`}
+          <div class="info-row no-divider"><span class="info-label">Vai trò:</span><span class="info-value">${escapeHtml(roleNames[u.role] || 'Người dùng')}</span></div>
         </div>
       </div>
       <div class="card">
@@ -3596,6 +3698,91 @@ function renderKLTNRoleCardStart(k) {
       ${statusBadge(k.trangThai)}
     </div>
     ${renderKLTNFileLinks(k, { onlyAvailable: false })}`;
+}
+
+function getGVNotificationRecipients() {
+  const email = DB.currentUser?.email;
+  if (!email) return [];
+  const recipients = new Map();
+  DB.bcttList
+    .filter((b) => b.gvEmail === email && b.trangThai === 'gv_xac_nhan')
+    .forEach((b) => {
+      const user = getUser(b.svEmail) || { email: b.svEmail };
+      recipients.set(user.email, { name: user.name || user.email, email: user.email });
+    });
+  DB.kltnList
+    .filter((k) => k.gvHDEmail === email && k.trangThai === 'thuc_hien')
+    .forEach((k) => {
+      const user = getUser(k.svEmail) || { email: k.svEmail };
+      recipients.set(user.email, { name: user.name || user.email, email: user.email });
+    });
+  return Array.from(recipients.values());
+}
+
+function getBMNotificationRecipients() {
+  const majors = Array.isArray(DB.currentUser?.chuyenMon) ? DB.currentUser.chuyenMon : [];
+  if (!majors.length) return [];
+  const normalizedMajors = majors.map((m) => normalizeMajorName(String(m || ''))).filter(Boolean);
+
+  return DB.users
+    .filter((u) => u.role === 'sv' && Array.isArray(u.chuyenMon))
+    .filter((u) => u.chuyenMon.some((major) => normalizedMajors.includes(normalizeMajorName(String(major || '')))))
+    .map((u) => ({ name: u.name || u.email, email: u.email }));
+}
+
+function renderThongBao() {
+  const u = DB.currentUser;
+  const isGV = u.role === 'gv';
+  const isBM = u.role === 'bm';
+  const recipients = isGV ? getGVNotificationRecipients() : isBM ? getBMNotificationRecipients() : [];
+  const targetLabel = isGV
+    ? 'Sinh viên đã được GVHD đồng ý hướng dẫn'
+    : 'Sinh viên cùng ngành của bạn';
+  const recipientMessage = recipients.length
+    ? `${recipients.length} sinh viên sẽ nhận thông báo.`
+    : 'Hiện chưa có sinh viên phù hợp để nhận thông báo.';
+  const el = document.getElementById('page-thongbao');
+  el.innerHTML = `
+    <div class="page-header notification-page-header">
+      <div>
+        <h1>Gửi thông báo</h1>
+        <p class="page-subtitle">Gửi tin nhắn nhanh tới sinh viên đang hướng dẫn hoặc cùng chuyên ngành với bạn.</p>
+      </div>
+    </div>
+    <div class="notification-grid">
+      <div class="notification-card">
+        <div class="notification-card-header">Thông tin mục tiêu</div>
+        <div class="notification-card-row"><span>Đối tượng</span><strong>${escapeHtml(targetLabel)}</strong></div>
+        <div class="notification-card-row"><span>Số người nhận</span><strong>${escapeHtml(String(recipients.length))} sinh viên</strong></div>
+        <div class="notification-card-row"><span>Trạng thái</span><em>${escapeHtml(recipientMessage)}</em></div>
+      </div>
+      <div class="notification-card notification-card-action">
+        <div class="notification-card-header">Nội dung thông báo</div>
+        <textarea id="notif-message" class="notification-textarea" placeholder="Nhập nội dung thông báo..." rows="8"></textarea>
+        <button class="btn btn-primary btn-notif-send" onclick="sendRoleNotification()">Gửi thông báo</button>
+      </div>
+    </div>
+    ${!recipients.length ? `<div class="notification-alert">Không tìm thấy người nhận thông báo. Vui lòng kiểm tra lại điều kiện và trạng thái đăng ký.</div>` : ''}
+  `;
+}
+
+async function sendRoleNotification() {
+  const message = document.getElementById('notif-message')?.value.trim();
+  if (!message) {
+    return toast('Vui lòng nhập nội dung thông báo', 'error');
+  }
+  try {
+    const res = await apiRequest('/api/thong-bao/gui', {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+    });
+    toast(res.message || 'Đã gửi thông báo', 'success');
+    document.getElementById('notif-message').value = '';
+    await loadNotifications();
+    updateNotifDot();
+  } catch (err) {
+    toast(err.message || 'Gửi thông báo thất bại', 'error');
+  }
 }
 
 function renderKLTNRoleCardEnd() {

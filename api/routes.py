@@ -1678,3 +1678,57 @@ def register_routes(app):
         conn.commit()
         conn.close()
         return ok("Đã cập nhật trạng thái đọc")
+
+    @app.route("/api/thong-bao/gui", methods=["POST"])
+    @role_required("GV", "TBM")
+    def send_thong_bao():
+        data = request.json or {}
+        message = (data.get("message") or "").strip()
+        if not message:
+            return fail("Thiếu nội dung thông báo", 400)
+
+        conn = get_db()
+        user = get_current_user(conn)
+        if not user:
+            conn.close()
+            return fail("Chưa đăng nhập", 401)
+
+        role = str(user["role"] or "").upper()
+        recipient_ids = set()
+
+        if role == "GV":
+            rows = conn.execute(
+                "SELECT DISTINCT sv_id FROM dang_ky WHERE gv_id = ? AND ((loai = 'BCTT' AND trang_thai = 'gv_xac_nhan') OR (loai = 'KLTN' AND trang_thai = 'thuc_hien'))",
+                (user["id"],),
+            ).fetchall()
+            for row in rows:
+                if row["sv_id"]:
+                    recipient_ids.add(row["sv_id"])
+        else:
+            majors = [x.strip() for x in str(user["linh_vuc"] or "").split(",") if x.strip()]
+            if majors:
+                rows = conn.execute(
+                    "SELECT id, linh_vuc FROM users WHERE role = 'SV'"
+                ).fetchall()
+                for sv in rows:
+                    sv_majors = [x.strip() for x in str(sv["linh_vuc"] or "").split(",") if x.strip()]
+                    if any(
+                        major.lower() == sv_major.lower()
+                        for major in majors
+                        for sv_major in sv_majors
+                    ):
+                        recipient_ids.add(sv["id"])
+
+        if not recipient_ids:
+            conn.close()
+            return fail("Không tìm thấy người nhận thông báo", 400)
+
+        for sv_id in sorted(recipient_ids):
+            conn.execute(
+                "INSERT INTO thong_bao (nguoi_nhan_id, nguoi_gui_id, loai, noi_dung) VALUES (?, ?, 'gui_role', ?)",
+                (sv_id, user["id"], message),
+            )
+
+        conn.commit()
+        conn.close()
+        return ok("Gửi thông báo thành công", {"recipients": len(recipient_ids)})
