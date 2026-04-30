@@ -125,11 +125,16 @@ function getApiBaseUrl() {
   return 'http://127.0.0.1:5000';
 }
 
-function uploadFileHref(storedPath) {
-  if (!storedPath) return '#';
-  const base = getApiBaseUrl();
-  const rel = String(storedPath).replace(/^uploads[\\/]/i, '').replace(/\\/g, '/');
-  return base + '/uploads/' + rel.split('/').map((seg) => encodeURIComponent(seg)).join('/');
+// function uploadFileHref(storedPath) {
+//   if (!storedPath) return '#';
+//   const base = getApiBaseUrl();
+//   const rel = String(storedPath).replace(/^uploads[\\/]/i, '').replace(/\\/g, '/');
+//   return base + '/uploads/' + rel.split('/').map((seg) => encodeURIComponent(seg)).join('/');
+// }
+
+function uploadFileHref(fileId) {
+  if (!fileId) return '#';
+  return `https://drive.google.com/file/d/${fileId}/preview`;
 }
 
 const ICON_MAP = {
@@ -4740,4 +4745,27 @@ if (window.DB && window.DB.kltnList && window.DB.kltnList.length > 0) {
     console.table(dataHienThi);
 } else {
     console.log("⚠️ Có lỗi xảy ra, không thể nạp dữ liệu.");
+}
+
+async function uploadToDrive(file) {
+  const base64 = await toBase64(file);
+
+  const res = await fetch("YOUR_SCRIPT_URL", {
+    method: "POST",
+    body: new URLSearchParams({
+      file: base64.split(',')[1],
+      name: file.name
+    })
+  });
+
+  const data = await res.json();
+  return data.fileId;
+}
+
+function toBase64(file) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.readAsDataURL(file);
+  });
 }

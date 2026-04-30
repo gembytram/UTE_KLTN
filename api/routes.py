@@ -4,8 +4,9 @@ import os
 import subprocess
 import tempfile
 from datetime import datetime
+import requests
 
-from flask import after_this_request, request, send_from_directory, session
+from flask import after_this_request, app, request, send_from_directory, session
 from werkzeug.utils import secure_filename
 
 from config.settings import UPLOAD_FOLDER
@@ -24,6 +25,11 @@ from utils.helpers import (
 )
 from utils.response import fail, ok, send_file_response
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
+GOOGLE_SCRIPT_URL = os.getenv("GOOGLE_SCRIPT_URL")
 
 def register_routes(app):
     def _frontend_response(filename):
@@ -1516,37 +1522,75 @@ def register_routes(app):
         conn.close()
         return ok("Xóa đợt thành công", {"dot_id": dot["id"]})
 
+    def upload_to_drive(file):
+        try:
+            content = file.read()
+            file.seek(0)
+
+            base64_file = base64.b64encode(content).decode()
+
+            res = requests.post(GOOGLE_SCRIPT_URL, data={
+                "file": base64_file,
+                "name": file.filename
+            })
+
+            print("STATUS:", res.status_code)
+            print("TEXT:", res.text[:300])
+
+            try:
+                data = res.json()
+            except:
+                print("❌ Response không phải JSON")
+                return None
+
+            if not data.get("success"):
+                print("❌ Apps Script báo lỗi:", data)
+                return None
+
+            return data.get("fileId")
+
+        except Exception as e:
+            print("Upload error:", str(e))
+            return None
+    
     @app.route("/api/upload", methods=["POST"])
     @login_required
     def upload():
         dang_ky_id = request.form.get("dang_ky_id")
         loai = request.form.get("loai_file")
         ma_sv = request.form.get("ma_sv")
+
         if not all([dang_ky_id, loai, ma_sv]):
             return fail("Thiếu dữ liệu upload", 400)
+
         if "file" not in request.files:
             return fail("Không có file upload", 400)
 
         f = request.files["file"]
+
         if not f.filename:
             return fail("Tên file rỗng", 400)
-        if not f.filename.lower().endswith((".pdf", ".doc", ".docx")):
-            return fail("Chỉ chấp nhận file PDF, DOC, hoặc DOCX", 400)
 
-        safe_name = secure_filename(f.filename)
-        target_dir = os.path.join(UPLOAD_FOLDER, loai, ma_sv)
-        os.makedirs(target_dir, exist_ok=True)
-        save_path = os.path.join(target_dir, f"{int(datetime.now().timestamp())}_{safe_name}")
-        f.save(save_path)
+        if not f.filename.lower().endswith((".pdf", ".doc", ".docx")):
+            return fail("Chỉ chấp nhận PDF, DOC, DOCX", 400)
+
+        # 🚀 Upload lên Google Drive
+        file_id = upload_to_drive(f)
+
+        if not file_id:
+            return fail("Upload Google Drive thất bại", 500)
 
         conn = get_db()
+
         conn.execute(
             "INSERT INTO nop_bai (dang_ky_id, loai_file, file_path) VALUES (?, ?, ?)",
-            (dang_ky_id, loai, save_path.replace("\\", "/")),
+            (dang_ky_id, loai, file_id),  # ⚠️ Lưu fileId thay vì path
         )
+
         conn.commit()
         conn.close()
-        return ok("Upload file thành công", {"file_path": save_path.replace("\\", "/")})
+
+        return ok("Upload thành công", {"file_id": file_id})
 
     @app.route("/api/thong-ke", methods=["GET"])
     @role_required("TBM")
