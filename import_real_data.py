@@ -3,6 +3,14 @@ import csv
 import urllib.request
 from database import USE_POSTGRES, get_db, init_db
 
+
+def execute_many_in_chunks(cursor, query, seq_of_params, chunk_size=1000):
+    if not seq_of_params:
+        return
+    for i in range(0, len(seq_of_params), chunk_size):
+        cursor.executemany(query, seq_of_params[i : i + chunk_size])
+
+
 # 1. Quota GV theo HỆ (Đại trà / CLC): mỗi (GV, đợt) có 2 dòng gv_slot — SV đăng ký BCTT dùng đúng pool theo he_dao_tao.
 QUOTA_LEGACY = {
     "hieunk@hcmute.edu.vn": {"DaiTra": 15, "CLC": 270},
@@ -312,7 +320,7 @@ def import_from_sheets(delete_old_db=True):
     c = conn.cursor()
 
     # Insert Users
-    c.executemany("""
+    execute_many_in_chunks(c, """
         INSERT INTO users (ma, gmail, ho_ten, mat_khau, role, linh_vuc, linh_vuc_phu_trach, he_dao_tao)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (ma) DO UPDATE SET
@@ -325,7 +333,7 @@ def import_from_sheets(delete_old_db=True):
     """, users)
 
     # Insert Đợt đăng ký (kèm hệ + ngành trong DB)
-    c.executemany("""
+    execute_many_in_chunks(c, """
         INSERT INTO dot (ten_dot, loai, han_dang_ky, han_nop, trang_thai, he_dao_tao, nganh)
         VALUES (?, ?, ?, ?, ?, ?, ?)
     """, [(d[0], d[1], d[2], d[3], d[4], d[5], d[6]) for d in NEW_DOTS])
@@ -356,7 +364,7 @@ def import_from_sheets(delete_old_db=True):
                 slots.append((gv_id, db_dot["id"], q_dt, q_dt, 1, "DaiTra"))
                 slots.append((gv_id, db_dot["id"], q_clc, q_clc, 1, "CLC"))
 
-    c.executemany("""
+    execute_many_in_chunks(c, """
         INSERT INTO gv_slot (gv_id, dot_id, quota, slot_con_lai, duyet_tbm, he_dao_tao)
         VALUES (?, ?, ?, ?, ?, ?)
     """, slots)

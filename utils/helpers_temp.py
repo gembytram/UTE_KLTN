@@ -47,6 +47,7 @@ def parse_linh_vuc(value):
         "mangDeTai": mang,
         "tenCongTy": parts[1] if len(parts) > 1 else "",
         "topicType": parts[2] if len(parts) > 2 else "",
+        "moTa": "",
     }
 
 
@@ -77,85 +78,68 @@ def _user_majors(user_row):
     return [x.strip() for x in lv.split(",") if x.strip()]
 
 
-def user_has_common_major(user_a, user_b):
-    majors_a = _user_majors(user_a)
-    majors_b = _user_majors(user_b)
-    if not majors_a or not majors_b:
-        return False
-    return any(m in majors_b for m in majors_a)
+def user_has_common_major(user_row, majors_list):
+    user_majors = set(_user_majors(user_row))
+    majors_list = [m.strip().lower() for m in majors_list if m.strip()]
+    return any(um.lower() in majors_list for um in user_majors)
 
 
-def kltn_major_from_dang_ky(linh_vuc_raw):
-    meta = parse_linh_vuc(linh_vuc_raw or "")
-    return (meta.get("mangDeTai") or "").strip()
+def assert_kltn_assignees_match_major(conn, dang_ky_id, required_major):
+    dk = conn.execute("SELECT * FROM dang_ky WHERE id = ?", (dang_ky_id,)).fetchone()
+    if not dk:
+        return None, "Không tìm dang_ky"
+    gv_hd = conn.execute("SELECT * FROM users WHERE id = ?", (dk["gv_id"],)).fetchone()
+    if not gv_hd or not user_has_common_major(gv_hd, [required_major]):
+        return None, "GVHD không thuộc ngành"
+    return dk, None
 
 
-def user_covers_kltn_major(user_row, major):
-    # Cho phép giáo viên ngành khác hướng dẫn - không ràng buộc điều kiện lĩnh vực
-    return True
-
-
-def assert_kltn_assignees_match_major(conn, major, user_ids):
-    if not major:
-        return True, None
-    seen = set()
-    for mid in user_ids:
-        if mid is None:
-            continue
-        try:
-            uid = int(mid)
-        except (TypeError, ValueError):
-            return False, "ID thành viên không hợp lệ"
-        if uid in seen:
-            continue
-        seen.add(uid)
-        row = conn.execute(
-            "SELECT id, ho_ten, linh_vuc FROM users WHERE id = ?",
-            (uid,),
-        ).fetchone()
-        if not row:
-            return False, "Không tìm thấy người dùng id=%s" % uid
-        if not user_covers_kltn_major(row, major):
-            return False, (
-                "GV %s không cùng lĩnh vực với đề tài (%s). "
-                "Chỉ được phân công giảng viên có chuyên môn trùng mảng đăng ký."
-                % (row["ho_ten"], major)
-            )
+def dot_matches_student(conn, dot_id, sv_row):
+    dot = conn.execute("SELECT * FROM dot WHERE id = ?", (dot_id,)).fetchone()
+    if not dot:
+        return False, "Không tìm đợt"
+    sv_he = normalize_sv_slot_he(sv_row)
+    dot_he = (dot["he_dao_tao"] or "").strip() or "DaiTra"
+    if dot_he and sv_he != dot_he:
+        return False, f"Hệ không khớp (SV: {sv_he}, Đợt: {dot_he})"
     return True, None
 
 
 def normalize_sv_slot_he(sv_row):
-    if not sv_row:
+    """Normalize student he_dao_tao to slot he (DaiTra or CLC)."""
+    raw = (sv_row.get("he_dao_tao") or "").strip() or "DaiTra"
+    return "CLC" if "CLC" in raw.upper() else "DaiTra"
+
+
+def normalize_he(he_raw):
+    """Normalize từ bảng tính về DaiTra/CLC."""
+    if not he_raw:
         return "DaiTra"
-    h = (sv_row["he_dao_tao"] or "").strip()
-    return "CLC" if h == "CLC" else "DaiTra"
+    he_upper = str(he_raw or "").strip().upper()
+    if "CLC" in he_upper or "CHẤT" in he_upper or "NÂNG CAO" in he_upper:
+        return "CLC"
+    return "DaiTra"
 
 
-def dot_matches_student(conn, dot_id, sv_row):
-    try:
-        did = int(dot_id)
-    except (TypeError, ValueError):
-        return False, "dot_id không hợp lệ"
-    dot = conn.execute("SELECT * FROM dot WHERE id = ?", (did,)).fetchone()
-    if not dot:
-        return False, "Không có đợt đăng ký này"
-    dot_nganh = (dot["nganh"] or "").strip()
-    if dot_nganh:
-        majors = _sv_majors_from_row(sv_row)
-        if majors and dot_nganh not in majors:
-            return False, "Đợt không khớp ngành/chuyên ngành của bạn"
-    return True, None
+def kltn_major_from_dang_ky(meta):
+    parts = [p.strip() for p in (meta or "").split("||")]
+    return parts[0] if parts else ""
 
 
 def map_status_for_ui(loai, trang_thai):
-    if loai == "BCTT":
-        if trang_thai == "dong_y":
-            return "gv_xac_nhan"
-    if loai == "KLTN":
-        if trang_thai == "dong_y":
-            return "thuc_hien"
-    return trang_thai
+    status_map = {
+        "cho_duyet": "waiting",
+        "gv_xac_nhan": "gv_approved",
+        "cho_cham": "grading",
+        "pass": "pass",
+        "fail": "fail",
+        "thuc_hien": "in_progress",
+        "cham_diem": "scoring",
+        "bao_ve": "defense",
+        "hoan_thanh": "completed",
+    }
+    return status_map.get(trang_thai, trang_thai)
 
 
 def now_date_string():
-    return datetime.now().strftime("%Y-%m-%d")
+    return datetime.now().strftime("%d/%m/%Y %H:%M")

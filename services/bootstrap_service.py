@@ -114,6 +114,7 @@ def fetch_bootstrap(conn):
             sc_bctt = score_map.get(r["id"], {}).get("BCTT")
             record["tenCongTy"] = meta["tenCongTy"]
             record["fileBC"] = upload_map.get(r["id"], {}).get("bctt_baocao")
+            record["fileBCWord"] = upload_map.get(r["id"], {}).get("bctt_baocao_word")
             record["fileXacNhan"] = upload_map.get(r["id"], {}).get("bctt_xacnhan")
             record["fileTurnitinBCTT"] = upload_map.get(r["id"], {}).get("turnitin_bctt")
             record["diemBCTT"] = sc_bctt["diem"] if sc_bctt else None

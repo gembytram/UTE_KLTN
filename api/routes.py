@@ -288,23 +288,30 @@ def register_routes(app):
         ten = (data.get("ten_de_tai") or "").strip()
         linh_vuc = (data.get("linh_vuc") or "").strip()
         cong_ty = (data.get("ten_cong_ty") or "").strip()
-        loai_de_tai = (data.get("loai_de_tai") or "").strip()
+        mo_ta = (data.get("mo_ta_de_tai") or "").strip()
         gv_id = data.get("gv_id")
         dot_id = data.get("dot_id")
         if not all([ten, cong_ty, gv_id, dot_id]):
             return fail("Thiếu thông tin đăng ký BCTT", 400)
-        if loai_de_tai and loai_de_tai not in ("ung_dung", "nghien_cuu"):
-            return fail("Loại đề tài BCTT không hợp lệ", 400)
 
         conn = get_db()
         sv = get_current_user(conn)
-        exists = conn.execute(
-            "SELECT id FROM dang_ky WHERE sv_id = ? AND loai = 'BCTT'",
+        latest = conn.execute(
+            "SELECT id, trang_thai FROM dang_ky WHERE sv_id = ? AND loai = 'BCTT' ORDER BY id DESC LIMIT 1",
             (sv["id"],),
         ).fetchone()
-        if exists:
-            conn.close()
-            return fail("Bạn đã đăng ký BCTT", 400)
+        if latest:
+            if latest["trang_thai"] in ("cho_duyet", "gv_xac_nhan", "cho_cham"):
+                conn.close()
+                return fail("Bạn đã đăng ký BCTT", 400)
+            if latest["trang_thai"] == "pass":
+                score_row = conn.execute(
+                    "SELECT diem FROM cham_diem WHERE dang_ky_id = ? AND vai_tro = 'BCTT'",
+                    (latest["id"],),
+                ).fetchone()
+                if score_row and score_row["diem"] >= 5:
+                    conn.close()
+                    return fail("Bạn đã đăng ký BCTT", 400)
 
         ok_dot, dot_err = dot_matches_student(conn, dot_id, sv)
         if not ok_dot:
@@ -329,7 +336,7 @@ def register_routes(app):
             INSERT INTO dang_ky (sv_id, gv_id, dot_id, loai, ten_de_tai, linh_vuc, trang_thai)
             VALUES (?, ?, ?, 'BCTT', ?, ?, 'cho_duyet')
             """,
-            (sv["id"], gv_id, dot_id, ten, build_bctt_meta(linh_vuc, cong_ty, loai_de_tai)),
+            (sv["id"], gv_id, dot_id, ten, build_bctt_meta(linh_vuc, cong_ty, mo_ta)),
         )
         conn.commit()
         conn.close()
@@ -351,13 +358,24 @@ def register_routes(app):
 
         conn = get_db()
         sv = get_current_user(conn)
-        passed = conn.execute(
+        
+        # Check BCTT pass with score >= 5
+        bctt_record = conn.execute(
             "SELECT id FROM dang_ky WHERE sv_id = ? AND loai = 'BCTT' AND trang_thai = 'pass'",
             (sv["id"],),
         ).fetchone()
-        if not passed:
+        if not bctt_record:
             conn.close()
             return fail("Bạn chỉ được đăng ký KLTN khi BCTT = pass", 400)
+        
+        # Check BCTT score >= 5
+        bctt_score = conn.execute(
+            "SELECT diem FROM cham_diem WHERE dang_ky_id = ? AND vai_tro = 'BCTT'",
+            (bctt_record["id"],),
+        ).fetchone()
+        if bctt_score and bctt_score["diem"] < 5:
+            conn.close()
+            return fail("BCTT không đạt yêu cầu. Bạn không thể đăng ký KLTN", 400)
 
         existed = conn.execute(
             "SELECT id FROM dang_ky WHERE sv_id = ? AND loai = 'KLTN'",
@@ -418,7 +436,7 @@ def register_routes(app):
         types = {f["loai_file"] for f in files}
         if "bctt_baocao" not in types or "bctt_xacnhan" not in types:
             conn.close()
-            return fail("Cần nộp đủ báo cáo BCTT và giấy xác nhận", 400)
+            return fail("Cần nộp đủ báo cáo BCTT (PDF và Word) và giấy xác nhận thực tập", 400)
         conn.execute("UPDATE dang_ky SET trang_thai = 'cho_cham' WHERE id = ?", (dang_ky_id,))
         conn.commit()
         conn.close()
@@ -485,7 +503,7 @@ def register_routes(app):
                 """,
                 (dang_ky_id, gv["id"], diem, nhan_xet),
             )
-        result = "pass" if diem >= 4 else "fail"
+        result = "pass" if diem >= 5 else "fail"
         conn.execute("UPDATE dang_ky SET trang_thai = ? WHERE id = ?", (result, dang_ky_id))
         conn.commit()
         conn.close()
