@@ -48,6 +48,21 @@ const DB = {
   nextDetaiTab: null,
 };
 
+const ADMIN_USER_FILTER_STATE = {
+  q: '',
+  role: '',
+};
+
+function getAdminUserRoleLabel(role) {
+  switch ((role || '').toUpperCase()) {
+    case 'SV': return 'Sinh viên';
+    case 'GV': return 'Giảng viên';
+    case 'TBM': return 'Trưởng Bộ Môn';
+    case 'ADMIN': return 'Quản trị viên';
+    default: return 'Tất cả vai trò';
+  }
+}
+
 // ============================================================
 // HELPERS
 // ============================================================
@@ -3794,15 +3809,27 @@ function renderUsers() {
     { value: 'TBM', label: 'Trưởng Bộ Môn' },
     { value: 'ADMIN', label: 'Quản trị viên' },
   ];
+  const currentQ = ADMIN_USER_FILTER_STATE.q || '';
+  const currentRole = ADMIN_USER_FILTER_STATE.role || '';
+  const activeFilters = [];
+  if (currentQ) activeFilters.push(`Tìm kiếm: "${escapeHtml(currentQ)}"`);
+  if (currentRole) activeFilters.push(`Vai trò: ${escapeHtml(getAdminUserRoleLabel(currentRole))}`);
+
   let html = `<div class="page-header"><h1>👥 Quản lý Người dùng</h1><p>Tổng cộng ${DB.users.length} tài khoản</p></div>
-    <div style="display:flex;gap:8px;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap">
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <input id="admin-user-q" placeholder="Tìm theo mã, tên, email..." style="width:260px" />
-        <select id="admin-user-role">${roleOptions.map((r) => `<option value="${r.value}">${r.label}</option>`).join('')}</select>
+    <div class="admin-filter-bar">
+      <div class="admin-filter-group">
+        <div class="admin-filter-field search-wrap">
+          <input id="admin-user-q" value="${escapeHtml(currentQ)}" placeholder="Tìm theo mã, tên, email..." class="admin-search-input" onkeydown="if(event.key==='Enter'){loadAdminUsersFromFilters();}" />
+        </div>
+        <div class="admin-filter-field">
+          <select id="admin-user-role" class="admin-filter-select">${roleOptions.map((r) => `<option value="${r.value}"${r.value === currentRole ? ' selected' : ''}>${r.label}</option>`).join('')}</select>
+        </div>
         <button class="btn btn-secondary btn-sm" onclick="loadAdminUsersFromFilters()">Lọc</button>
+        ${currentQ || currentRole ? `<button class="btn btn-ghost btn-sm" onclick="clearAdminUsersFromFilters()">✕ Xóa bộ lọc</button>` : ''}
       </div>
       <button class="btn btn-primary btn-sm" onclick="addUserModal()">➕ Thêm người dùng</button>
     </div>
+    ${activeFilters.length ? `<div class="filter-summary">${activeFilters.join(' • ')}</div>` : ''}
     <div class="card">
     <div class="table-wrap"><table><thead><tr><th>Mã</th><th>Họ tên</th><th>Email</th><th>Vai trò</th><th>Lĩnh vực phụ trách</th><th>Thao tác</th></tr></thead><tbody>`;
   DB.users.forEach(u => {
@@ -3974,6 +4001,8 @@ async function submitUserForm() {
 async function loadAdminUsersFromFilters() {
   const q = document.getElementById('admin-user-q')?.value.trim() || '';
   const role = document.getElementById('admin-user-role')?.value || '';
+  ADMIN_USER_FILTER_STATE.q = q;
+  ADMIN_USER_FILTER_STATE.role = role;
   const params = new URLSearchParams();
   if (q) params.set('q', q);
   if (role) params.set('role', role);
@@ -3991,6 +4020,16 @@ async function loadAdminUsersFromFilters() {
   } catch (err) {
     toast(err.message || 'Không tải được danh sách người dùng', 'error');
   }
+}
+
+async function clearAdminUsersFromFilters() {
+  ADMIN_USER_FILTER_STATE.q = '';
+  ADMIN_USER_FILTER_STATE.role = '';
+  const qEl = document.getElementById('admin-user-q');
+  const roleEl = document.getElementById('admin-user-role');
+  if (qEl) qEl.value = '';
+  if (roleEl) roleEl.value = '';
+  await loadAdminUsersFromFilters();
 }
 
 function renderFields() {
