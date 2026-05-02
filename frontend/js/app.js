@@ -3918,7 +3918,6 @@ function editUserModal(userId) {
       <div class="form-group"><label>Mã</label><input id="user-ma" value="${escapeHtml(user.ma || '')}" disabled /></div>
       <div class="form-group"><label>Họ tên</label><input id="user-ho_ten" value="${escapeHtml(user.name || '')}" /></div>
       <div class="form-group"><label>Email</label><input id="user-gmail" value="${escapeHtml(user.gmail || user.email || '')}" /></div>
-      <div class="form-group"><label>Mật khẩu mới (để trống nếu không đổi)</label><input id="user-mat_khau" type="password" /></div>
       <div class="form-group"><label>Vai trò</label><select id="user-role">${roleOptions.map((r) => `<option value="${r.value}" ${r.value === roleRaw ? 'selected' : ''}>${r.label}</option>`).join('')}</select></div>
       <div class="form-group"><label>Ngành</label><input id="user-linh_vuc" value="${escapeHtml((user.chuyenMon || []).join(', '))}" /></div>
       <div class="form-group"><label>Hệ đào tạo</label><select id="user-he_dao_tao"><option value="">-- Chọn --</option><option value="DaiTra" ${user.heDaoTao === 'DaiTra' ? 'selected' : ''}>Đại trà</option><option value="CLC" ${user.heDaoTao === 'CLC' ? 'selected' : ''}>CLC</option></select></div>

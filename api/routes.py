@@ -535,7 +535,9 @@ def register_routes(app):
     @role_required("ADMIN")
     def admin_create_field():
         data = request.json or {}
-        ten = _normalize_field_name(data.get("ten"))
+        ten = _normalize_field_name(
+            data.get("ten") or data.get("linhVucPhuTrach") or data.get("linh_vuc_phu_trach")
+        )
         if not ten:
             return fail("Tên lĩnh vực không hợp lệ", 400)
         conn = get_db()
@@ -559,7 +561,9 @@ def register_routes(app):
     @role_required("ADMIN")
     def admin_update_field(field_id):
         data = request.json or {}
-        ten = _normalize_field_name(data.get("ten"))
+        ten = _normalize_field_name(
+            data.get("ten") or data.get("linhVucPhuTrach") or data.get("linh_vuc_phu_trach")
+        )
         if not ten:
             return fail("Tên lĩnh vực không hợp lệ", 400)
         conn = get_db()
