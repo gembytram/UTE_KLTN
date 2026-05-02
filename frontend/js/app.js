@@ -899,6 +899,7 @@ async function syncFromServer() {
   DB.bcttList = data.bcttList || [];
   DB.kltnList = data.kltnList || [];
   DB.gvSlots = data.gvSlots || [];
+  DB.hoiDongList = data.hoiDongList || [];
   DB.notifications = data.notifications || [];
   const lv = new Set();
   DB.bcttList.forEach((x) => x.mangDeTai && lv.add(x.mangDeTai));
@@ -2253,14 +2254,12 @@ function renderKLTN() {
   if (myKLTN.length > 0) {
     const k = myKLTN[0];
     const gvHD = getUser(k.gvHDEmail);
-    const gvPB = k.gvPBEmail ? getUser(k.gvPBEmail) : null;
     html += `<div class="card" style="margin-bottom:20px">
       <div class="card-header"><div><div class="card-title">📋 Thông tin KLTN</div></div>${statusBadge(k.trangThai)}</div>
       <div class="info-row"><span class="info-label">Tên đề tài:</span><span class="info-value" style="font-weight:700">${k.tenDeTai}</span></div>
       <div class="info-row"><span class="info-label">Loại đề tài:</span><span class="info-value">${getTopicTypeLabel(k.topicType)}</span></div>
       <div class="info-row"><span class="info-label">Mảng đề tài:</span><span class="info-value">${k.mangDeTai}</span></div>
       <div class="info-row"><span class="info-label">GV Hướng dẫn:</span><span class="info-value">${gvHD?.name || k.gvHDEmail}</span></div>
-      <div class="info-row"><span class="info-label">GV Phản biện:</span><span class="info-value">${gvPB ? gvPB.name : '<span style="color:var(--text3)">Chưa phân công</span>'}</span></div>
       ${k.hoiDong ? `
       <div class="info-row"><span class="info-label">Chủ tịch HĐ:</span><span class="info-value">${getUser(k.hoiDong.ct)?.name || k.hoiDong.ct}</span></div>
       <div class="info-row"><span class="info-label">Thư ký HĐ:</span><span class="info-value">${getUser(k.hoiDong.tk)?.name || k.hoiDong.tk}</span></div>
@@ -2596,8 +2595,11 @@ function viewKLTNDetail(id) {
           <div><span style="color: var(--text3, #6b7280); display: inline-block; width: 75px;">Chủ tịch:</span> <b style="color: var(--text1, #111);">${escapeHtml(getUser(h.ct)?.name || h.ct || '–')}</b></div>
           <div><span style="color: var(--text3, #6b7280); display: inline-block; width: 75px;">Thư ký:</span> <b style="color: var(--text1, #111);">${escapeHtml(getUser(h.tk)?.name || h.tk || '–')}</b></div>
          ${tvs ? `<div><span style="color: var(--text3, #6b7280); display: inline-block; width: 85px; white-space: nowrap;">Thành viên:</span> <b style="color: var(--text1, #111);">${tvs}</b></div>` : ''}
+          ${h.pb ? `<div><span style="color: var(--text3, #6b7280); display: inline-block; width: 120px;">GV Phản biện:</span> <b style="color: var(--text1, #111);">${escapeHtml(getUser(h.pb)?.name || h.pb || '–')}</b></div>` : ''}
         </div>
       </div>`;
+  } else {
+    hdBlock = `<div class="kltn-row"><span class="kltn-label">Hội đồng:</span><span class="kltn-value" style="color:var(--text3); font-style:italic;">Chưa phân công HĐ</span></div>`;
   }
 
   const councilScores = getKLTNCouncilScores(k);
@@ -2621,7 +2623,7 @@ function viewKLTNDetail(id) {
  
   const u = DB.currentUser;
   const hdBlockDetail = u.role !== 'bm' && k.hdNote ? `<div style="margin-bottom: 16px;"><div style="${noteTitleStyle}">📝 Nhận xét GVHD</div><textarea readonly style="${textareaStyle}" rows="4">${escapeHtml(k.hdNote)}</textarea></div>` : '';
-  const pbBlockDetail = u.role !== 'bm' && (k.pbNote || k.pbCauHoi) ? `<div style="margin-bottom: 16px;"><div style="${noteTitleStyle}">📝 Nhận xét & câu hỏi GVPB</div><textarea readonly style="${textareaStyle}" rows="5">${escapeHtml((k.pbNote || '') + (k.pbCauHoi ? '\n\n— Câu hỏi —\n' + k.pbCauHoi : ''))}</textarea></div>` : '';
+  const pbBlockDetail = u.role !== 'bm' && k.pbNote ? `<div style="margin-bottom: 16px;"><div style="${noteTitleStyle}">📝 Nhận xét GVPB</div><textarea readonly style="${textareaStyle}" rows="4">${escapeHtml(k.pbNote)}</textarea></div>` : '';
   const ctBlockDetail = (k.ctNote || k.ctCauHoi) ? `<div style="margin-bottom: 16px;"><div style="${noteTitleStyle}">📝 Nhận xét / câu hỏi Chủ tịch HĐ</div><textarea readonly style="${textareaStyle}" rows="5">${escapeHtml((k.ctNote || '') + (k.ctCauHoi ? '\n\n— Câu hỏi —\n' + k.ctCauHoi : ''))}</textarea></div>` : '';
 
   const bienBanChamDiemDetail = k.bienBanChamDiem ? `<div class="kltn-row" style="margin-top: 15px; border-top: 1px dashed var(--border, #ccc); padding-top: 15px;"><span class="kltn-label">Biên bản chấm điểm:</span><span class="kltn-value"><a href="${uploadFileHref(k.bienBanChamDiem)}" target="_blank" rel="noopener" style="color:var(--accent, #0284c7); font-weight: bold; font-size: 14px;">📥 Tải biên bản chấm điểm</a></span></div>` : '';
@@ -2629,6 +2631,9 @@ function viewKLTNDetail(id) {
 
   const customStyles = `
     <style>
+      .kltn-section, .kltn-row, .kltn-label, .kltn-value, .kltn-score-box, .kltn-score-label, .kltn-score-val, .kltn-grid-files {
+        font-family: 'Be Vietnam Pro', 'Segoe UI', Arial, sans-serif;
+      }
       .kltn-section { border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 16px; margin-bottom: 16px; background: var(--bg-alt, #fafafa); box-shadow: 0 1px 2px rgba(0,0,0,0.02); }
       .kltn-sec-title { font-weight: 700; font-size: 14px; text-transform: uppercase; color: var(--text1, #111827); margin-top: 0; margin-bottom: 16px; border-bottom: 2px solid var(--border, #e5e7eb); padding-bottom: 8px; letter-spacing: 0.3px; }
       .kltn-row { display: flex; margin-bottom: 12px; line-height: 1.5; align-items: baseline; }
@@ -2661,7 +2666,7 @@ function viewKLTNDetail(id) {
     <div class="kltn-section">
       <div class="kltn-sec-title">Phân công & Hội đồng</div>
       <div class="kltn-row"><span class="kltn-label">GV Hướng dẫn:</span><span class="kltn-value" style="font-weight: 600;">${escapeHtml(gvhd?.name || '')}</span></div>
-      <div class="kltn-row"><span class="kltn-label">GV Phản biện:</span><span class="kltn-value" style="font-weight: 600;">${gvpb ? escapeHtml(gvpb.name) : '<span style="color:var(--text3); font-style:italic; font-weight: normal;">Chưa phân công</span>'}</span></div>
+      ${k.hoiDong ? `<div class="kltn-row"><span class="kltn-label" style="color:#16a34a; font-weight:700;">Trạng thái HĐ:</span><span class="kltn-value" style="color:#16a34a; font-weight:700;">✅ Đã phân công HĐ</span></div>` : `<div class="kltn-row"><span class="kltn-label" style="color:#d97706; font-weight:700;">Trạng thái HĐ:</span><span class="kltn-value" style="color:#d97706; font-weight:700;">⏳ Chưa phân công HĐ</span></div>`}
       ${hdBlock}
     </div>
 
@@ -3024,7 +3029,7 @@ function renderPhanCong() {
   const el = document.getElementById('page-phancong');
   const needPB = DB.kltnList.filter(k => !k.gvPBEmail);
   const needHD = DB.kltnList.filter(k => !k.hoiDong);
-  const needAction = DB.kltnList.filter(k => !k.gvPBEmail || !k.hoiDong);
+  const needAction = DB.kltnList.slice();
 
  let html = `<div class="page-header">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
@@ -3033,8 +3038,6 @@ function renderPhanCong() {
           <p>${needPB.length} KLTN cần phân công PB • ${needHD.length} KLTN cần lập HĐ</p>
         </div>
         <div style="display:flex; gap:8px">
-          <button class="btn btn-sm" style="background:#f97316;color:#fff;border:none" onclick="taoDuLieuTest()">🛠️ Tạo Data Test</button>
-          
           <button class="btn btn-primary" onclick="showHoiDongModal()">➕ Thêm hội đồng</button>
         </div>
       </div>
@@ -3086,18 +3089,27 @@ function renderPhanCong() {
     html += `<div class="empty-state"><div class="empty-state-icon">✅</div><div class="empty-state-title">Tất cả KLTN đã được phân công đầy đủ PB và HĐ</div></div>`;
   } else {
     needAction.forEach(k => {
-      const missingTags = [];
-      if (!k.gvPBEmail) missingTags.push('<span class="badge badge-orange">Thiếu PB</span>');
-      if (!k.hoiDong) missingTags.push('<span class="badge badge-red">Thiếu HĐ</span>');
+      const sv = getUser(k.svEmail);
+      const gvHD = getUser(k.gvHDEmail);
+      const hasHD = k.hoiDong ? '<span class="badge" style="background:#10b981;color:#fff;padding:4px 8px;border-radius:3px;font-size:11px;font-weight:700;">✅ Đã xếp Hội đồng</span>' : '<span class="badge badge-red">Thiếu HĐ</span>';
+      
+      const hdName = k.hoiDong ? escapeHtml(k.hoiDong.tenHD || 'Hội đồng') : 'Chưa xếp';
 
-      html += `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid var(--border)">
-        <div style="flex:1;min-width:200px">
-          <div style="font-weight:700;cursor:pointer;color:var(--primary)" onclick="viewKLTNDetail('${k.id}')">${escapeHtml(k.tenDeTai)}</div>
-          <div style="margin-top:4px">${missingTags.join(' ')}</div>
+      html += `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:12px;border:1px solid var(--border);border-radius:6px;margin-bottom:10px;background:var(--bg, #fff);">
+        <div style="flex:1;min-width:320px">
+          <div style="font-weight:700;cursor:pointer;color:var(--primary);font-size:14px" onclick="viewKLTNDetail('${k.id}')">Đề tài: ${escapeHtml(k.tenDeTai)}</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;font-size:12px;">
+            <div style="color:var(--text2)"><span style="font-weight:600;">SV:</span> ${escapeHtml(sv?.name || k.svEmail)}</div>
+            <div style="color:var(--text2)"><span style="font-weight:600;">GVHD:</span> ${escapeHtml(gvHD?.name || k.gvHDEmail || 'Chưa có')}</div>
+            <div style="color:var(--text2)"><span style="font-weight:600;">Hội đồng:</span> ${hdName}</div>
+            <div style="color:var(--text2)"><span style="font-weight:600;">Lĩnh vực:</span> ${escapeHtml(k.mangDeTai)}</div>
+          </div>
+          <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+            ${hasHD}
+          </div>
         </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;min-width:120px;justify-content:flex-end;">
           <button class="btn btn-ghost btn-sm" onclick="viewKLTNDetail('${k.id}')">👁 Chi tiết</button>
-          <button class="btn btn-primary btn-sm" onclick="phanCongPBKLTN('${k.id}')">Phân công PB</button>
         </div>
       </div>`;
     });
@@ -3171,6 +3183,11 @@ function showHoiDongModal(editId = null) {
     </div>
 
     <div class="form-group">
+      <label>Giảng viên phản biện</label>
+      <select id="hd-pb"><option value="">-- Chọn GV phản biện --</option>${getGvOptions(hd ? hd.pb : '')}</select>
+    </div>
+
+    <div class="form-group">
       <label>Thành viên hội đồng</label>
       <div id="hd-members-container">
         ${tvHtml}
@@ -3191,7 +3208,7 @@ function showPhanCongSinhVienModal(hdId) {
   if (!hd) return;
 
   // Lọc ra các sinh viên KLTN CHƯA có hội đồng, HOẶC ĐANG nằm trong hội đồng này
-  const dsKLTN = DB.kltnList.filter(k => !k.hoiDong || k.hoiDong.id === hdId);
+  const dsKLTN = DB.kltnList.filter(k => !k.hoiDong || String(k.hoiDong.id) === String(hdId));
 
   let timeStr = hd.thoiGian ? new Date(hd.thoiGian).toLocaleString('vi-VN', {hour: '2-digit', minute:'2-digit', day:'2-digit', month:'2-digit', year:'numeric'}) : 'Chưa xếp';
 
@@ -3208,7 +3225,7 @@ function showPhanCongSinhVienModal(hdId) {
           <input type="checkbox" class="chk-sv-hoidong" value="${k.id}" ${isChecked} style="margin-top:4px; transform:scale(1.2)">
           <div>
             <div style="font-weight:600; color:var(--primary)">${escapeHtml(k.tenDeTai)}</div>
-            <div style="font-size:12px; color:var(--text2); margin-top:2px">SV: ${escapeHtml(sv?.name || k.svEmail)} • Ngành: ${escapeHtml(k.mangDeTai)}</div>
+            <div style="font-size:12px; color:var(--text2); margin-top:2px">SV: ${escapeHtml(sv?.name || k.svEmail)} • Lĩnh vực: ${escapeHtml(k.mangDeTai)}</div>
           </div>
         </label>
       `;
@@ -3227,12 +3244,17 @@ function showPhanCongSinhVienModal(hdId) {
         <div><strong>Chủ tịch:</strong> ${escapeHtml(getUser(hd.ct)?.name || hd.ct)}</div>
         <div><strong>Thư ký:</strong> ${escapeHtml(getUser(hd.tk)?.name || hd.tk)}</div>
         <div style="grid-column:1/-1"><strong>Thành viên:</strong> ${escapeHtml((hd.tv || []).map(e => getUser(e)?.name || e).join(', '))}</div>
+        ${hd.pb ? `<div style="grid-column:1/-1"><strong>📋 GV Phản biện:</strong> ${escapeHtml(getUser(hd.pb)?.name || hd.pb)}</div>` : ''}
         <div><strong>🕒 Thời gian:</strong> ${timeStr}</div>
         <div><strong>🚪 Phòng:</strong> ${escapeHtml(hd.phong || 'Chưa xếp')}</div>
       </div>
     </div>
 
     <div style="font-weight:700; margin-bottom:8px">Chọn sinh viên tham gia hội đồng này:</div>
+    <div style="display:flex; gap:8px; margin-bottom:12px">
+      <button class="btn btn-sm" style="background:#0284c7;color:#fff;border:none" onclick="selectAllCheckboxesHoiDong()">✅ Chọn tất cả</button>
+      <button class="btn btn-sm btn-ghost" onclick="deselectAllCheckboxesHoiDong()">❌ Bỏ chọn tất cả</button>
+    </div>
     <div style="max-height:300px; overflow-y:auto; border:1px solid var(--border); border-radius:6px; margin-bottom:16px; background:#fff">
       ${svHtml}
     </div>
@@ -3268,11 +3290,11 @@ async function submitBulkPhanCong(hdId) {
         // Gọi API lên backend nếu có
         await apiRequest("/api/phan-cong/hoi-dong", {
           method: "POST",
-          body: JSON.stringify({ dang_ky_id: k.dangKyId || extractId(k.id), ct_id: ctUser ? ctUser.id : null, tk_id: tkUser ? tkUser.id : null, tv_ids: tvUsers.map(u => u.id) })
+          body: JSON.stringify({ dang_ky_id: k.dangKyId || extractId(k.id), hoi_dong_id: hd.id })
         }).catch(() => {});
 
         // Cập nhật ở giao diện
-        k.hoiDong = { id: hd.id, ct: hd.ct, tk: hd.tk, tv: hd.tv, tenHD: hd.ten, phong: hd.phong, thoiGian: hd.thoiGian };
+        k.hoiDong = { id: hd.id, ct: hd.ct, tk: hd.tk, tv: hd.tv, pb: hd.pb, tenHD: hd.ten, phong: hd.phong, thoiGian: hd.thoiGian };
       }
     }
 
@@ -3280,11 +3302,20 @@ async function submitBulkPhanCong(hdId) {
     for (const kId of unselectedKltnIds) {
        const k = DB.kltnList.find(x => x.id === kId);
        if (k && k.hoiDong && k.hoiDong.id === hdId) {
-         k.hoiDong = null; // Gỡ hội đồng
+         // Gọi API để gỡ hội đồng khỏi database
+         await apiRequest("/api/phan-cong/hoi-dong/remove", {
+           method: "POST",
+           body: JSON.stringify({ dang_ky_id: k.dangKyId || extractId(k.id) })
+         }).catch(() => {});
+         
+         // Cập nhật ở giao diện
+         k.hoiDong = null;
        }
     }
 
     toast('✅ Đã cập nhật danh sách sinh viên bảo vệ!');
+    // Reload dữ liệu từ server để đảm bảo persist
+    await syncFromServer();
     closeModalForce();
     if (DB.currentPage === 'phancong') renderPhanCong();
   } catch (err) {
@@ -3307,14 +3338,27 @@ function addHoiDongMemberSelect() {
   container.appendChild(row);
 }
 
+// Chọn tất cả checkbox của sinh viên hội đồng
+function selectAllCheckboxesHoiDong() {
+  const checkboxes = document.querySelectorAll('.chk-sv-hoidong');
+  checkboxes.forEach(chk => chk.checked = true);
+}
+
+// Bỏ chọn tất cả checkbox của sinh viên hội đồng
+function deselectAllCheckboxesHoiDong() {
+  const checkboxes = document.querySelectorAll('.chk-sv-hoidong');
+  checkboxes.forEach(chk => chk.checked = false);
+}
+
 // Hàm lưu chung cho cả việc Tạo mới và Cập nhật
-function saveHoiDong() {
+async function saveHoiDong() {
   const id = document.getElementById('hd-id').value;
   const ten = document.getElementById('hd-ten').value.trim();
   const thoiGian = document.getElementById('hd-thoigian').value;
   const phong = document.getElementById('hd-phong').value.trim();
   const ct = document.getElementById('hd-ct').value;
   const tk = document.getElementById('hd-tk').value;
+  const pb = document.getElementById('hd-pb').value;
 
   const tvSelects = document.querySelectorAll('.hd-tv');
   const tvs = Array.from(tvSelects).map(s => s.value).filter(val => val !== "");
@@ -3326,7 +3370,7 @@ function saveHoiDong() {
   }
 
   // Check 1: Không trùng nhiệm vụ trong cùng 1 hội đồng
-  const allSelected = [ct, tk, ...uniqueTvs].filter(Boolean);
+  const allSelected = [ct, tk, ...(pb ? [pb] : []), ...uniqueTvs].filter(Boolean);
   const uniqueAll = new Set(allSelected); 
   if (allSelected.length !== uniqueAll.size) {
     toast('Mỗi giáo viên chỉ được đảm nhận 1 nhiệm vụ trong cùng một hội đồng!', 'error');
@@ -3335,75 +3379,53 @@ function saveHoiDong() {
 
   if (!DB.hoiDongList) DB.hoiDongList = [];
 
-  // Check 2: Không trùng giáo viên với hội đồng khác
-  let gvBiTrung = null;
-  let tenHoiDongTrung = "";
-  for (const hdCu of DB.hoiDongList) {
-    if (id && hdCu.id === id) continue;
-    const thanhVienHdCu = [hdCu.ct, hdCu.tk, ...(hdCu.tv || [])].filter(Boolean);
-    for (const emailGv of allSelected) {
-      if (thanhVienHdCu.includes(emailGv)) {
-        gvBiTrung = emailGv;
-        tenHoiDongTrung = hdCu.ten;
-        break;
-      }
+  try {
+    const data = { ten, thoi_gian: thoiGian, phong, ct, tk, pb, tv: uniqueTvs };
+    
+    if (id) {
+      // Update existing council
+      await apiRequest(`/api/hoi-dong/update/${id}`, {
+        method: "POST",
+        body: JSON.stringify(data)
+      });
+      toast('✅ Đã cập nhật hội đồng thành công!');
+    } else {
+      // Create new council
+      const result = await apiRequest("/api/hoi-dong/create", {
+        method: "POST",
+        body: JSON.stringify(data)
+      });
+      toast('✅ Đã tạo hội đồng thành công!');
     }
-    if (gvBiTrung) break;
+    
+    // Reload data from server
+    await syncFromServer();
+    closeModalForce();
+    if (DB.currentPage === 'phancong') renderPhanCong();
+  } catch (err) {
+    toast(err.message || 'Có lỗi xảy ra', 'error');
   }
+}
 
-  if (gvBiTrung) {
-    const thongTinGv = getUser(gvBiTrung);
-    const tenGv = thongTinGv ? thongTinGv.name : gvBiTrung;
-    toast(`Lỗi: Giảng viên ${tenGv} đã tham gia "${tenHoiDongTrung}"!`, 'error');
-    return;
-  }
-
-function deleteHoiDong(id) {
+async function deleteHoiDong(id) {
   if (!window.confirm("Bạn có chắc chắn muốn xóa hội đồng này không? Thao tác này không thể hoàn tác.")) {
     return;
   }
-  // Lọc bỏ hội đồng có id trùng với id cần xóa
-  if (DB.hoiDongList) {
-    DB.hoiDongList = DB.hoiDongList.filter(hd => hd.id !== id);
-  }
-  // Cập nhật lại Local Storage
-  localStorage.setItem('hoiDongList', JSON.stringify(DB.hoiDongList));
-  // Thông báo và tải lại giao diện
-  toast("🗑️ Đã xóa hội đồng thành công!");
-  if (DB.currentPage === 'phancong') {
-    renderPhanCong();
-  }
-}
-  // Tiến hành lưu
-  const currentUser = DB.currentUser || {};
-  if (id) {
-    const hdIndex = DB.hoiDongList.findIndex(x => x.id === id);
-    if (hdIndex > -1) {
-      const hdCu = DB.hoiDongList[hdIndex];
-      DB.hoiDongList[hdIndex] = { 
-        id, ten, thoiGian, phong, ct, tk, tv: uniqueTvs,
-        nguoiTaoEmail: hdCu.nguoiTaoEmail,
-        nguoiTaoTen: hdCu.nguoiTaoTen,
-        nguoiTaoMa: hdCu.nguoiTaoMa
-      };
-      toast('✅ Đã cập nhật hội đồng thành công!');
-    }
-  } else {
-    const newHD = {
-      id: 'hd_' + Date.now(),
-      ten, thoiGian, phong, ct, tk, tv: uniqueTvs,
-      nguoiTaoEmail: currentUser.email,
-      nguoiTaoTen: currentUser.name,
-      nguoiTaoMa: currentUser.ma || currentUser.msgv || 'Không có mã'
-    };
-    DB.hoiDongList.push(newHD); 
-    toast('✅ Đã tạo hội đồng thành công!');
-  }
   
-  // Lưu cứng vào bộ nhớ trình duyệt
-  localStorage.setItem('hoiDongList', JSON.stringify(DB.hoiDongList));
-  closeModalForce();
-  if (DB.currentPage === 'phancong') renderPhanCong();
+  try {
+    await apiRequest(`/api/hoi-dong/delete/${id}`, {
+      method: "POST"
+    });
+    
+    // Reload data from server
+    await syncFromServer();
+    toast("🗑️ Đã xóa hội đồng thành công!");
+    if (DB.currentPage === 'phancong') {
+      renderPhanCong();
+    }
+  } catch (err) {
+    toast(err.message || 'Có lỗi xảy ra', 'error');
+  }
 }
 // phân công hội đồng 
 function renderNhapDiem() {
@@ -4848,7 +4870,6 @@ function renderTheoDoi() {
       <div class="info-row"><span class="info-label">Lĩnh vực:</span><span class="info-value">${escapeHtml(myKLTN.mangDeTai || '—')}</span></div>
       <div class="info-row"><span class="info-label">Loại đề tài:</span><span class="info-value">${escapeHtml(getTopicTypeLabel(myKLTN.topicType))}</span></div>
       <div class="info-row"><span class="info-label">GV hướng dẫn:</span><span class="info-value">${escapeHtml(getUser(myKLTN.gvHDEmail)?.name || myKLTN.gvHDEmail || '—')}</span></div>
-      <div class="info-row"><span class="info-label">GV phản biện:</span><span class="info-value">${escapeHtml(getUser(myKLTN.gvPBEmail)?.name || myKLTN.gvPBEmail || 'Chưa phân công')}</span></div>
       <div style="margin-top:16px">${buildProgress(steps)}</div>`;
   }
   html += `</div>`;

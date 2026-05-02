@@ -1618,22 +1618,30 @@ def register_routes(app):
     def assign_council():
         data = request.json or {}
         dang_ky_id = data.get("dang_ky_id")
-        ct_id = data.get("ct_id")
-        tk_id = data.get("tk_id")
-        tv_ids = data.get("tv_ids")
-        single_tv = data.get("tv_id")
-        if tv_ids is None:
-            tv_ids = [single_tv] if single_tv else []
+        hoi_dong_id = data.get("hoi_dong_id")
+        
+        if not dang_ky_id or not hoi_dong_id:
+            return fail("Thiếu dang_ky_id hoặc hoi_dong_id", 400)
+
         try:
-            ct_id = int(ct_id)
-            tk_id = int(tk_id)
-            tv_ids = [int(v) for v in tv_ids]
+            hoi_dong_id = int(hoi_dong_id)
         except (TypeError, ValueError):
-            return fail("ID hội đồng không hợp lệ", 400)
-        if not all([dang_ky_id, ct_id, tk_id]) or not tv_ids:
-            return fail("Thiếu thông tin hội đồng (cần CT, TK và ít nhất 1 TV)", 400)
+            return fail("hoi_dong_id không hợp lệ", 400)
 
         conn = get_db()
+        
+        # Get council info
+        hd = conn.execute("SELECT * FROM hoi_dong WHERE id = ?", (hoi_dong_id,)).fetchone()
+        if not hd:
+            conn.close()
+            return fail("Không tìm thấy hội đồng", 404)
+        
+        # Get member IDs
+        ct_id = hd["chu_tich_id"]
+        tk_id = hd["thu_ky_id"]
+        pb_id = hd["gv_pb_id"]
+        tv_ids = _json_mod.loads(hd["tv_ids"] or "[]")
+        
         reg_hd = conn.execute(
             "SELECT loai, linh_vuc FROM dang_ky WHERE id = ?",
             (dang_ky_id,),
@@ -1641,21 +1649,14 @@ def register_routes(app):
         if not reg_hd or reg_hd["loai"] != "KLTN":
             conn.close()
             return fail("Chỉ lập hội đồng cho đăng ký KLTN", 400)
-        major = kltn_major_from_dang_ky(reg_hd["linh_vuc"])
-        council_ids = [ct_id, tk_id, *tv_ids]
-        # Bỏ ràng buộc: Cho phép giáo viên ngành khác lập hội đồng hướng dẫn
-        # ok_m, err_m = assert_kltn_assignees_match_major(conn, major, council_ids)
-        # if not ok_m:
-        #     conn.close()
-        #     return fail(err_m, 400)
-
+        
         all_member_ids = [str(ct_id), str(tk_id), *[str(tv_id) for tv_id in tv_ids]]
         hoi_dong_path = "|".join(all_member_ids)
 
         # Update dang_ky table with committee assignments
         conn.execute(
-            "UPDATE dang_ky SET chu_tich_id = ?, thu_ky_id = ?, uy_vien_ids = ? WHERE id = ?",
-            (ct_id, tk_id, _json_mod.dumps(tv_ids), dang_ky_id),
+            "UPDATE dang_ky SET hoi_dong_id = ?, chu_tich_id = ?, thu_ky_id = ?, uy_vien_ids = ?, gv_pb_id = ? WHERE id = ?",
+            (hoi_dong_id, ct_id, tk_id, _json_mod.dumps(tv_ids), pb_id, dang_ky_id),
         )
 
         conn.execute(
@@ -1670,6 +1671,40 @@ def register_routes(app):
         conn.commit()
         conn.close()
         return ok("Lập hội đồng thành công")
+
+    @app.route("/api/phan-cong/hoi-dong/remove", methods=["POST"])
+    @role_required("TBM")
+    def remove_council_assignment():
+        data = request.json or {}
+        dang_ky_id = data.get("dang_ky_id")
+        
+        if not dang_ky_id:
+            return fail("Thiếu dang_ky_id", 400)
+
+        conn = get_db()
+        
+        reg_hd = conn.execute(
+            "SELECT loai FROM dang_ky WHERE id = ?",
+            (dang_ky_id,),
+        ).fetchone()
+        if not reg_hd or reg_hd["loai"] != "KLTN":
+            conn.close()
+            return fail("Chỉ có thể gỡ hội đồng cho đăng ký KLTN", 400)
+        
+        # Clear council assignments
+        conn.execute(
+            "UPDATE dang_ky SET hoi_dong_id = NULL, chu_tich_id = NULL, thu_ky_id = NULL, uy_vien_ids = NULL, gv_pb_id = NULL WHERE id = ?",
+            (dang_ky_id,),
+        )
+
+        conn.execute(
+            "DELETE FROM nop_bai WHERE dang_ky_id = ? AND loai_file = 'hoi_dong'",
+            (dang_ky_id,),
+        )
+
+        conn.commit()
+        conn.close()
+        return ok("Đã gỡ hội đồng thành công")
 
     @app.route("/api/cham-diem", methods=["POST"])
     @role_required("GV", "TBM")
@@ -1967,6 +2002,137 @@ def register_routes(app):
         conn.commit()
         conn.close()
         return ok("Xóa đợt thành công", {"dot_id": dot["id"]})
+
+    @app.route("/api/hoi-dong/create", methods=["POST"])
+    @role_required("TBM")
+    def create_hoi_dong():
+        data = request.json or {}
+        ten = (data.get("ten") or "").strip()
+        thoi_gian = data.get("thoi_gian")
+        phong = (data.get("phong") or "").strip()
+        ct_email = (data.get("ct") or "").strip()
+        tk_email = (data.get("tk") or "").strip()
+        pb_email = (data.get("pb") or "").strip()
+        tv_emails = data.get("tv", [])
+
+        if not ten or not ct_email or not tk_email:
+            return fail("Thiếu thông tin hội đồng (tên, chủ tịch, thư ký)", 400)
+
+        conn = get_db()
+        current_user = get_current_user(conn)
+        
+        # Get user IDs
+        ct_user = conn.execute("SELECT id FROM users WHERE gmail = ?", (ct_email,)).fetchone()
+        tk_user = conn.execute("SELECT id FROM users WHERE gmail = ?", (tk_email,)).fetchone()
+        pb_user = conn.execute("SELECT id FROM users WHERE gmail = ?", (pb_email,)).fetchone() if pb_email else None
+        
+        if not ct_user or not tk_user:
+            conn.close()
+            return fail("Không tìm thấy thông tin chủ tịch hoặc thư ký", 400)
+
+        tv_ids = []
+        for email in tv_emails:
+            tv_user = conn.execute("SELECT id FROM users WHERE gmail = ?", (email,)).fetchone()
+            if tv_user:
+                tv_ids.append(tv_user["id"])
+
+        # Insert council
+        cursor = conn.execute(
+            "INSERT INTO hoi_dong (ten, nguoi_tao_id, chu_tich_id, thu_ky_id, gv_pb_id, thoi_gian, phong, tv_ids) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (ten, current_user["id"], ct_user["id"], tk_user["id"], pb_user["id"] if pb_user else None, thoi_gian, phong, _json_mod.dumps(tv_ids))
+        )
+        hd_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        
+        return ok("Tạo hội đồng thành công", {"id": str(hd_id)})
+
+    @app.route("/api/hoi-dong/update/<hd_id>", methods=["POST"])
+    @role_required("TBM")
+    def update_hoi_dong(hd_id):
+        data = request.json or {}
+        ten = (data.get("ten") or "").strip()
+        thoi_gian = data.get("thoi_gian")
+        phong = (data.get("phong") or "").strip()
+        ct_email = (data.get("ct") or "").strip()
+        tk_email = (data.get("tk") or "").strip()
+        pb_email = (data.get("pb") or "").strip()
+        tv_emails = data.get("tv", [])
+
+        if not ten or not ct_email or not tk_email:
+            return fail("Thiếu thông tin hội đồng (tên, chủ tịch, thư ký)", 400)
+
+        try:
+            hd_id = int(hd_id)
+        except (TypeError, ValueError):
+            return fail("ID hội đồng không hợp lệ", 400)
+
+        conn = get_db()
+        current_user = get_current_user(conn)
+        
+        # Check ownership
+        hd = conn.execute("SELECT nguoi_tao_id FROM hoi_dong WHERE id = ?", (hd_id,)).fetchone()
+        if not hd or hd["nguoi_tao_id"] != current_user["id"]:
+            conn.close()
+            return fail("Bạn không có quyền chỉnh sửa hội đồng này", 403)
+        
+        # Get user IDs
+        ct_user = conn.execute("SELECT id FROM users WHERE gmail = ?", (ct_email,)).fetchone()
+        tk_user = conn.execute("SELECT id FROM users WHERE gmail = ?", (tk_email,)).fetchone()
+        pb_user = conn.execute("SELECT id FROM users WHERE gmail = ?", (pb_email,)).fetchone() if pb_email else None
+        
+        if not ct_user or not tk_user:
+            conn.close()
+            return fail("Không tìm thấy thông tin chủ tịch hoặc thư ký", 400)
+
+        tv_ids = []
+        for email in tv_emails:
+            tv_user = conn.execute("SELECT id FROM users WHERE gmail = ?", (email,)).fetchone()
+            if tv_user:
+                tv_ids.append(tv_user["id"])
+
+        # Update council
+        conn.execute(
+            "UPDATE hoi_dong SET ten = ?, chu_tich_id = ?, thu_ky_id = ?, gv_pb_id = ?, thoi_gian = ?, phong = ?, tv_ids = ? WHERE id = ?",
+            (ten, ct_user["id"], tk_user["id"], pb_user["id"] if pb_user else None, thoi_gian, phong, _json_mod.dumps(tv_ids), hd_id)
+        )
+        conn.commit()
+        conn.close()
+        
+        return ok("Cập nhật hội đồng thành công")
+
+    @app.route("/api/hoi-dong/delete/<hd_id>", methods=["POST"])
+    @role_required("TBM")
+    def delete_hoi_dong(hd_id):
+        try:
+            hd_id = int(hd_id)
+        except (TypeError, ValueError):
+            return fail("ID hội đồng không hợp lệ", 400)
+
+        conn = get_db()
+        current_user = get_current_user(conn)
+        
+        # Check ownership
+        hd = conn.execute("SELECT nguoi_tao_id FROM hoi_dong WHERE id = ?", (hd_id,)).fetchone()
+        if not hd or hd["nguoi_tao_id"] != current_user["id"]:
+            conn.close()
+            return fail("Bạn không có quyền xóa hội đồng này", 403)
+        
+        # Check if council has assigned students
+        assigned_count = conn.execute(
+            "SELECT COUNT(*) as count FROM dang_ky WHERE chu_tich_id IN (SELECT chu_tich_id FROM hoi_dong WHERE id = ?) OR thu_ky_id IN (SELECT thu_ky_id FROM hoi_dong WHERE id = ?) OR uy_vien_ids LIKE '%' || (SELECT chu_tich_id FROM hoi_dong WHERE id = ?) || '%'",
+            (hd_id, hd_id, hd_id)
+        ).fetchone()["count"]
+        
+        if assigned_count > 0:
+            conn.close()
+            return fail("Không thể xóa hội đồng đã có sinh viên được phân công", 400)
+        
+        conn.execute("DELETE FROM hoi_dong WHERE id = ?", (hd_id,))
+        conn.commit()
+        conn.close()
+        
+        return ok("Xóa hội đồng thành công")
 
     def upload_to_drive(file):
         try:

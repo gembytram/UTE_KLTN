@@ -366,6 +366,8 @@ def migrate_db(conn):
         cur.execute("ALTER TABLE dang_ky ADD COLUMN thu_ky_id INTEGER")
     if "uy_vien_ids" not in dkcols:
         cur.execute("ALTER TABLE dang_ky ADD COLUMN uy_vien_ids TEXT DEFAULT '[]'")
+    if "hoi_dong_id" not in dkcols:
+        cur.execute("ALTER TABLE dang_ky ADD COLUMN hoi_dong_id INTEGER")
     cur.execute(
         "UPDATE users SET mat_khau = '123456' WHERE mat_khau = '12345678910'"
     )
@@ -419,6 +421,21 @@ def init_db():
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS hoi_dong (
+                id SERIAL PRIMARY KEY,
+                ten TEXT NOT NULL,
+                nguoi_tao_id INTEGER NOT NULL REFERENCES users(id),
+                chu_tich_id INTEGER REFERENCES users(id),
+                thu_ky_id INTEGER REFERENCES users(id),
+                gv_pb_id INTEGER REFERENCES users(id),
+                thoi_gian TIMESTAMP,
+                phong TEXT,
+                tv_ids TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS dang_ky (
                 id SERIAL PRIMARY KEY,
                 sv_id INTEGER REFERENCES users(id),
@@ -429,6 +446,7 @@ def init_db():
                 linh_vuc TEXT,
                 trang_thai TEXT DEFAULT 'cho_duyet',
                 gv_pb_id INTEGER REFERENCES users(id),
+                hoi_dong_id INTEGER REFERENCES hoi_dong(id),
                 chu_tich_id INTEGER REFERENCES users(id),
                 thu_ky_id INTEGER REFERENCES users(id),
                 uy_vien_ids TEXT
@@ -538,12 +556,14 @@ def init_db():
                 linh_vuc TEXT,
                 trang_thai TEXT DEFAULT 'cho_duyet',  -- cho_duyet/dong_y/tu_choi/pass/fail
                 gv_pb_id INTEGER,               -- GV phản biện (assigned by TBM)
+                hoi_dong_id INTEGER,            -- ID của hội đồng từ bảng hoi_dong
                 chu_tich_id INTEGER,            -- Chủ tịch hội đồng (assigned by TBM)
                 thu_ky_id INTEGER,              -- Thư ký hội đồng (assigned by TBM)
                 uy_vien_ids TEXT,               -- JSON array of uy vien IDs (assigned by TBM)
                 FOREIGN KEY(sv_id) REFERENCES users(id),
                 FOREIGN KEY(gv_id) REFERENCES users(id),
                 FOREIGN KEY(gv_pb_id) REFERENCES users(id),
+                FOREIGN KEY(hoi_dong_id) REFERENCES hoi_dong(id),
                 FOREIGN KEY(chu_tich_id) REFERENCES users(id),
                 FOREIGN KEY(thu_ky_id) REFERENCES users(id),
                 FOREIGN KEY(dot_id) REFERENCES dot(id)
@@ -596,6 +616,22 @@ def init_db():
                 PRIMARY KEY (user_id, field_id),
                 FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
                 FOREIGN KEY(field_id) REFERENCES linh_vuc_phu_trach(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS hoi_dong (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ten TEXT NOT NULL,
+                nguoi_tao_id INTEGER NOT NULL,
+                chu_tich_id INTEGER,
+                thu_ky_id INTEGER,
+                gv_pb_id INTEGER,
+                thoi_gian TEXT,
+                phong TEXT,
+                tv_ids TEXT,  -- JSON array of thanh vien IDs
+                FOREIGN KEY(nguoi_tao_id) REFERENCES users(id),
+                FOREIGN KEY(chu_tich_id) REFERENCES users(id),
+                FOREIGN KEY(thu_ky_id) REFERENCES users(id),
+                FOREIGN KEY(gv_pb_id) REFERENCES users(id)
             );
         """)
 

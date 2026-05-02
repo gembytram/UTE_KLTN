@@ -44,18 +44,41 @@ def fetch_bootstrap(conn):
     slots = conn.execute("SELECT * FROM gv_slot ORDER BY id ASC").fetchall()
     regs = conn.execute(
         """
-        SELECT dk.*, sv.ma AS sv_ma, gv.ma AS gv_ma, d.ten_dot AS ten_dot
+        SELECT dk.*, sv.ma AS sv_ma, gv.ma AS gv_ma, d.ten_dot AS ten_dot,
+               hd.ten AS hd_ten, hd.thoi_gian AS hd_thoi_gian, hd.phong AS hd_phong
         FROM dang_ky dk
         JOIN users sv ON sv.id = dk.sv_id
         JOIN users gv ON gv.id = dk.gv_id
         JOIN dot d ON d.id = dk.dot_id
+        LEFT JOIN hoi_dong hd ON hd.id = dk.hoi_dong_id
         ORDER BY dk.id DESC
         """
     ).fetchall()
     scores = conn.execute("SELECT * FROM cham_diem ORDER BY id ASC").fetchall()
     uploads = conn.execute("SELECT * FROM nop_bai ORDER BY uploaded_at DESC").fetchall()
+    hoi_dong_rows = conn.execute("SELECT * FROM hoi_dong ORDER BY id ASC").fetchall()
 
     user_map = {u["id"]: serialize_user(u) for u in users}
+    
+    # Process hoi_dong data
+    hoi_dong_list = []
+    for hd in hoi_dong_rows:
+        try:
+            tv_ids = _json_mod.loads(hd["tv_ids"] or "[]")
+        except:
+            tv_ids = []
+        
+        hoi_dong_list.append({
+            "id": str(hd["id"]),
+            "ten": hd["ten"],
+            "nguoiTaoEmail": user_map.get(hd["nguoi_tao_id"], {}).get("email", ""),
+            "ct": user_map.get(hd["chu_tich_id"], {}).get("email", "") if hd["chu_tich_id"] else "",
+            "tk": user_map.get(hd["thu_ky_id"], {}).get("email", "") if hd["thu_ky_id"] else "",
+            "pb": user_map.get(hd["gv_pb_id"], {}).get("email", "") if hd["gv_pb_id"] else "",
+            "tv": [user_map.get(uid, {}).get("email", "") for uid in tv_ids if uid in user_map],
+            "thoiGian": hd["thoi_gian"],
+            "phong": hd["phong"] or "",
+        })
     gv_slots_payload = []
     for s in slots:
         hek = (s["he_dao_tao"] or "").strip() or "DaiTra"
@@ -163,15 +186,21 @@ def fetch_bootstrap(conn):
             }
             gv_pb_email = user_map.get(gv_pb_id, {}).get("email") if gv_pb_id else None
             hoi_dong = None
-            if chu_tich_id and thu_ky_id and uy_vien_list:
+            if r.get("hoi_dong_id") and chu_tich_id and thu_ky_id:
                 ct_user = user_map.get(chu_tich_id)
                 tk_user = user_map.get(thu_ky_id)
                 tv_users = [user_map.get(uid) for uid in uy_vien_list if uid in user_map]
-                if ct_user and tk_user and tv_users:
+                pb_user = user_map.get(gv_pb_id) if gv_pb_id else None
+                if ct_user and tk_user:
                     hoi_dong = {
+                        "id": str(r["hoi_dong_id"]),
+                        "tenHD": r.get("hd_ten"),
                         "ct": ct_user["email"],
                         "tk": tk_user["email"],
-                        "tv": [u["email"] for u in tv_users],
+                        "tv": [u["email"] for u in tv_users] if tv_users else [],
+                        "pb": pb_user["email"] if pb_user else None,
+                        "thoiGian": r.get("hd_thoi_gian"),
+                        "phong": r.get("hd_phong"),
                     }
             record["gvPBEmail"] = gv_pb_email
             record["advisorId"] = assignment.get("advisor_id")
@@ -288,4 +317,5 @@ def fetch_bootstrap(conn):
         "bcttList": bctt_list,
         "kltnList": kltn_list,
         "gvSlots": gv_slots_payload,
+        "hoiDongList": hoi_dong_list,
     }
