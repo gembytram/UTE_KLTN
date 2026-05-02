@@ -853,7 +853,14 @@ async function apiRequest(path, options = {}) {
   } catch (_) {
     throw new Error(`Không kết nối được tới máy chủ (${API_BASE}). Hãy chạy backend Flask rồi mở giao diện từ đúng địa chỉ mà Flask in ra.`);
   }
-  const body = await res.json().catch(() => ({ success: false, message: "Invalid JSON" }));
+  let body;
+  try {
+    body = await res.json();
+  } catch (err) {
+    const text = await res.text().catch(() => "");
+    const snippet = text ? text.slice(0, 500).replace(/\s+/g, " ") : "<empty response>";
+    throw new Error(`Invalid JSON response from server: ${snippet}`);
+  }
   if (!res.ok || body.success === false) {
     throw new Error(body.message || "Có lỗi từ server");
   }

@@ -2,7 +2,7 @@ import os
 import socket
 
 from authlib.integrations.flask_client import OAuth
-from flask import Flask, redirect, session
+from flask import Flask, redirect, session, request, jsonify
 from flask_cors import CORS
 
 from api.routes import register_routes
@@ -110,6 +110,15 @@ try:
         init_db()
 except Exception as e:
     print(f"Database init warning: {e}")
+
+@app.errorhandler(Exception)
+def handle_api_exception(error):
+    if request.path.startswith("/api"):
+        status_code = getattr(error, "code", 500)
+        message = str(error)
+        return jsonify({"success": False, "message": message, "data": {}}), status_code
+    raise error
+
 
 register_routes(app)
 
