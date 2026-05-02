@@ -591,6 +591,31 @@ def register_routes(app):
         conn.close()
         return ok("Cập nhật người dùng thành công", {"user": payload})
 
+    @app.route("/api/admin/users/<int:user_id>", methods=["DELETE"])
+    @role_required("ADMIN")
+    def admin_delete_user(user_id):
+        conn = get_db()
+        current_user = get_current_user(conn)
+        if current_user and current_user["id"] == user_id:
+            conn.close()
+            return fail("Không thể xóa tài khoản đang đăng nhập", 400)
+
+        user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not user:
+            conn.close()
+            return fail("Không tìm thấy người dùng", 404)
+
+        try:
+            conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+            conn.commit()
+        except Exception as exc:
+            conn.rollback()
+            conn.close()
+            return fail(str(exc), 400)
+
+        conn.close()
+        return ok("Xóa người dùng thành công")
+
     @app.route("/api/admin/fields", methods=["GET"])
     @role_required("ADMIN")
     def admin_get_fields():

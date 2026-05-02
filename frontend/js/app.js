@@ -3847,7 +3847,10 @@ function renderUsers() {
       <td style="font-size:12px;font-family:'JetBrains Mono'">${escapeHtml(u.email || '')}</td>
       <td><span class="badge ${roleColors[u.role]}">${roleNames[u.role]}</span></td>
       <td>${fieldNames.length ? fieldNames.map((name) => `<span class="badge badge-gray" style="margin-right:4px">${escapeHtml(name)}</span>`).join('') : '<span style="color:var(--text3)">—</span>'}</td>
-      <td><button class="btn btn-ghost btn-sm" onclick="editUserModal(${Number(u.id)})">✏️ Sửa</button></td>
+      <td style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn btn-ghost btn-sm" onclick="editUserModal(${Number(u.id)})">✏️ Sửa</button>
+        <button class="btn btn-ghost btn-sm" onclick="deleteUser(${Number(u.id)})">🗑️ Xóa</button>
+      </td>
     </tr>`;
   });
   html += `</tbody></table></div></div>`;
@@ -4011,6 +4014,18 @@ async function submitUserForm() {
     toast(userId ? 'Cập nhật người dùng thành công' : 'Tạo người dùng thành công');
   } catch (err) {
     toast(err.message || 'Lưu người dùng thất bại', 'error');
+  }
+}
+
+async function deleteUser(userId) {
+  if (!window.confirm('Xác nhận xóa người dùng này?')) return;
+  try {
+    await apiRequest(`/api/admin/users/${Number(userId)}`, { method: 'DELETE' });
+    await syncFromServer();
+    renderUsers();
+    toast('Đã xóa người dùng');
+  } catch (err) {
+    toast(err.message || 'Xóa người dùng thất bại', 'error');
   }
 }
 
