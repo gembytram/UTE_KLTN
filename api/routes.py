@@ -112,6 +112,52 @@ def register_routes(app):
     def _normalize_field_name(value):
         return str(value or "").strip()
 
+    def _field_table_has_name_column(conn):
+        try:
+            if getattr(conn, "_engine", None) == "postgres":
+                rows = conn.execute(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema = 'public' AND table_name = ?",
+                    ("linh_vuc_phu_trach",),
+                ).fetchall()
+                return any(row["column_name"] == "name" for row in rows)
+            rows = conn.execute("PRAGMA table_info(linh_vuc_phu_trach)").fetchall()
+            return any(row[1] == "name" for row in rows)
+        except Exception:
+            return False
+
+    def _insert_field(conn, name):
+        if _field_table_has_name_column(conn):
+            conn.execute(
+                """
+                INSERT INTO linh_vuc_phu_trach (ten, name)
+                VALUES (?, ?)
+                ON CONFLICT (ten) DO NOTHING
+                """,
+                (name, name),
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO linh_vuc_phu_trach (ten)
+                VALUES (?)
+                ON CONFLICT (ten) DO NOTHING
+                """,
+                (name,),
+            )
+
+    def _update_field_name(conn, field_id, name):
+        if _field_table_has_name_column(conn):
+            conn.execute(
+                "UPDATE linh_vuc_phu_trach SET ten = ?, name = ? WHERE id = ?",
+                (name, name, field_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE linh_vuc_phu_trach SET ten = ? WHERE id = ?",
+                (name, field_id),
+            )
+
     def _field_ids_from_payload(conn, payload):
         payload = payload or {}
         raw_ids = payload.get("linh_vuc_phu_trach_ids")
@@ -152,14 +198,7 @@ def register_routes(app):
             name_candidates = [x for x in name_candidates if x]
 
         for name in name_candidates:
-            conn.execute(
-                """
-                INSERT INTO linh_vuc_phu_trach (ten)
-                VALUES (?)
-                ON CONFLICT (ten) DO NOTHING
-                """,
-                (name,),
-            )
+            _insert_field(conn, name)
             row = conn.execute(
                 "SELECT id FROM linh_vuc_phu_trach WHERE ten = ?",
                 (name,),
@@ -541,14 +580,7 @@ def register_routes(app):
         if not ten:
             return fail("Tên lĩnh vực không hợp lệ", 400)
         conn = get_db()
-        conn.execute(
-            """
-            INSERT INTO linh_vuc_phu_trach (ten)
-            VALUES (?)
-            ON CONFLICT (ten) DO NOTHING
-            """,
-            (ten,),
-        )
+        _insert_field(conn, ten)
         field = conn.execute(
             "SELECT id, ten FROM linh_vuc_phu_trach WHERE ten = ?",
             (ten,),
@@ -574,10 +606,7 @@ def register_routes(app):
         if not existed:
             conn.close()
             return fail("Không tìm thấy lĩnh vực", 404)
-        conn.execute(
-            "UPDATE linh_vuc_phu_trach SET ten = ? WHERE id = ?",
-            (ten, field_id),
-        )
+        _update_field_name(conn, field_id, ten)
         user_rows = conn.execute(
             "SELECT DISTINCT user_id FROM user_linh_vuc_phu_trach WHERE field_id = ?",
             (field_id,),

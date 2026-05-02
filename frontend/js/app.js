@@ -960,7 +960,6 @@ const NAV_CONFIG = {
   ],
   admin: [
     { section: 'Quản trị' },
-    { id: 'dashboard', label: 'Tổng quan', icon: '🏠' },
     { id: 'users', label: 'Quản lý người dùng', icon: '👥' },
     { id: 'fields', label: 'Quản lý lĩnh vực', icon: '🏷️' },
     { id: 'detai', label: 'Tất cả đề tài', icon: '📋' },
