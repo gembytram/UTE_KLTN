@@ -1199,6 +1199,7 @@ async function doLogin() {
     if (mapped.role === "sv") navigateTo("dashboard");
     if (mapped.role === "gv") navigateTo("huongdan");
     if (mapped.role === "bm") navigateTo("duyetde");
+    if (mapped.role === "admin") navigateTo("users");
     toast("Đăng nhập thành công");
   } catch (err) {
     toast(err.message, "error");
