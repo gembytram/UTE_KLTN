@@ -1,7 +1,6 @@
 # Hệ Thống Quản Lý BCTT - KLTN
 
 Ứng dụng web quản lý **Báo Cáo Thực Tập (BCTT)** và **Khóa Luận Tốt Nghiệp (KLTN)** cho Khoa Công Nghệ Thông Tin, Trường Đại Học Công Nghệ TPHCM.
-
 ---
 
 ## 📋 Mục Lục
