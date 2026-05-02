@@ -31,6 +31,15 @@ def serialize_user(row):
 
 def fetch_bootstrap(conn):
     users = conn.execute("SELECT * FROM users ORDER BY id ASC").fetchall()
+    fields = conn.execute("SELECT id, ten FROM linh_vuc_phu_trach ORDER BY ten ASC").fetchall()
+    user_field_rows = conn.execute(
+        """
+        SELECT uf.user_id, uf.field_id, f.ten
+        FROM user_linh_vuc_phu_trach uf
+        JOIN linh_vuc_phu_trach f ON f.id = uf.field_id
+        ORDER BY uf.user_id ASC, f.ten ASC
+        """
+    ).fetchall()
     dots = conn.execute("SELECT * FROM dot ORDER BY id ASC").fetchall()
     slots = conn.execute("SELECT * FROM gv_slot ORDER BY id ASC").fetchall()
     regs = conn.execute(
@@ -228,9 +237,19 @@ def fetch_bootstrap(conn):
             "duyet_tbm": all(bool(s["duyet_tbm"]) for s in bctt_open),
         }
 
+    user_field_map = {}
+    for row in user_field_rows:
+        user_field_map.setdefault(row["user_id"], []).append(
+            {"id": row["field_id"], "ten": row["ten"]}
+        )
+
     mapped_users = []
     for u in users:
         role = map_role(u["role"])
+        user_fields = user_field_map.get(u["id"], [])
+        field_names = [f["ten"] for f in user_fields]
+        field_ids = [f["id"] for f in user_fields]
+        linh_vuc_phu_trach_text = ", ".join(field_names) if field_names else (u["linh_vuc_phu_trach"] or "").strip()
         user_data = {
             "id": u["id"],
             "ma": u["ma"],
@@ -243,8 +262,10 @@ def fetch_bootstrap(conn):
             "msgv": u["ma"] if role in ("gv", "bm") else None,
             "khoa": "Kinh tế",
             "chuyenMon": [x.strip() for x in (u["linh_vuc"] or "").split(",") if x.strip()],
-            "linhVucPhuTrach": (u["linh_vuc_phu_trach"] or "").strip(),
-            "linh_vuc_phu_trach": (u["linh_vuc_phu_trach"] or "").strip(),
+            "linhVucPhuTrach": linh_vuc_phu_trach_text,
+            "linh_vuc_phu_trach": linh_vuc_phu_trach_text,
+            "linhVucPhuTrachList": field_names,
+            "linhVucPhuTrachIds": field_ids,
             "heDaoTao": (u["he_dao_tao"] or "").strip(),
         }
         if role in ("gv", "bm"):
@@ -262,6 +283,7 @@ def fetch_bootstrap(conn):
 
     return {
         "users": mapped_users,
+        "fields": [{"id": f["id"], "ten": f["ten"]} for f in fields],
         "dotDangKy": dot_data,
         "bcttList": bctt_list,
         "kltnList": kltn_list,

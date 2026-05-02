@@ -23,6 +23,7 @@ const FETCH_OPTS = { credentials: "include" };
 
 const DB = {
   users: [],
+  fields: [],
   dotDangKy: [],
   mangDeTai: [],
   bcttList: [],
@@ -251,7 +252,19 @@ function getCurrentStudentMajor() {
 }
 
 function getCurrentStudentFields() {
-  return ['AI', 'Chất lượng', 'HR', 'Kinh doanh quốc tế', 'Kế toán', 'Logistic', 'Marketing', 'Mô phỏng', 'Quản lý công nghiệp', 'Sản xuất'];
+  const rows = Array.isArray(DB.fields) ? DB.fields : [];
+  const names = rows
+    .map((f) => String(f.ten ?? f.name ?? '').trim())
+    .filter(Boolean);
+  const seen = new Set();
+  const unique = [];
+  for (const n of names) {
+    const key = n.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(n);
+  }
+  return unique.sort((a, b) => a.localeCompare(b, 'vi'));
 }
 
 function getTopicTypesForField(field) {
@@ -856,7 +869,10 @@ async function syncFromServer() {
       ? u.chuyenMon
       : (u.linh_vuc ? u.linh_vuc.split(',').map(s => s.trim()) : []),
     linhVucPhuTrach: String(u.linhVucPhuTrach || u.linh_vuc_phu_trach || '').trim(),
+    linhVucPhuTrachList: Array.isArray(u.linhVucPhuTrachList) ? u.linhVucPhuTrachList : [],
+    linhVucPhuTrachIds: Array.isArray(u.linhVucPhuTrachIds) ? u.linhVucPhuTrachIds.map((x) => Number(x)).filter((x) => !Number.isNaN(x)) : [],
   }));
+  DB.fields = Array.isArray(data.fields) ? data.fields : [];
   DB.dotDangKy = data.dotDangKy || [];
   DB.bcttList = data.bcttList || [];
   DB.kltnList = data.kltnList || [];
@@ -946,8 +962,8 @@ const NAV_CONFIG = {
     { section: 'Quản trị' },
     { id: 'dashboard', label: 'Tổng quan', icon: '🏠' },
     { id: 'users', label: 'Quản lý người dùng', icon: '👥' },
+    { id: 'fields', label: 'Quản lý lĩnh vực', icon: '🏷️' },
     { id: 'detai', label: 'Tất cả đề tài', icon: '📋' },
-    { id: 'phancong', label: 'Phân công', icon: '🗂️' },
   ],
 };
 
@@ -1305,7 +1321,7 @@ function navigateTo(page) {
   const titles = {
     dashboard: 'Tổng quan', bctt: 'Đăng ký BCTT', kltn: 'Đăng ký KLTN',
     detai: 'Quản lý đề tài', duyetde: 'Duyệt đề tài', phancong: 'Phân công PB / Hội đồng',
-    nhapDiem: 'Nhập điểm', hoithuong: 'Hội đồng', users: 'Quản lý người dùng', profile: 'Hồ sơ cá nhân',
+    nhapDiem: 'Nhập điểm', hoithuong: 'Hội đồng', users: 'Quản lý người dùng', fields: 'Quản lý lĩnh vực', profile: 'Hồ sơ cá nhân',
     theodoi: 'Theo dõi trạng thái', huongdan: 'Hướng dẫn', phanbien: 'Phản biện', hoidong: 'Hội đồng',
     thongbao: 'Thông báo',
     chutich: 'Chủ tịch hội đồng', thuky: 'Thư ký hội đồng', goiy: 'Gợi ý đề tài', thongke: 'Thống kê',
@@ -1315,7 +1331,7 @@ function navigateTo(page) {
   const renders = {
     dashboard: renderDashboard, bctt: renderBCTT, kltn: renderKLTN,
     detai: renderDeTai, duyetde: renderDuyetDe, phancong: renderPhanCong,
-    nhapDiem: renderNhapDiem, users: renderUsers, profile: renderProfile,
+    nhapDiem: renderNhapDiem, users: renderUsers, fields: renderFields, profile: renderProfile,
     theodoi: renderTheoDoi, huongdan: renderHuongDan, phanbien: renderPhanBien, hoidong: renderHoiDong,
     thongbao: renderThongBao,
     chutich: renderChuTich, thuky: renderThuKy, goiy: renderGoiY, thongke: renderThongKe,
@@ -3764,24 +3780,287 @@ function renderNhapDiem() {
 
 function renderUsers() {
   const el = document.getElementById('page-users');
+  const roleOptions = [
+    { value: '', label: 'Tất cả vai trò' },
+    { value: 'SV', label: 'Sinh viên' },
+    { value: 'GV', label: 'Giảng viên' },
+    { value: 'TBM', label: 'Trưởng Bộ Môn' },
+    { value: 'ADMIN', label: 'Quản trị viên' },
+  ];
   let html = `<div class="page-header"><h1>👥 Quản lý Người dùng</h1><p>Tổng cộng ${DB.users.length} tài khoản</p></div>
-    <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+    <div style="display:flex;gap:8px;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input id="admin-user-q" placeholder="Tìm theo mã, tên, email..." style="width:260px" />
+        <select id="admin-user-role">${roleOptions.map((r) => `<option value="${r.value}">${r.label}</option>`).join('')}</select>
+        <button class="btn btn-secondary btn-sm" onclick="loadAdminUsersFromFilters()">Lọc</button>
+      </div>
       <button class="btn btn-primary btn-sm" onclick="addUserModal()">➕ Thêm người dùng</button>
     </div>
     <div class="card">
-    <div class="table-wrap"><table><thead><tr><th>Họ tên</th><th>Email</th><th>Vai trò</th><th>Thao tác</th></tr></thead><tbody>`;
+    <div class="table-wrap"><table><thead><tr><th>Mã</th><th>Họ tên</th><th>Email</th><th>Vai trò</th><th>Lĩnh vực phụ trách</th><th>Thao tác</th></tr></thead><tbody>`;
   DB.users.forEach(u => {
     const roleColors = { sv: 'badge-purple', gv: 'badge-green', bm: 'badge-blue', admin: 'badge-red' };
     const roleNames = { sv: 'Sinh viên', gv: 'Giảng viên', bm: 'Trưởng BM', admin: 'Admin' };
+    const fieldNames = Array.isArray(u.linhVucPhuTrachList)
+      ? u.linhVucPhuTrachList
+      : String(u.linhVucPhuTrach || u.linh_vuc_phu_trach || '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
     html += `<tr>
+      <td style="font-family:'JetBrains Mono';font-size:12px">${escapeHtml(u.ma || '')}</td>
       <td><div style="font-weight:600">${u.name}</div></td>
-      <td style="font-size:12px;font-family:'JetBrains Mono'">${u.email}</td>
+      <td style="font-size:12px;font-family:'JetBrains Mono'">${escapeHtml(u.email || '')}</td>
       <td><span class="badge ${roleColors[u.role]}">${roleNames[u.role]}</span></td>
-      <td><button class="btn btn-ghost btn-sm" onclick="editUserModal('${u.email}')">✏️ Sửa</button></td>
+      <td>${fieldNames.length ? fieldNames.map((name) => `<span class="badge badge-gray" style="margin-right:4px">${escapeHtml(name)}</span>`).join('') : '<span style="color:var(--text3)">—</span>'}</td>
+      <td><button class="btn btn-ghost btn-sm" onclick="editUserModal(${Number(u.id)})">✏️ Sửa</button></td>
     </tr>`;
   });
   html += `</tbody></table></div></div>`;
   el.innerHTML = html;
+}
+
+function renderFieldTagEditor(selectedIds) {
+  const selectedSet = new Set((selectedIds || []).map((id) => Number(id)));
+  const tags = DB.fields
+    .filter((f) => selectedSet.has(Number(f.id)))
+    .map((f) => `<span class="badge badge-blue" style="margin-right:6px;margin-top:6px;display:inline-flex;align-items:center;gap:6px">
+      ${escapeHtml(f.ten)} <button type="button" class="btn btn-ghost btn-sm" style="padding:0 4px;line-height:1" onclick="removeSelectedFieldId(${Number(f.id)})">✕</button>
+    </span>`)
+    .join('');
+  return tags || '<span style="color:var(--text3)">Chưa chọn lĩnh vực phụ trách</span>';
+}
+
+function getSelectedFieldIdsFromInput() {
+  const hidden = document.getElementById('user-linh_vuc_phu_trach_ids');
+  if (!hidden) return [];
+  try {
+    const parsed = JSON.parse(hidden.value || '[]');
+    return Array.isArray(parsed) ? parsed.map((x) => Number(x)).filter((x) => !Number.isNaN(x)) : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function updateSelectedFieldTags() {
+  const holder = document.getElementById('selected-field-tags');
+  if (!holder) return;
+  holder.innerHTML = renderFieldTagEditor(getSelectedFieldIdsFromInput());
+}
+
+function addSelectedFieldId() {
+  const select = document.getElementById('user-field-select');
+  const hidden = document.getElementById('user-linh_vuc_phu_trach_ids');
+  if (!select || !hidden) return;
+  const picked = Number(select.value);
+  if (Number.isNaN(picked) || !picked) return;
+  const ids = new Set(getSelectedFieldIdsFromInput());
+  ids.add(picked);
+  hidden.value = JSON.stringify(Array.from(ids));
+  updateSelectedFieldTags();
+}
+
+function removeSelectedFieldId(fieldId) {
+  const hidden = document.getElementById('user-linh_vuc_phu_trach_ids');
+  if (!hidden) return;
+  const ids = getSelectedFieldIdsFromInput().filter((id) => Number(id) !== Number(fieldId));
+  hidden.value = JSON.stringify(ids);
+  updateSelectedFieldTags();
+}
+
+function addUserModal() {
+  const roleOptions = [
+    { value: 'SV', label: 'Sinh viên' },
+    { value: 'GV', label: 'Giảng viên' },
+    { value: 'TBM', label: 'Trưởng Bộ Môn' },
+    { value: 'ADMIN', label: 'Quản trị viên' },
+  ];
+  showModal(`
+    <div class="modal-header"><div class="modal-title">➕ Thêm người dùng</div><button class="modal-close" onclick="closeModalForce()">✕</button></div>
+    <div class="modal-body">
+      <div class="form-group"><label>Mã</label><input id="user-ma" /></div>
+      <div class="form-group"><label>Họ tên</label><input id="user-ho_ten" /></div>
+      <div class="form-group"><label>Email</label><input id="user-gmail" /></div>
+      <div class="form-group"><label>Mật khẩu</label><input id="user-mat_khau" type="password" /></div>
+      <div class="form-group"><label>Vai trò</label><select id="user-role">${roleOptions.map((r) => `<option value="${r.value}">${r.label}</option>`).join('')}</select></div>
+      <div class="form-group"><label>Ngành</label><input id="user-linh_vuc" /></div>
+      <div class="form-group"><label>Hệ đào tạo</label><select id="user-he_dao_tao"><option value="">-- Chọn --</option><option value="DaiTra">Đại trà</option><option value="CLC">CLC</option></select></div>
+      <div class="form-group">
+        <label>Lĩnh vực phụ trách</label>
+        <div style="display:flex;gap:8px">
+          <select id="user-field-select"><option value="">-- Chọn lĩnh vực --</option>${(DB.fields || []).map((f) => `<option value="${Number(f.id)}">${escapeHtml(f.ten)}</option>`).join('')}</select>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="addSelectedFieldId()">➕</button>
+        </div>
+        <input type="hidden" id="user-linh_vuc_phu_trach_ids" value="[]"/>
+        <div id="selected-field-tags" style="margin-top:8px"></div>
+      </div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModalForce()">Hủy</button><button class="btn btn-primary" onclick="submitUserForm()">💾 Lưu</button></div>
+  `);
+  updateSelectedFieldTags();
+}
+
+function editUserModal(userId) {
+  const user = DB.users.find((u) => Number(u.id) === Number(userId));
+  if (!user) return toast('Không tìm thấy người dùng', 'error');
+  const roleOptions = [
+    { value: 'SV', label: 'Sinh viên' },
+    { value: 'GV', label: 'Giảng viên' },
+    { value: 'TBM', label: 'Trưởng Bộ Môn' },
+    { value: 'ADMIN', label: 'Quản trị viên' },
+  ];
+  const roleRaw = String(user.role_raw || toApiRole(user.role) || '').toUpperCase();
+  const fieldIds = Array.isArray(user.linhVucPhuTrachIds) ? user.linhVucPhuTrachIds : [];
+  showModal(`
+    <div class="modal-header"><div class="modal-title">✏️ Sửa người dùng</div><button class="modal-close" onclick="closeModalForce()">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="user-id" value="${Number(user.id)}"/>
+      <div class="form-group"><label>Mã</label><input id="user-ma" value="${escapeHtml(user.ma || '')}" disabled /></div>
+      <div class="form-group"><label>Họ tên</label><input id="user-ho_ten" value="${escapeHtml(user.name || '')}" /></div>
+      <div class="form-group"><label>Email</label><input id="user-gmail" value="${escapeHtml(user.gmail || user.email || '')}" /></div>
+      <div class="form-group"><label>Mật khẩu mới (để trống nếu không đổi)</label><input id="user-mat_khau" type="password" /></div>
+      <div class="form-group"><label>Vai trò</label><select id="user-role">${roleOptions.map((r) => `<option value="${r.value}" ${r.value === roleRaw ? 'selected' : ''}>${r.label}</option>`).join('')}</select></div>
+      <div class="form-group"><label>Ngành</label><input id="user-linh_vuc" value="${escapeHtml((user.chuyenMon || []).join(', '))}" /></div>
+      <div class="form-group"><label>Hệ đào tạo</label><select id="user-he_dao_tao"><option value="">-- Chọn --</option><option value="DaiTra" ${user.heDaoTao === 'DaiTra' ? 'selected' : ''}>Đại trà</option><option value="CLC" ${user.heDaoTao === 'CLC' ? 'selected' : ''}>CLC</option></select></div>
+      <div class="form-group">
+        <label>Lĩnh vực phụ trách</label>
+        <div style="display:flex;gap:8px">
+          <select id="user-field-select"><option value="">-- Chọn lĩnh vực --</option>${(DB.fields || []).map((f) => `<option value="${Number(f.id)}">${escapeHtml(f.ten)}</option>`).join('')}</select>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="addSelectedFieldId()">➕</button>
+        </div>
+        <input type="hidden" id="user-linh_vuc_phu_trach_ids" value='${JSON.stringify(fieldIds)}'/>
+        <div id="selected-field-tags" style="margin-top:8px"></div>
+      </div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModalForce()">Hủy</button><button class="btn btn-primary" onclick="submitUserForm()">💾 Cập nhật</button></div>
+  `);
+  updateSelectedFieldTags();
+}
+
+async function submitUserForm() {
+  const userId = document.getElementById('user-id')?.value;
+  const payload = {
+    ma: document.getElementById('user-ma')?.value.trim(),
+    ho_ten: document.getElementById('user-ho_ten')?.value.trim(),
+    gmail: document.getElementById('user-gmail')?.value.trim(),
+    mat_khau: document.getElementById('user-mat_khau')?.value || '',
+    role: document.getElementById('user-role')?.value,
+    linh_vuc: document.getElementById('user-linh_vuc')?.value.trim(),
+    he_dao_tao: document.getElementById('user-he_dao_tao')?.value,
+    linh_vuc_phu_trach_ids: getSelectedFieldIdsFromInput(),
+  };
+  if (userId && !payload.mat_khau) delete payload.mat_khau;
+  try {
+    const path = userId ? `/api/admin/users/${Number(userId)}` : '/api/admin/users';
+    await apiRequest(path, {
+      method: userId ? 'PUT' : 'POST',
+      body: JSON.stringify(payload),
+    });
+    closeModalForce();
+    await syncFromServer();
+    renderUsers();
+    toast(userId ? 'Cập nhật người dùng thành công' : 'Tạo người dùng thành công');
+  } catch (err) {
+    toast(err.message || 'Lưu người dùng thất bại', 'error');
+  }
+}
+
+async function loadAdminUsersFromFilters() {
+  const q = document.getElementById('admin-user-q')?.value.trim() || '';
+  const role = document.getElementById('admin-user-role')?.value || '';
+  const params = new URLSearchParams();
+  if (q) params.set('q', q);
+  if (role) params.set('role', role);
+  try {
+    const out = await apiRequest(`/api/admin/users${params.toString() ? `?${params.toString()}` : ''}`, { method: 'GET' });
+    const users = out.data?.users || [];
+    DB.users = users.map((u) => ({
+      ...u,
+      name: u.name || u.ho_ten,
+      chuyenMon: Array.isArray(u.linh_vuc)
+        ? u.linh_vuc
+        : String(u.linh_vuc || '').split(',').map((s) => s.trim()).filter(Boolean),
+    }));
+    renderUsers();
+  } catch (err) {
+    toast(err.message || 'Không tải được danh sách người dùng', 'error');
+  }
+}
+
+function renderFields() {
+  const el = document.getElementById('page-fields');
+  const list = Array.isArray(DB.fields) ? DB.fields : [];
+  el.innerHTML = `<div class="page-header"><h1>🏷️ Quản lý Lĩnh vực</h1><p>Tổng cộng ${list.length} lĩnh vực</p></div>
+    <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+      <button class="btn btn-primary btn-sm" onclick="addFieldModal()">➕ Thêm lĩnh vực</button>
+    </div>
+    <div class="card"><div class="table-wrap"><table>
+      <thead><tr><th>ID</th><th>Tên lĩnh vực</th><th>Thao tác</th></tr></thead>
+      <tbody>
+      ${list.map((f) => `<tr>
+        <td style="font-family:'JetBrains Mono';font-size:12px">${Number(f.id)}</td>
+        <td>${escapeHtml(f.ten)}</td>
+        <td>
+          <button class="btn btn-ghost btn-sm" onclick="editFieldModal(${Number(f.id)})">✏️ Sửa</button>
+          <button class="btn btn-ghost btn-sm" onclick="deleteField(${Number(f.id)})">🗑️ Xóa</button>
+        </td>
+      </tr>`).join('')}
+      </tbody>
+    </table></div></div>`;
+}
+
+function addFieldModal() {
+  showModal(`
+    <div class="modal-header"><div class="modal-title">➕ Thêm lĩnh vực</div><button class="modal-close" onclick="closeModalForce()">✕</button></div>
+    <div class="modal-body">
+      <div class="form-group"><label>Tên lĩnh vực</label><input id="field-ten" /></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModalForce()">Hủy</button><button class="btn btn-primary" onclick="submitFieldForm()">💾 Lưu</button></div>
+  `);
+}
+
+function editFieldModal(fieldId) {
+  const field = (DB.fields || []).find((f) => Number(f.id) === Number(fieldId));
+  if (!field) return toast('Không tìm thấy lĩnh vực', 'error');
+  showModal(`
+    <div class="modal-header"><div class="modal-title">✏️ Sửa lĩnh vực</div><button class="modal-close" onclick="closeModalForce()">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="field-id" value="${Number(field.id)}" />
+      <div class="form-group"><label>Tên lĩnh vực</label><input id="field-ten" value="${escapeHtml(field.ten)}" /></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModalForce()">Hủy</button><button class="btn btn-primary" onclick="submitFieldForm()">💾 Cập nhật</button></div>
+  `);
+}
+
+async function submitFieldForm() {
+  const id = document.getElementById('field-id')?.value;
+  const ten = document.getElementById('field-ten')?.value.trim();
+  if (!ten) return toast('Vui lòng nhập tên lĩnh vực', 'error');
+  try {
+    const path = id ? `/api/admin/fields/${Number(id)}` : '/api/admin/fields';
+    await apiRequest(path, {
+      method: id ? 'PUT' : 'POST',
+      body: JSON.stringify({ ten }),
+    });
+    closeModalForce();
+    await syncFromServer();
+    renderFields();
+    toast(id ? 'Cập nhật lĩnh vực thành công' : 'Thêm lĩnh vực thành công');
+  } catch (err) {
+    toast(err.message || 'Lưu lĩnh vực thất bại', 'error');
+  }
+}
+
+async function deleteField(fieldId) {
+  if (!window.confirm('Xác nhận xóa lĩnh vực này?')) return;
+  try {
+    await apiRequest(`/api/admin/fields/${Number(fieldId)}`, { method: 'DELETE' });
+    await syncFromServer();
+    renderFields();
+    toast('Đã xóa lĩnh vực');
+  } catch (err) {
+    toast(err.message || 'Xóa lĩnh vực thất bại', 'error');
+  }
 }
 
 function renderProfile() {

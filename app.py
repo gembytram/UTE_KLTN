@@ -109,7 +109,7 @@ try:
     if os.environ.get("VERCEL") != "1":
         init_db()
 except Exception as e:
-    print(f"⚠️ Database init warning: {e}")
+    print(f"Database init warning: {e}")
 
 register_routes(app)
 

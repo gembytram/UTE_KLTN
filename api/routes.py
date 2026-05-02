@@ -108,6 +108,132 @@ def register_routes(app):
                     """,
                     (gv_id, dot_id, quota, slot_con_lai, duyet_tbm, he),
                 )
+
+    def _normalize_field_name(value):
+        return str(value or "").strip()
+
+    def _field_ids_from_payload(conn, payload):
+        payload = payload or {}
+        raw_ids = payload.get("linh_vuc_phu_trach_ids")
+        if raw_ids is None:
+            raw_ids = payload.get("linhVucPhuTrachIds")
+        raw_names = payload.get("linh_vuc_phu_trach")
+        if raw_names is None:
+            raw_names = payload.get("linhVucPhuTrach")
+        if raw_names is None:
+            raw_names = payload.get("linh_vuc_phu_trach_list")
+        if raw_names is None:
+            raw_names = payload.get("linhVucPhuTrachList")
+
+        out_ids = []
+        seen_ids = set()
+
+        if raw_ids is not None:
+            values = raw_ids if isinstance(raw_ids, list) else [raw_ids]
+            for value in values:
+                try:
+                    field_id = int(value)
+                except (TypeError, ValueError):
+                    continue
+                row = conn.execute(
+                    "SELECT id FROM linh_vuc_phu_trach WHERE id = ?",
+                    (field_id,),
+                ).fetchone()
+                if row and field_id not in seen_ids:
+                    seen_ids.add(field_id)
+                    out_ids.append(field_id)
+
+        name_candidates = []
+        if raw_names is not None:
+            if isinstance(raw_names, list):
+                name_candidates = [_normalize_field_name(x) for x in raw_names]
+            else:
+                name_candidates = [_normalize_field_name(x) for x in str(raw_names).split(",")]
+            name_candidates = [x for x in name_candidates if x]
+
+        for name in name_candidates:
+            conn.execute(
+                """
+                INSERT INTO linh_vuc_phu_trach (ten)
+                VALUES (?)
+                ON CONFLICT (ten) DO NOTHING
+                """,
+                (name,),
+            )
+            row = conn.execute(
+                "SELECT id FROM linh_vuc_phu_trach WHERE ten = ?",
+                (name,),
+            ).fetchone()
+            if not row:
+                continue
+            field_id = row["id"]
+            if field_id in seen_ids:
+                continue
+            seen_ids.add(field_id)
+            out_ids.append(field_id)
+
+        return out_ids
+
+    def _set_user_fields(conn, user_id, field_ids):
+        uid = int(user_id)
+        unique_ids = []
+        seen = set()
+        for fid in field_ids or []:
+            try:
+                field_id = int(fid)
+            except (TypeError, ValueError):
+                continue
+            if field_id in seen:
+                continue
+            seen.add(field_id)
+            unique_ids.append(field_id)
+
+        conn.execute("DELETE FROM user_linh_vuc_phu_trach WHERE user_id = ?", (uid,))
+        for field_id in unique_ids:
+            conn.execute(
+                """
+                INSERT INTO user_linh_vuc_phu_trach (user_id, field_id)
+                VALUES (?, ?)
+                ON CONFLICT (user_id, field_id) DO NOTHING
+                """,
+                (uid, field_id),
+            )
+
+        rows = conn.execute(
+            """
+            SELECT f.ten
+            FROM user_linh_vuc_phu_trach uf
+            JOIN linh_vuc_phu_trach f ON f.id = uf.field_id
+            WHERE uf.user_id = ?
+            ORDER BY f.ten ASC
+            """,
+            (uid,),
+        ).fetchall()
+        field_names = [row["ten"] for row in rows]
+        conn.execute(
+            "UPDATE users SET linh_vuc_phu_trach = ? WHERE id = ?",
+            (", ".join(field_names), uid),
+        )
+        return field_names
+
+    def _admin_user_payload(conn, user_row):
+        row = dict(serialize_user(user_row))
+        field_rows = conn.execute(
+            """
+            SELECT f.id, f.ten
+            FROM user_linh_vuc_phu_trach uf
+            JOIN linh_vuc_phu_trach f ON f.id = uf.field_id
+            WHERE uf.user_id = ?
+            ORDER BY f.ten ASC
+            """,
+            (user_row["id"],),
+        ).fetchall()
+        names = [item["ten"] for item in field_rows]
+        ids = [item["id"] for item in field_rows]
+        row["linhVucPhuTrachList"] = names
+        row["linhVucPhuTrachIds"] = ids
+        row["linh_vuc_phu_trach"] = ", ".join(names) if names else (row.get("linh_vuc_phu_trach") or "")
+        return row
     @app.errorhandler(413)
     def file_too_large(_):
         return fail("File vượt quá 20MB", 400)
@@ -280,6 +406,219 @@ def register_routes(app):
 
         conn.close()
         return ok("Lấy dữ liệu giao diện", data)
+
+    @app.route("/api/admin/users", methods=["GET"])
+    @role_required("ADMIN")
+    def admin_get_users():
+        conn = get_db()
+        q = (request.args.get("q") or "").strip().lower()
+        role_filter = (request.args.get("role") or "").strip().upper()
+        users = conn.execute("SELECT * FROM users ORDER BY id ASC").fetchall()
+        result = []
+        for u in users:
+            if q:
+                hay = " ".join(
+                    [
+                        str(u["ma"] or "").lower(),
+                        str(u["ho_ten"] or "").lower(),
+                        str(u["gmail"] or "").lower(),
+                    ]
+                )
+                if q not in hay:
+                    continue
+            if role_filter and str(u["role"] or "").upper() != role_filter:
+                continue
+            result.append(_admin_user_payload(conn, u))
+        conn.close()
+        return ok("Lấy danh sách người dùng", {"users": result})
+
+    @app.route("/api/admin/users", methods=["POST"])
+    @role_required("ADMIN")
+    def admin_create_user():
+        data = request.json or {}
+        ma = (data.get("ma") or "").strip().upper()
+        ho_ten = (data.get("ho_ten") or "").strip()
+        mat_khau = (data.get("mat_khau") or "").strip()
+        role = (data.get("role") or "").strip().upper()
+        gmail = (data.get("gmail") or "").strip().lower()
+        linh_vuc = (data.get("linh_vuc") or "").strip()
+        he_dao_tao = (data.get("he_dao_tao") or "").strip()
+
+        if not ma or not ho_ten or not mat_khau or not role:
+            return fail("Thiếu dữ liệu bắt buộc: ma, ho_ten, mat_khau, role", 400)
+
+        conn = get_db()
+        existed = conn.execute("SELECT id FROM users WHERE ma = ?", (ma,)).fetchone()
+        if existed:
+            conn.close()
+            return fail("Mã người dùng đã tồn tại", 400)
+
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO users (ma, gmail, ho_ten, mat_khau, role, linh_vuc, he_dao_tao, linh_vuc_phu_trach)
+            VALUES (?, ?, ?, ?, ?, ?, ?, '')
+            """,
+            (ma, gmail, ho_ten, mat_khau, role, linh_vuc, he_dao_tao),
+        )
+        user_id = cursor.lastrowid
+        field_ids = _field_ids_from_payload(conn, data)
+        _set_user_fields(conn, user_id, field_ids)
+        user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        payload = _admin_user_payload(conn, user)
+        conn.commit()
+        conn.close()
+        return ok("Tạo người dùng thành công", {"user": payload})
+
+    @app.route("/api/admin/users/<int:user_id>", methods=["PUT"])
+    @role_required("ADMIN")
+    def admin_update_user(user_id):
+        data = request.json or {}
+        conn = get_db()
+        user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not user:
+            conn.close()
+            return fail("Không tìm thấy người dùng", 404)
+
+        updatable = {
+            "ho_ten": data.get("ho_ten"),
+            "gmail": data.get("gmail"),
+            "mat_khau": data.get("mat_khau"),
+            "role": data.get("role"),
+            "linh_vuc": data.get("linh_vuc"),
+            "he_dao_tao": data.get("he_dao_tao"),
+        }
+        for col, value in updatable.items():
+            if value is None:
+                continue
+            if col == "role":
+                value = str(value).strip().upper()
+            else:
+                value = str(value).strip()
+            conn.execute(
+                f"UPDATE users SET {col} = ? WHERE id = ?",
+                (value, user_id),
+            )
+
+        has_field_payload = any(
+            key in data
+            for key in (
+                "linh_vuc_phu_trach_ids",
+                "linhVucPhuTrachIds",
+                "linh_vuc_phu_trach",
+                "linhVucPhuTrach",
+                "linh_vuc_phu_trach_list",
+                "linhVucPhuTrachList",
+            )
+        )
+        if has_field_payload:
+            field_ids = _field_ids_from_payload(conn, data)
+            _set_user_fields(conn, user_id, field_ids)
+
+        updated = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        payload = _admin_user_payload(conn, updated)
+        conn.commit()
+        conn.close()
+        return ok("Cập nhật người dùng thành công", {"user": payload})
+
+    @app.route("/api/admin/fields", methods=["GET"])
+    @role_required("ADMIN")
+    def admin_get_fields():
+        conn = get_db()
+        fields = conn.execute(
+            "SELECT id, ten FROM linh_vuc_phu_trach ORDER BY ten ASC"
+        ).fetchall()
+        conn.close()
+        return ok("Lấy danh sách lĩnh vực", {"fields": [dict(f) for f in fields]})
+
+    @app.route("/api/admin/fields", methods=["POST"])
+    @role_required("ADMIN")
+    def admin_create_field():
+        data = request.json or {}
+        ten = _normalize_field_name(data.get("ten"))
+        if not ten:
+            return fail("Tên lĩnh vực không hợp lệ", 400)
+        conn = get_db()
+        conn.execute(
+            """
+            INSERT INTO linh_vuc_phu_trach (ten)
+            VALUES (?)
+            ON CONFLICT (ten) DO NOTHING
+            """,
+            (ten,),
+        )
+        field = conn.execute(
+            "SELECT id, ten FROM linh_vuc_phu_trach WHERE ten = ?",
+            (ten,),
+        ).fetchone()
+        conn.commit()
+        conn.close()
+        return ok("Tạo lĩnh vực thành công", {"field": dict(field) if field else None})
+
+    @app.route("/api/admin/fields/<int:field_id>", methods=["PUT"])
+    @role_required("ADMIN")
+    def admin_update_field(field_id):
+        data = request.json or {}
+        ten = _normalize_field_name(data.get("ten"))
+        if not ten:
+            return fail("Tên lĩnh vực không hợp lệ", 400)
+        conn = get_db()
+        existed = conn.execute(
+            "SELECT id FROM linh_vuc_phu_trach WHERE id = ?",
+            (field_id,),
+        ).fetchone()
+        if not existed:
+            conn.close()
+            return fail("Không tìm thấy lĩnh vực", 404)
+        conn.execute(
+            "UPDATE linh_vuc_phu_trach SET ten = ? WHERE id = ?",
+            (ten, field_id),
+        )
+        user_rows = conn.execute(
+            "SELECT DISTINCT user_id FROM user_linh_vuc_phu_trach WHERE field_id = ?",
+            (field_id,),
+        ).fetchall()
+        for row in user_rows:
+            remaining = conn.execute(
+                "SELECT field_id FROM user_linh_vuc_phu_trach WHERE user_id = ? ORDER BY field_id ASC",
+                (row["user_id"],),
+            ).fetchall()
+            _set_user_fields(conn, row["user_id"], [x["field_id"] for x in remaining])
+        field = conn.execute(
+            "SELECT id, ten FROM linh_vuc_phu_trach WHERE id = ?",
+            (field_id,),
+        ).fetchone()
+        conn.commit()
+        conn.close()
+        return ok("Cập nhật lĩnh vực thành công", {"field": dict(field) if field else None})
+
+    @app.route("/api/admin/fields/<int:field_id>", methods=["DELETE"])
+    @role_required("ADMIN")
+    def admin_delete_field(field_id):
+        conn = get_db()
+        existed = conn.execute(
+            "SELECT id FROM linh_vuc_phu_trach WHERE id = ?",
+            (field_id,),
+        ).fetchone()
+        if not existed:
+            conn.close()
+            return fail("Không tìm thấy lĩnh vực", 404)
+
+        users = conn.execute(
+            "SELECT DISTINCT user_id FROM user_linh_vuc_phu_trach WHERE field_id = ?",
+            (field_id,),
+        ).fetchall()
+        conn.execute("DELETE FROM user_linh_vuc_phu_trach WHERE field_id = ?", (field_id,))
+        conn.execute("DELETE FROM linh_vuc_phu_trach WHERE id = ?", (field_id,))
+        for row in users:
+            remaining = conn.execute(
+                "SELECT field_id FROM user_linh_vuc_phu_trach WHERE user_id = ? ORDER BY field_id ASC",
+                (row["user_id"],),
+            ).fetchall()
+            _set_user_fields(conn, row["user_id"], [x["field_id"] for x in remaining])
+        conn.commit()
+        conn.close()
+        return ok("Xóa lĩnh vực thành công")
 
     @app.route("/api/bctt/register", methods=["POST"])
     @role_required("SV")

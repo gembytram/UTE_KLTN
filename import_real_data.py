@@ -171,6 +171,13 @@ GV_LINH_VUC_PHU_TRACH = {
     "namvt@hcmute.edu.vn": ["HR"],
 }
 
+DEFAULT_ADMIN_ACCOUNT = (
+    "ADMIN001",
+    "admin001@hcmute.edu.vn",
+    "Admin Test",
+    "123456",
+)
+
 # 3. Danh sách Đợt đăng ký (chung, không tách Đại trà / CLC — chỉ phân theo ngành)
 # Tuple: (Tên Đợt, Loại, Ngày BĐ, Ngày KT, Trạng Thái, he_dao_tao, nganh) — he_dao_tao luôn rỗng
 NEW_DOTS = [
@@ -207,6 +214,57 @@ def pick_primary_field(value):
     return text.split(",")[0].strip()
 
 
+def sync_field_tables(conn):
+    c = conn.cursor()
+    users = c.execute(
+        """
+        SELECT id, linh_vuc_phu_trach
+        FROM users
+        WHERE role IN ('GV', 'TBM', 'ADMIN')
+        """
+    ).fetchall()
+    field_name_to_id = {}
+    for u in users:
+        raw = (u.get("linh_vuc_phu_trach") or "").strip()
+        names = [name.strip() for name in raw.split(",") if name.strip()]
+        if not names:
+            continue
+        for name in names:
+            if name in field_name_to_id:
+                continue
+            c.execute(
+                """
+                INSERT INTO linh_vuc_phu_trach (ten)
+                VALUES (?)
+                ON CONFLICT (ten) DO NOTHING
+                """,
+                (name,),
+            )
+            row = c.execute(
+                "SELECT id FROM linh_vuc_phu_trach WHERE ten = ?",
+                (name,),
+            ).fetchone()
+            if row:
+                field_name_to_id[name] = row["id"]
+
+    c.execute("DELETE FROM user_linh_vuc_phu_trach")
+    for u in users:
+        raw = (u.get("linh_vuc_phu_trach") or "").strip()
+        names = [name.strip() for name in raw.split(",") if name.strip()]
+        for name in names:
+            field_id = field_name_to_id.get(name)
+            if not field_id:
+                continue
+            c.execute(
+                """
+                INSERT INTO user_linh_vuc_phu_trach (user_id, field_id)
+                VALUES (?, ?)
+                ON CONFLICT (user_id, field_id) DO NOTHING
+                """,
+                (u["id"], field_id),
+            )
+
+
 def seed_default_data():
     """Tạo tài khoản test mặc định nếu Google Sheet không khả dụng."""
     conn = get_db()
@@ -214,7 +272,7 @@ def seed_default_data():
     
     # Seed tài khoản test
     test_users = [
-        ("ADMIN001", "admin001@hcmute.edu.vn", "Admin Test", "123456", "TBM", "", "", ""),
+        ("ADMIN001", "admin001@hcmute.edu.vn", "Admin Test", "123456", "ADMIN", "", "", ""),
         ("GV001", "gv001@hcmute.edu.vn", "Giảng Viên Test", "123456", "GV", "QLCN", "", ""),
         ("SV001", "sv001@hcmute.edu.vn", "Sinh Viên Test", "123456", "SV", "QLCN", "", "DaiTra"),
         ("SV002", "sv002@hcmute.edu.vn", "Sinh Viên CLC", "123456", "SV", "QLCN", "", "CLC"),
@@ -230,10 +288,11 @@ def seed_default_data():
         INSERT INTO dot (ten_dot, loai, han_dang_ky, han_nop, trang_thai, he_dao_tao, nganh)
         VALUES (?, ?, ?, ?, ?, ?, ?)
     """, [(d[0], d[1], d[2], d[3], d[4], d[5], d[6]) for d in NEW_DOTS])
-    
+    sync_field_tables(conn)
+
     conn.commit()
     conn.close()
-    print("✅ Đã seed dữ liệu test mặc định (tài khoản: ADMIN001/GV001/SV001, mật khẩu: 123456)")
+    print("Da seed du lieu test mac dinh (tai khoan: ADMIN001/GV001/SV001, mat khau: 123456)")
 
 
 def import_from_sheets(delete_old_db=True):
@@ -243,19 +302,19 @@ def import_from_sheets(delete_old_db=True):
 
     # Khởi tạo lại cấu trúc database
     init_db()
-    print("✨ Đã tạo mới các bảng trong database.")
+    print("Da tao moi cac bang trong database.")
 
     sheet_id = "1ON6evA-pkI9201eQ1R5o6bvMmZrO-7VQvwmr1HaSDPs"
     csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid=0"
 
-    print("⏳ Đang tải dữ liệu từ Google Sheets...")
+    print("Dang tai du lieu tu Google Sheets...")
     try:
         req = urllib.request.Request(csv_url)
         with urllib.request.urlopen(req, timeout=10) as response:
             lines = [line.decode('utf-8-sig') for line in response.readlines()]
     except Exception as e:
-        print(f"❌ Lỗi khi tải Google Sheets: {e}")
-        print("📌 Sử dụng seed data mặc định thay vào...")
+        print(f"Loi khi tai Google Sheets: {e}")
+        print("Su dung seed data mac dinh thay vao...")
         seed_default_data()
         return
 
@@ -297,6 +356,8 @@ def import_from_sheets(delete_old_db=True):
         elif role_raw.upper() == "TBM":
             role = "TBM"
             gv_email_mapping[ma.upper()] = email
+        elif role_raw.upper() == "ADMIN":
+            role = "ADMIN"
 
         # NẾU CÓ TRONG FILE MAPPING MỚI -> Thay thế chuyên môn chi tiết (VD: QLCN, Chất lượng, AI)
         if email in GV_LINH_VUC:
@@ -331,6 +392,20 @@ def import_from_sheets(delete_old_db=True):
             linh_vuc_phu_trach = EXCLUDED.linh_vuc_phu_trach,
             he_dao_tao = EXCLUDED.he_dao_tao
     """, users)
+
+    # Luôn đảm bảo có 1 tài khoản admin mặc định sau mỗi lần import.
+    c.execute(
+        """
+        INSERT INTO users (ma, gmail, ho_ten, mat_khau, role, linh_vuc, linh_vuc_phu_trach, he_dao_tao)
+        VALUES (?, ?, ?, ?, 'ADMIN', '', '', '')
+        ON CONFLICT (ma) DO UPDATE SET
+            gmail = EXCLUDED.gmail,
+            ho_ten = EXCLUDED.ho_ten,
+            mat_khau = EXCLUDED.mat_khau,
+            role = 'ADMIN'
+        """,
+        DEFAULT_ADMIN_ACCOUNT,
+    )
 
     # Insert Đợt đăng ký (kèm hệ + ngành trong DB)
     execute_many_in_chunks(c, """
@@ -369,19 +444,21 @@ def import_from_sheets(delete_old_db=True):
         VALUES (?, ?, ?, ?, ?, ?)
     """, slots)
 
+    sync_field_tables(conn)
+
     conn.commit()
     conn.close()
 
-    print(f"✅ Đã import thành công {len(users)} tài khoản.")
-    print("✅ Đã cập nhật chi tiết chuyên ngành (Ví dụ: QLCN, Mô phỏng, Sản xuất...)")
-    print(f"✅ Đã tạo {len(NEW_DOTS)} đợt đăng ký (chung Đại trà & CLC, theo ngành).")
-    print("✅ Đã cấp slot: mỗi (GV, đợt) có 2 pool — Đại trà (QUOTA_LEGACY.DaiTra) & CLC (QUOTA_LEGACY.CLC).")
+    print(f"Da import thanh cong {len(users)} tai khoan.")
+    print("Da cap nhat chi tiet chuyen nganh (vi du: QLCN, Mo phong, San xuat...)")
+    print(f"Da tao {len(NEW_DOTS)} dot dang ky (chung DaiTra va CLC, theo nganh).")
+    print("Da cap slot: moi (GV, dot) co 2 pool - DaiTra (QUOTA_LEGACY.DaiTra) va CLC (QUOTA_LEGACY.CLC).")
 
 
 def run_import(delete_old_db=True):
     """Chạy import dữ liệu (local: xóa DB cũ, Vercel: không xóa)."""
     import_from_sheets(delete_old_db=delete_old_db)
-    print("🚀 Hãy chạy lệnh 'python app.py' để thưởng thức hệ thống mới!")
+    print("Hay chay lenh 'python app.py' de khoi dong he thong.")
 
 
 if __name__ == "__main__":

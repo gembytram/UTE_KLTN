@@ -221,6 +221,95 @@ def migrate_db(conn):
         cur.execute("ALTER TABLE users ADD COLUMN linh_vuc_phu_trach TEXT DEFAULT ''")
     if "gmail" not in ucols:
         cur.execute("ALTER TABLE users ADD COLUMN gmail TEXT DEFAULT ''")
+    fcols = _table_columns(conn, "linh_vuc_phu_trach")
+    if fcols:
+        if "ten" not in fcols:
+            cur.execute("ALTER TABLE linh_vuc_phu_trach ADD COLUMN ten TEXT DEFAULT ''")
+        if "name" in fcols:
+            cur.execute(
+                """
+                UPDATE linh_vuc_phu_trach
+                SET ten = COALESCE(NULLIF(trim(ten), ''), trim(name), '')
+                """
+            )
+        cur.execute("DELETE FROM linh_vuc_phu_trach WHERE COALESCE(trim(ten), '') = ''")
+        cur.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_linh_vuc_phu_trach_ten
+            ON linh_vuc_phu_trach (ten)
+            """
+        )
+    jfcols = _table_columns(conn, "user_linh_vuc_phu_trach")
+    if jfcols:
+        if "field_id" not in jfcols:
+            cur.execute("ALTER TABLE user_linh_vuc_phu_trach ADD COLUMN field_id INTEGER")
+        if "linh_vuc_phu_trach_id" in jfcols:
+            cur.execute(
+                """
+                UPDATE user_linh_vuc_phu_trach
+                SET field_id = COALESCE(field_id, linh_vuc_phu_trach_id)
+                """
+            )
+        cur.execute(
+            """
+            DELETE FROM user_linh_vuc_phu_trach
+            WHERE user_id IS NULL OR field_id IS NULL
+            """
+        )
+        if USE_POSTGRES:
+            cur.execute(
+                """
+                DELETE FROM user_linh_vuc_phu_trach a
+                USING user_linh_vuc_phu_trach b
+                WHERE a.ctid < b.ctid
+                  AND a.user_id = b.user_id
+                  AND a.field_id = b.field_id
+                """
+            )
+        cur.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_user_linh_vuc_user_field
+            ON user_linh_vuc_phu_trach (user_id, field_id)
+            """
+        )
+    if USE_POSTGRES:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS linh_vuc_phu_trach (
+                id SERIAL PRIMARY KEY,
+                ten TEXT UNIQUE NOT NULL
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_linh_vuc_phu_trach (
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                field_id INTEGER NOT NULL REFERENCES linh_vuc_phu_trach(id) ON DELETE CASCADE,
+                PRIMARY KEY (user_id, field_id)
+            )
+            """
+        )
+    else:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS linh_vuc_phu_trach (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ten TEXT UNIQUE NOT NULL
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_linh_vuc_phu_trach (
+                user_id INTEGER NOT NULL,
+                field_id INTEGER NOT NULL,
+                PRIMARY KEY (user_id, field_id),
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY(field_id) REFERENCES linh_vuc_phu_trach(id) ON DELETE CASCADE
+            )
+            """
+        )
     if USE_POSTGRES:
         cur.execute(
             """
@@ -385,6 +474,23 @@ def init_db():
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS linh_vuc_phu_trach (
+                id SERIAL PRIMARY KEY,
+                ten TEXT UNIQUE NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_linh_vuc_phu_trach (
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                field_id INTEGER NOT NULL REFERENCES linh_vuc_phu_trach(id) ON DELETE CASCADE,
+                PRIMARY KEY (user_id, field_id)
+            )
+            """
+        )
     else:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS users (
@@ -478,9 +584,22 @@ def init_db():
                 FOREIGN KEY(nguoi_gui_id) REFERENCES users(id),
                 FOREIGN KEY(dang_ky_id) REFERENCES dang_ky(id)
             );
+
+            CREATE TABLE IF NOT EXISTS linh_vuc_phu_trach (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ten TEXT UNIQUE NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS user_linh_vuc_phu_trach (
+                user_id INTEGER NOT NULL,
+                field_id INTEGER NOT NULL,
+                PRIMARY KEY (user_id, field_id),
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY(field_id) REFERENCES linh_vuc_phu_trach(id) ON DELETE CASCADE
+            );
         """)
 
     migrate_db(conn)
     conn.commit()
     conn.close()
-    print("✅ Database initialized on PostgreSQL!")
+    print("Database initialized on PostgreSQL.")
