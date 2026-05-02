@@ -175,7 +175,25 @@ def register_routes(app):
         seen_ids = set()
 
         if raw_ids is not None:
-            values = raw_ids if isinstance(raw_ids, list) else [raw_ids]
+            values = []
+            if isinstance(raw_ids, (list, tuple)):
+                values = list(raw_ids)
+            elif isinstance(raw_ids, str):
+                text = raw_ids.strip()
+                if text.startswith("[") and text.endswith("]"):
+                    try:
+                        parsed = _json_mod.loads(text)
+                        if isinstance(parsed, (list, tuple)):
+                            values = list(parsed)
+                        else:
+                            values = [parsed]
+                    except Exception:
+                        values = [text]
+                else:
+                    values = [x.strip() for x in text.split(",") if x.strip()]
+            else:
+                values = [raw_ids]
+
             for value in values:
                 try:
                     field_id = int(value)
@@ -193,6 +211,19 @@ def register_routes(app):
         if raw_names is not None:
             if isinstance(raw_names, list):
                 name_candidates = [_normalize_field_name(x) for x in raw_names]
+            elif isinstance(raw_names, str):
+                text = raw_names.strip()
+                if text.startswith("[") and text.endswith("]"):
+                    try:
+                        parsed = _json_mod.loads(text)
+                        if isinstance(parsed, list):
+                            name_candidates = [_normalize_field_name(x) for x in parsed]
+                        else:
+                            name_candidates = [_normalize_field_name(parsed)]
+                    except Exception:
+                        name_candidates = [_normalize_field_name(text)]
+                else:
+                    name_candidates = [_normalize_field_name(x) for x in text.split(",")]
             else:
                 name_candidates = [_normalize_field_name(x) for x in str(raw_names).split(",")]
             name_candidates = [x for x in name_candidates if x]

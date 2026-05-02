@@ -3868,12 +3868,20 @@ function renderFieldTagEditor(selectedIds) {
 function getSelectedFieldIdsFromInput() {
   const hidden = document.getElementById('user-linh_vuc_phu_trach_ids');
   if (!hidden) return [];
+  const raw = (hidden.value || '').trim();
+  if (!raw) return [];
   try {
-    const parsed = JSON.parse(hidden.value || '[]');
-    return Array.isArray(parsed) ? parsed.map((x) => Number(x)).filter((x) => !Number.isNaN(x)) : [];
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed.map((x) => Number(x)).filter((x) => !Number.isNaN(x));
+    }
   } catch (_) {
-    return [];
+    // fall through to CSV parsing
   }
+  return String(raw)
+    .split(",")
+    .map((x) => Number(x.trim()))
+    .filter((x) => !Number.isNaN(x));
 }
 
 function updateSelectedFieldTags() {
@@ -3972,6 +3980,11 @@ function editUserModal(userId) {
 
 async function submitUserForm() {
   const userId = document.getElementById('user-id')?.value;
+  const selectedFieldIds = getSelectedFieldIdsFromInput();
+  const selectedFieldNames = (DB.fields || [])
+    .filter((f) => selectedFieldIds.includes(Number(f.id)))
+    .map((f) => String(f.ten || '').trim())
+    .filter(Boolean);
   const payload = {
     ma: document.getElementById('user-ma')?.value.trim(),
     ho_ten: document.getElementById('user-ho_ten')?.value.trim(),
@@ -3980,7 +3993,10 @@ async function submitUserForm() {
     role: document.getElementById('user-role')?.value,
     linh_vuc: document.getElementById('user-linh_vuc')?.value.trim(),
     he_dao_tao: document.getElementById('user-he_dao_tao')?.value,
-    linh_vuc_phu_trach_ids: getSelectedFieldIdsFromInput(),
+    linh_vuc_phu_trach_ids: selectedFieldIds,
+    linhVucPhuTrachIds: selectedFieldIds,
+    linh_vuc_phu_trach: selectedFieldNames.join(', '),
+    linhVucPhuTrach: selectedFieldNames.join(', '),
   };
   if (userId && !payload.mat_khau) delete payload.mat_khau;
   try {
