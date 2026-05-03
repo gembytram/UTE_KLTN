@@ -1794,12 +1794,25 @@ def register_routes(app):
                 conn.close()
                 return fail("Bạn không được phân công chấm điểm với vai trò này", 403)
         old = conn.execute(
-            "SELECT id FROM cham_diem WHERE dang_ky_id = ? AND gv_id = ? AND vai_tro = ?",
+            "SELECT id, diem, nhan_xet, cau_hoi, criteria_json FROM cham_diem WHERE dang_ky_id = ? AND gv_id = ? AND vai_tro = ?",
             (dang_ky_id, gv["id"], vai_tro),
         ).fetchone()
         if old:
-            conn.close()
-            return fail("Bạn đã chấm điểm đề tài này rồi. Không thể thay đổi điểm sau khi lưu", 400)
+            updated = (
+                old["diem"] != diem or
+                (old["nhan_xet"] or "") != nhan_xet or
+                (old["cau_hoi"] or "") != cau_hoi or
+                (old["criteria_json"] or "") != (criteria_json or "")
+            )
+            if updated:
+                _log_score_history(
+                    conn, old["id"], dang_ky_id, gv["id"], vai_tro,
+                    old["diem"], diem, old["nhan_xet"], nhan_xet, gv["id"]
+                )
+                conn.execute(
+                    "UPDATE cham_diem SET diem = ?, nhan_xet = ?, cau_hoi = ?, criteria_json = ? WHERE id = ?",
+                    (diem, nhan_xet, cau_hoi, criteria_json, old["id"]),
+                )
         else:
             conn.execute(
                 """

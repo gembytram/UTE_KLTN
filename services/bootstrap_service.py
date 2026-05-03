@@ -109,6 +109,15 @@ def fetch_bootstrap(conn):
             }
         )
 
+    def parse_score_criteria(score_row):
+        if not score_row:
+            return []
+        try:
+            criteria = _json_mod.loads(score_row.get("criteria_json") or "[]")
+            return criteria if isinstance(criteria, list) else []
+        except Exception:
+            return []
+
     score_map = {}
     tv_scores_by_dk = {}
     for s in scores:
@@ -224,8 +233,11 @@ def fetch_bootstrap(conn):
             record["fileBaiChinhSua"] = upload_map.get(r["id"], {}).get("kltn_chinhsua")
             record["fileGiaiTrinh"] = upload_map.get(r["id"], {}).get("bien_ban_giai_trinh")
             record["diemHD"] = sc["HD"]["diem"] if sc.get("HD") else None
+            record["hdCriteria"] = parse_score_criteria(sc.get("HD"))
             record["diemPB"] = sc["PB"]["diem"] if sc.get("PB") else None
+            record["pbCriteria"] = parse_score_criteria(sc.get("PB"))
             record["diemBB"] = sc["CT"]["diem"] if sc.get("CT") else None
+            record["ctCriteria"] = parse_score_criteria(sc.get("CT"))
             pb_row = sc.get("PB")
             record["pbNote"] = (pb_row["nhan_xet"] or "") if pb_row else ""
             record["submittedLate"] = bool(r["submitted_late"]) if "submitted_late" in r.keys() else False
@@ -254,6 +266,7 @@ def fetch_bootstrap(conn):
                             "email": gu["email"],
                             "diem": s["diem"],
                             "nhanXet": s["nhan_xet"] or "",
+                            "criteria": parse_score_criteria(s),
                         }
                     )
             kltn_list.append(record)

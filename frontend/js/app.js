@@ -610,7 +610,16 @@ function computeKLTNFinalAvg(k) {
 }
 
 function parseStoredCriteria(criteria) {
-  return Array.isArray(criteria) ? criteria : [];
+  if (Array.isArray(criteria)) return criteria;
+  if (typeof criteria === 'string' && criteria.trim()) {
+    try {
+      const parsed = JSON.parse(criteria);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (err) {
+      return [];
+    }
+  }
+  return [];
 }
 
 function criteriaInputId(recordId, vaiTro, index) {
@@ -700,23 +709,22 @@ function renderKLTNScoreBlock(k, vaiTro, title, hint, options = {}) {
   const rows = template.map(([name, max], index) => {
     const stored = existingCriteria[index];
     const value = stored && stored.score != null ? stored.score : '';
-    const inputAttrs = isLocked ? 'disabled style="opacity:0.6"' : '';
     return `<tr>
       <td style="font-size:13px">${index + 1}. ${escapeHtml(name)}</td>
       <td style="font-size:13px;text-align:center">${max}</td>
-      <td><input type="number" min="0" max="${max}" step="0.1" id="${criteriaInputId(k.id, vaiTro, index)}" value="${value}" ${inputAttrs} oninput="normalizeCriterionInput('${k.id}','${vaiTro}',${index},${max});recalcKLTNRoleTotal('${k.id}','${vaiTro}')"></td>
+      <td><input type="number" min="0" max="${max}" step="0.1" id="${criteriaInputId(k.id, vaiTro, index)}" value="${value}" oninput="normalizeCriterionInput('${k.id}','${vaiTro}',${index},${max});recalcKLTNRoleTotal('${k.id}','${vaiTro}')"></td>
     </tr>`;
   }).join('');
 
-  const lockedMessage = isLocked ? `<div style="background:#FFF7D6;border:1px solid var(--accent3);border-radius:var(--radius);padding:12px 16px;margin-bottom:12px;font-size:13px;color:#974F0C">Bạn đã lưu điểm. Không thể thay đổi.</div>` : '';
-  const textareaAttrs = isLocked ? 'readonly style="opacity:0.6;background:var(--bg)"' : '';
-  const buttonAttrs = isLocked ? 'disabled style="opacity:0.5;cursor:not-allowed"' : '';
+  const hasStoredScore = existingScore != null && existingScore !== '';
+  const infoMessage = hasStoredScore ? `<div style="background:#E8F6FF;border:1px solid var(--accent2);border-radius:var(--radius);padding:12px 16px;margin-bottom:12px;font-size:13px;color:var(--primary)">Điểm và tiêu chí hiện được tải từ dữ liệu đã lưu. Bạn có thể chỉnh sửa và nhấn Lưu lại.</div>` : '';
+  const historyButton = hasStoredScore ? `<button class="btn btn-ghost btn-sm" onclick="viewScoreHistory('${k.dangKyId}','${vaiTro}')">📋 Lịch sử</button>` : '';
 
   return `<div style="font-size:16px;font-weight:800;color:var(--primary-dark);margin:12px 0 8px">${escapeHtml(getScoreSheetTitle(k.topicType, vaiTro))}</div>
     <div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:8px">${escapeHtml(title)}</div>
     <div style="font-size:12px;color:var(--text3);margin-bottom:10px">${escapeHtml(hint)}</div>
     <div style="font-size:12px;color:var(--text2);margin-bottom:10px">Mẫu phiếu: ${escapeHtml(getTopicTypeLabel(k.topicType))} • ${escapeHtml(SCORE_ROLE_LABELS[vaiTro] || vaiTro)}</div>
-    ${lockedMessage}
+    ${infoMessage}
     <div class="table-wrap" style="margin-bottom:12px">
       <table>
         <thead><tr><th>Tiêu chí</th><th>Điểm tối đa</th><th>Điểm</th></tr></thead>
@@ -724,10 +732,11 @@ function renderKLTNScoreBlock(k, vaiTro, title, hint, options = {}) {
       </table>
     </div>
     <div class="form-group"><label>Tổng điểm</label><input type="number" id="${totalInputId(k.id, vaiTro)}" value="${existingScore ?? ''}" readonly style="background:var(--bg)"></div>
-    <div class="form-group"><label>Nhận xét</label><textarea id="${noteInputId(k.id, vaiTro)}" style="min-height:110px" ${textareaAttrs} placeholder="Nhập nhận xét">${escapeHtml(noteValue)}</textarea></div>
-    ${showQuestion ? `<div class="form-group"><label>Câu hỏi / góp ý</label><textarea id="${questionInputId(k.id, vaiTro)}" style="min-height:110px" ${textareaAttrs} placeholder="Nhập câu hỏi hoặc góp ý cho sinh viên">${escapeHtml(questionValue)}</textarea></div>` : ''}
+    <div class="form-group"><label>Nhận xét</label><textarea id="${noteInputId(k.id, vaiTro)}" style="min-height:110px" placeholder="Nhập nhận xét">${escapeHtml(noteValue)}</textarea></div>
+    ${showQuestion ? `<div class="form-group"><label>Câu hỏi / góp ý</label><textarea id="${questionInputId(k.id, vaiTro)}" style="min-height:110px" placeholder="Nhập câu hỏi hoặc góp ý cho sinh viên">${escapeHtml(questionValue)}</textarea></div>` : ''}
     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn btn-primary btn-sm" ${buttonAttrs} onclick="saveKLTNScore('${k.id}','${vaiTro}')">💾 Lưu phiếu chấm</button>
+      ${historyButton}
+      <button class="btn btn-primary btn-sm" onclick="saveKLTNScore('${k.id}','${vaiTro}')">💾 Lưu phiếu chấm</button>
       <button class="btn btn-ghost btn-sm" onclick="exportKLTNScoreDocx('${k.id}','${vaiTro}')">📄 Xuất phiếu DOCX</button>
     </div>`;
 }
@@ -2675,19 +2684,37 @@ function renderKLTN() {
     const isDeadlineOpen = isBeforeDeadline(dot);
     const isSubmittedKLTN = k.trangThai === 'cham_diem' && (k.fileBai || k.fileBaiWord);
     const isEditingKLTN = DB.kltnEditModeId === k.id;
+    const hoiDongMemberEmails = Array.isArray(k.hoiDong?.tv)
+      ? k.hoiDong.tv
+      : k.hoiDong?.tv ? [k.hoiDong.tv] : [];
+    const committeeMemberEmails = Array.isArray(k.committeeMemberEmails)
+      ? k.committeeMemberEmails
+      : [];
+    const allHoiDongMembers = Array.from(
+      new Set([
+        ...hoiDongMemberEmails,
+        ...committeeMemberEmails,
+      ].filter(Boolean)),
+    );
+    const hoiDongMemberNames = allHoiDongMembers
+      .map(email => getUser(email)?.name || email)
+      .filter(Boolean)
+      .join(', ');
     html += `<div class="card" style="margin-bottom:20px">
       <div class="card-header"><div><div class="card-title">📋 Thông tin KLTN</div></div>${statusBadge(k.trangThai)}</div>
       <div class="info-row"><span class="info-label">Tên đề tài:</span><span class="info-value" style="font-weight:700">${k.tenDeTai}</span></div>
       <div class="info-row"><span class="info-label">Loại đề tài:</span><span class="info-value">${getTopicTypeLabel(k.topicType)}</span></div>
       <div class="info-row"><span class="info-label">Mảng đề tài:</span><span class="info-value">${k.mangDeTai}</span></div>
       <div class="info-row"><span class="info-label">GV Hướng dẫn:</span><span class="info-value">${gvHD?.name || k.gvHDEmail}</span></div>
+      <div class="info-row"><span class="info-label">Giảng viên phản biện:</span><span class="info-value">${getUser(k.gvPBEmail)?.name || k.gvPBEmail || 'Chưa phân công'}</span></div>
       <div class="info-row"><span class="info-label">Đợt đăng ký:</span><span class="info-value">${dot ? escapeHtml(dot.ten) : escapeHtml(k.dotId)}</span></div>
       <div class="info-row"><span class="info-label">Hạn đăng ký:</span><span class="info-value">${formatDate(dot?.batDau) || 'Chưa cấu hình'}</span></div>
       <div class="info-row"><span class="info-label">Hạn nộp:</span><span class="info-value">${formatDate(dot?.ketThuc) || 'Chưa cấu hình'}</span></div>
       ${k.hoiDong ? `
+      <div class="info-row"><span class="info-label">Tên Hội đồng:</span><span class="info-value">${escapeHtml(k.hoiDong.tenHD || 'Hội đồng')}</span></div>
       <div class="info-row"><span class="info-label">Chủ tịch HĐ:</span><span class="info-value">${getUser(k.hoiDong.ct)?.name || k.hoiDong.ct}</span></div>
       <div class="info-row"><span class="info-label">Thư ký HĐ:</span><span class="info-value">${getUser(k.hoiDong.tk)?.name || k.hoiDong.tk}</span></div>
-      <div class="info-row"><span class="info-label">Ủy viên HĐ:</span><span class="info-value">${k.hoiDong.tv.map(email => getUser(email)?.name || email).join(', ')}</span></div>
+      <div class="info-row"><span class="info-label">Thành viên Hội đồng:</span><span class="info-value">${hoiDongMemberNames || 'Chưa phân công'}</span></div>
       ` : '<div class="info-row"><span class="info-label">Hội đồng:</span><span class="info-value" style="color:var(--text3)">Chưa phân công</span></div>'}
     </div>`;
 
@@ -3505,7 +3532,7 @@ function renderPhanCong() {
     DB.tbmKLTNFilterState = { q: '', gvhd: '', major: '', hoidong: '' };
   }
   const { q, gvhd, major, hoidong } = DB.tbmKLTNFilterState;
-  const needAction = DB.kltnList.filter(k => k.trangThai === 'thuc_hien');
+  const needAction = DB.kltnList.filter(k => ['thuc_hien', 'cham_diem'].includes(k.trangThai));
   const advisorEmails = Array.from(new Set(needAction.map((k) => (getUser(k.gvHDEmail)?.email || k.gvHDEmail || '').trim().toLowerCase()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'vi'));
   const majorOptions = Array.from(new Set(needAction.map((k) => (k.mangDeTai || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'vi'));
 
@@ -3622,7 +3649,7 @@ function renderPhanCong() {
       const sv = getUser(k.svEmail);
       const gvHD = getUser(k.gvHDEmail);
       const hasHD = k.hoiDong ? '<span class="badge" style="background:#10b981;color:#fff;padding:4px 8px;border-radius:3px;font-size:11px;font-weight:700;">✅ Đã xếp Hội đồng</span>' : '<span class="badge badge-red">Thiếu HĐ</span>';
-      
+      const statusLabel = k.trangThai === 'cham_diem' ? '<span class="badge badge-orange">Đã nộp bài</span>' : statusBadge(k.trangThai);
       const hdName = k.hoiDong ? escapeHtml(k.hoiDong.tenHD || 'Hội đồng') : 'Chưa xếp';
 
       html += `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:12px;border:1px solid var(--border);border-radius:6px;margin-bottom:10px;background:var(--bg, #fff);">
@@ -3636,6 +3663,7 @@ function renderPhanCong() {
           </div>
           <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
             ${hasHD}
+            ${statusLabel}
           </div>
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;min-width:120px;justify-content:flex-end;">
@@ -4155,7 +4183,7 @@ async function renderHuongDan() {
   let bcttList = DB.bcttList.filter(b => normalizeEmail(b.gvEmail) === currentEmail && b.trangThai === 'cho_duyet');
   let bcttChamList = DB.bcttList.filter(b => normalizeEmail(b.gvEmail) === currentEmail && ['gv_xac_nhan', 'cho_cham'].includes(b.trangThai));
   let kltnList = DB.kltnList.filter(k => normalizeEmail(k.gvHDEmail) === currentEmail && k.trangThai === 'cho_duyet');
-  let kltnChamList = DB.kltnList.filter(k => normalizeEmail(k.gvHDEmail) === currentEmail && ['thuc_hien', 'bao_ve', 'pass', 'fail', 'hoan_thanh'].includes(k.trangThai));
+  let kltnChamList = DB.kltnList.filter(k => normalizeEmail(k.gvHDEmail) === currentEmail && ['thuc_hien', 'cham_diem', 'bao_ve', 'pass', 'fail', 'hoan_thanh'].includes(k.trangThai));
 
   const normalizeHuongDanTopicType = (value) => {
     const raw = String(value || '').trim().toLowerCase();
