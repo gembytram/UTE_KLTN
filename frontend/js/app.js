@@ -137,17 +137,42 @@ function hasCommonMajor(a, b) {
     return majorsA.length && majorsB.length && majorsA.some((m) => majorsB.includes(m));
 }
 
+function parseLocalDateTime(value) {
+  if (!value) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  // If the value contains an explicit timezone offset or Z, use native parsing.
+  if (/[zZ]|[+\-]\d{2}:?\d{2}$/.test(raw)) {
+    const tzDate = new Date(raw);
+    return Number.isNaN(tzDate.getTime()) ? null : tzDate;
+  }
+
+  // Normalize common local datetime formats to ISO-like local string.
+  let localIso = raw.replace(' ', 'T');
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(localIso)) {
+    const [datePart, timePart] = localIso.split('T');
+    const [year, month, day] = datePart.split('-').map(Number);
+    const [hour, minute, second = 0] = timePart.split(':').map(Number);
+    const date = new Date();
+    date.setFullYear(year, month - 1, day);
+    date.setHours(hour, minute, second, 0);
+    return date;
+  }
+
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 function parseDateString(value) {
   if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return date;
+  return parseLocalDateTime(value);
 }
 
 function formatDateTimeLocal(value) {
   if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
+  const date = parseLocalDateTime(value);
+  if (!date) return '';
   const pad = (num) => String(num).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
@@ -218,7 +243,15 @@ function getApiBaseUrl() {
 
 function uploadFileHref(fileId) {
   if (!fileId) return '#';
-  return `https://drive.google.com/file/d/${fileId}/preview`;
+  const raw = String(fileId || '').trim();
+  if (!raw) return '#';
+  if (raw.startsWith('http://') || raw.startsWith('https://')) {
+    return raw;
+  }
+  if (raw.startsWith('uploads/') || raw.startsWith('/uploads/')) {
+    return `${API_BASE}/${raw.replace(/^\/+/, '')}`;
+  }
+  return `https://drive.google.com/file/d/${encodeURIComponent(raw)}/preview`;
 }
 
 const ICON_MAP = {
@@ -3530,7 +3563,7 @@ function renderPhanCong() {
     myHoiDongList.forEach(hd => {
       const ctName = getUser(hd.ct)?.name || hd.ct;
       const tkName = getUser(hd.tk)?.name || hd.tk;
-      let timeStr = hd.thoiGian ? new Date(hd.thoiGian).toLocaleString('vi-VN', {hour: '2-digit', minute:'2-digit', day:'2-digit', month:'2-digit', year:'numeric'}) : 'Chưa xếp';
+      let timeStr = hd.thoiGian ? formatDate(hd.thoiGian) : 'Chưa xếp';
 
       html += `<tr>
         <td style="font-weight:600;color:var(--primary)">${escapeHtml(hd.ten)}</td>
@@ -3671,7 +3704,7 @@ function showHoiDongModal(editId = null) {
     <div class="grid-2">
       <div class="form-group">
         <label>Ngày giờ bảo vệ</label>
-        <input type="datetime-local" id="hd-thoigian" value="${hd ? hd.thoiGian : ''}" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px">
+        <input type="datetime-local" id="hd-thoigian" value="${hd ? formatDateTimeLocal(hd.thoiGian) : ''}" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px">
       </div>
       <div class="form-group">
         <label>Mã phòng</label>
@@ -3718,7 +3751,7 @@ function showPhanCongSinhVienModal(hdId) {
   // Lọc ra các sinh viên KLTN CHƯA có hội đồng, HOẶC ĐANG nằm trong hội đồng này
   const dsKLTN = DB.kltnList.filter(k => !k.hoiDong || String(k.hoiDong.id) === String(hdId));
 
-  let timeStr = hd.thoiGian ? new Date(hd.thoiGian).toLocaleString('vi-VN', {hour: '2-digit', minute:'2-digit', day:'2-digit', month:'2-digit', year:'numeric'}) : 'Chưa xếp';
+  let timeStr = hd.thoiGian ? formatDate(hd.thoiGian) : 'Chưa xếp';
 
   let svHtml = '';
   if (dsKLTN.length === 0) {

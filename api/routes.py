@@ -2388,7 +2388,20 @@ def register_routes(app):
         except Exception as e:
             print("Upload error:", str(e))
             return None
-    
+
+    def _save_file_locally(file, loai, ma_sv):
+        try:
+            target_dir = os.path.join(app.root_path, "uploads", loai, (ma_sv or "unknown"))
+            os.makedirs(target_dir, exist_ok=True)
+            filename = f"{int(datetime.now().timestamp())}_{secure_filename(file.filename)}"
+            save_path = os.path.join(target_dir, filename)
+            file.seek(0)
+            file.save(save_path)
+            return os.path.relpath(save_path, app.root_path).replace("\\", "/")
+        except Exception as e:
+            print("Local upload error:", str(e))
+            return None
+
     @app.route("/api/upload", methods=["POST"])
     @login_required
     def upload():
@@ -2417,29 +2430,31 @@ def register_routes(app):
             conn.close()
             return fail("Không tìm thấy đăng ký", 404)
 
-        dot = conn.execute("SELECT * FROM dot WHERE id = ?", (dk["dot_id"],)).fetchone()
-
         if current_user and str(current_user.get("role", "")).upper() == "SV":
             if str(ma_sv or "").strip().lower() not in [str(current_user.get("ma", "")).strip().lower(), str(current_user.get("mssv", "")).strip().lower()]:
                 conn.close()
                 return fail("Thông tin sinh viên không khớp", 403)
 
-        # 🚀 Upload lên Google Drive
-        file_id = upload_to_drive(f)
-
-        if not file_id:
-            conn.close()
-            return fail("Upload Google Drive thất bại", 500)
+        file_path = None
+        if GOOGLE_SCRIPT_URL:
+            file_path = upload_to_drive(f)
+            if not file_path:
+                print("Google Drive upload failed, falling back to local save")
+        if not file_path:
+            file_path = _save_file_locally(f, loai, ma_sv)
+            if not file_path:
+                conn.close()
+                return fail("Lưu file thất bại", 500)
 
         conn.execute(
             "INSERT INTO nop_bai (dang_ky_id, loai_file, file_path) VALUES (?, ?, ?)",
-            (dang_ky_id, loai, file_id),  # ⚠️ Lưu fileId thay vì path
+            (dang_ky_id, loai, file_path),
         )
 
         conn.commit()
         conn.close()
 
-        return ok("Upload thành công", {"file_id": file_id})
+        return ok("Upload thành công", {"file_path": file_path})
 
     @app.route("/api/thong-ke", methods=["GET"])
     @role_required("TBM")
