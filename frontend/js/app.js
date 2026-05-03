@@ -4445,15 +4445,18 @@ async function renderHuongDan() {
       if (assignment.isCommitteeMember) roles.push('Thành viên HĐ');
       html += `<div class="card" style="margin-bottom:10px">
         <div class="card-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
-          <div style="flex:1;min-width:0">
-            <div class="card-title" style="cursor:pointer;color:var(--primary)" onclick="viewKLTNDetail('${k.id}')">${escapeHtml(k.tenDeTai)}</div>
-            <div style="display:grid;grid-template-columns:repeat(3,minmax(130px,1fr));gap:10px;margin-top:10px;font-size:12px;color:var(--text3)">
-              <span><strong>MSSV:</strong> ${escapeHtml(sv?.mssv || 'Chưa có')}</span>
-              <span><strong>Lĩnh vực:</strong> ${escapeHtml(k.mangDeTai || 'Chưa có')}</span>
-              <span><strong>Loại đề tài:</strong> ${escapeHtml(getTopicTypeLabel(k.topicType))}</span>
+          <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;flex:1;min-width:0">
+            <input type="checkbox" class="select-kltn-huongdan" value="${k.dangKyId || extractId(k.id)}" style="margin-top:4px;transform:scale(1.1)">
+            <div style="flex:1;min-width:0">
+              <div class="card-title" style="cursor:pointer;color:var(--primary)" onclick="viewKLTNDetail('${k.id}')">${escapeHtml(k.tenDeTai)}</div>
+              <div style="display:grid;grid-template-columns:repeat(3,minmax(130px,1fr));gap:10px;margin-top:10px;font-size:12px;color:var(--text3)">
+                <span><strong>MSSV:</strong> ${escapeHtml(sv?.mssv || 'Chưa có')}</span>
+                <span><strong>Lĩnh vực:</strong> ${escapeHtml(k.mangDeTai || 'Chưa có')}</span>
+                <span><strong>Loại đề tài:</strong> ${escapeHtml(getTopicTypeLabel(k.topicType))}</span>
+              </div>
+              <div style="font-size:12px;color:var(--text2);margin-top:10px">${escapeHtml(sv?.name || k.svEmail)} • Vai trò chấm: ${escapeHtml(roles.join(', ') || 'Được phân công')}</div>
             </div>
-            <div style="font-size:12px;color:var(--text2);margin-top:10px">${escapeHtml(sv?.name || k.svEmail)} • Vai trò chấm: ${escapeHtml(roles.join(', ') || 'Được phân công')}</div>
-          </div>
+          </label>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <button class="btn btn-ghost btn-sm" onclick="viewKLTNDetail('${k.id}')">👁 Chi tiết</button>
             ${statusBadge(k.trangThai)}
