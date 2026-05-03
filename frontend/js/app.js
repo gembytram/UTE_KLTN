@@ -46,10 +46,13 @@ const DB = {
   currentUser: null,
   currentPage: 'dashboard',
   nextDetaiTab: null,
+  bcttEditModeId: null,
+  kltnEditModeId: null,
   nhapDiemSelectedKLTN: null,
   nhapDiemFilter: { q: '', topicType: '', mangDeTai: '' },
   huongDanBCTTFilter: { q: '', mangDeTai: '' },
   huongDanKLTNFilter: { q: '', mangDeTai: '', loaiDeTai: '' },
+  hdSelectedBcttDotId: null,
   phanBienFilter: { q: '', mangDeTai: '' },
   hoiDongFilter: { q: '', mangDeTai: '' },
   chuTichFilter: { q: '', mangDeTai: '' },
@@ -132,6 +135,63 @@ function hasCommonMajor(a, b) {
     const majorsA = Array.isArray(a.chuyenMon) ? a.chuyenMon.map((m) => String(m).trim()).filter(Boolean) : [];
     const majorsB = Array.isArray(b.chuyenMon) ? b.chuyenMon.map((m) => String(m).trim()).filter(Boolean) : [];
     return majorsA.length && majorsB.length && majorsA.some((m) => majorsB.includes(m));
+}
+
+function parseDateString(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+}
+
+function formatDateTimeLocal(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const pad = (num) => String(num).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function formatDate(value) {
+  if (!value) return '';
+  const date = parseDateString(value);
+  if (!date) return String(value);
+  const pad = (num) => String(num).padStart(2, '0');
+  return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function getDotById(dotId) {
+  return DB.dotDangKy.find((d) => String(d.id) === String(dotId));
+}
+
+function isBeforeDeadline(dot) {
+  if (!dot || !dot.ketThuc) return true;
+  const deadline = parseDateString(dot.ketThuc);
+  if (!deadline) return true;
+  return new Date() <= deadline;
+}
+
+function isLate(dot) {
+  return Boolean(dot && dot.ketThuc && !isBeforeDeadline(dot));
+}
+
+function toggleBCTTEditMode(recordId) {
+  DB.bcttEditModeId = DB.bcttEditModeId === recordId ? null : recordId;
+  refreshCurrentView();
+}
+
+function toggleKLTNEditMode(recordId) {
+  DB.kltnEditModeId = DB.kltnEditModeId === recordId ? null : recordId;
+  refreshCurrentView();
+}
+
+function isCurrentUserStudent() {
+  return String(DB.currentUser?.role || '').toLowerCase() === 'sv';
+}
+
+function isCurrentUserGVOfBCTT(record) {
+  if (!record || !DB.currentUser) return false;
+  return DB.currentUser.role === 'gv' && String(DB.currentUser.email || '').toLowerCase() === String(record.gvEmail || '').toLowerCase();
 }
 
 function normalizeMajorName(value) {
@@ -1560,7 +1620,9 @@ function getStudentUploadMa() {
 }
 
 function findBcttRecord(recordId) {
-  return DB.bcttList.find((b) => String(b.id) === String(recordId));
+  return DB.bcttList.find((b) =>
+    String(b.id) === String(recordId) || String(b.dangKyId) === String(recordId) || String(extractId(b.id)) === String(recordId)
+  );
 }
 
 function findKltnRecord(recordId) {
@@ -1776,6 +1838,10 @@ function fakeUpload(kind, recordId) {
     toast("Loại file upload không hợp lệ", "error");
     return;
   }
+  const dot = getDotById(record.dotId);
+  if (isCurrentUserStudent() && isLate(dot)) {
+    toast("Bạn đang nộp trễ. Hệ thống vẫn chấp nhận file.", "warning");
+  }
   chooseFileAndUpload(record.dangKyId || extractId(record.id), loaiFile);
 }
 
@@ -1796,6 +1862,10 @@ function fakeUploadKLTN(recordId, field) {
     toast("Loại file upload không hợp lệ", "error");
     return;
   }
+  const dot = getDotById(record.dotId);
+  if (isCurrentUserStudent() && isLate(dot)) {
+    toast("Bạn đang nộp trễ. Hệ thống vẫn chấp nhận file.", "warning");
+  }
   chooseFileAndUpload(record.dangKyId || extractId(record.id), loaiFile);
 }
 
@@ -1811,6 +1881,99 @@ async function hoanTatBCTT(recordId) {
       body: JSON.stringify({ dang_ky_id: record.dangKyId || extractId(record.id) }),
     });
     toast("Đã nộp hồ sơ BCTT");
+    DB.bcttEditModeId = null;
+    await refreshCurrentView();
+  } catch (err) {
+    toast(err.message, "error");
+  }
+}
+
+async function updateDotDeadline(dotId) {
+  const han_dang_ky = document.getElementById("view-bctt-han-dk")?.value || "";
+  const han_nop = document.getElementById("view-bctt-han-nop")?.value || "";
+  if (!han_dang_ky && !han_nop) {
+    toast("Vui lòng nhập ít nhất một hạn cần cập nhật", "error");
+    return;
+  }
+  try {
+    await apiRequest("/api/dot/update", {
+      method: "POST",
+      body: JSON.stringify({ dot_id: dotId, han_dang_ky, han_nop }),
+    });
+    toast("Cập nhật hạn đợt thành công");
+    closeModalForce();
+    await refreshCurrentView();
+  } catch (err) {
+    toast(err.message, "error");
+  }
+}
+
+async function saveSelectedDotDeadline(dotId) {
+  const selectedDot = DB.dotDangKy.find((d) => String(d.id) === String(dotId));
+  if (selectedDot && String(selectedDot.loai || '').toUpperCase() !== 'KLTN') {
+    toast("TBM chỉ được chỉnh hạn đợt KLTN", "error");
+    return;
+  }
+  const han_dang_ky = document.getElementById("tbm-selected-dot-han-dk")?.value || "";
+  const han_nop = document.getElementById("tbm-selected-dot-han-nop")?.value || "";
+  if (!han_dang_ky && !han_nop) {
+    toast("Vui lòng nhập ít nhất một hạn cần cập nhật", "error");
+    return;
+  }
+  try {
+    await apiRequest("/api/dot/update", {
+      method: "POST",
+      body: JSON.stringify({ dot_id: dotId, han_dang_ky, han_nop }),
+    });
+    toast("Cập nhật hạn đợt thành công");
+    await refreshCurrentView();
+  } catch (err) {
+    toast(err.message, "error");
+  }
+}
+
+async function saveHuongDanBcttDeadline() {
+  const dotId = DB.hdSelectedBcttDotId;
+  if (!dotId) {
+    toast("Vui lòng chọn đợt BCTT", "error");
+    return;
+  }
+  const han_dang_ky = document.getElementById("huongdan-bctt-dot-han-dk")?.value || "";
+  const han_nop = document.getElementById("huongdan-bctt-dot-han-nop")?.value || "";
+  if (!han_dang_ky && !han_nop) {
+    toast("Vui lòng nhập ít nhất một hạn cần cập nhật", "error");
+    return;
+  }
+  try {
+    await apiRequest("/api/dot/update", {
+      method: "POST",
+      body: JSON.stringify({ dot_id: dotId, han_dang_ky, han_nop }),
+    });
+    toast("Cập nhật hạn đợt BCTT thành công");
+    await refreshCurrentView();
+  } catch (err) {
+    toast(err.message, "error");
+  }
+}
+
+async function saveHuongDanKltnDeadline() {
+  const dotId = DB.hdSelectedKltnDotId;
+  if (!dotId) {
+    toast("Vui lòng chọn đợt KLTN", "error");
+    return;
+  }
+  const han_dang_ky = document.getElementById("huongdan-kltn-dot-han-dk")?.value || "";
+  const han_nop = document.getElementById("huongdan-kltn-dot-han-nop")?.value || "";
+  if (!han_dang_ky && !han_nop) {
+    toast("Vui lòng nhập ít nhất một hạn cần cập nhật", "error");
+    return;
+  }
+  try {
+    await apiRequest("/api/dot/update", {
+      method: "POST",
+      body: JSON.stringify({ dot_id: dotId, han_dang_ky, han_nop }),
+    });
+    toast("Cập nhật hạn đợt KLTN thành công");
     await refreshCurrentView();
   } catch (err) {
     toast(err.message, "error");
@@ -1829,6 +1992,7 @@ async function hoanTatKLTN(recordId) {
       body: JSON.stringify({ dang_ky_id: record.dangKyId || extractId(record.id) }),
     });
     toast("Đã nộp bài KLTN");
+    DB.kltnEditModeId = null;
     await refreshCurrentView();
   } catch (err) {
     toast(err.message, "error");
@@ -1975,8 +2139,7 @@ async function chamDiemBCTT(bcttRecord) {
 async function chamBCTT(recordId) {
   const record = findBcttRecord(recordId);
   if (!record) {
-    toast('Không tìm thấy hồ sơ BCTT', 'error');
-    return;
+    console.warn('Không tìm thấy hồ sơ BCTT trong bộ nhớ, sử dụng ID đăng ký trực tiếp');
   }
 
   const diem = document.getElementById(`bctt-diem-${recordId}`)?.value || '';
@@ -1993,7 +2156,7 @@ async function chamBCTT(recordId) {
     return;
   }
 
-  const dangKyId = record.dangKyId || extractId(record.id);
+  const dangKyId = record?.dangKyId || extractId(record?.id) || recordId;
   if (!dangKyId) {
     toast('Mã đăng ký không hợp lệ', 'error');
     return;
@@ -2074,6 +2237,82 @@ async function saveScorePB(dangKyId) {
 
 async function saveScoreCT(dangKyId) {
   return saveScore('CT', dangKyId);
+}
+
+// ============================================================
+// SCORE HISTORY FUNCTIONS
+// ============================================================
+
+async function viewScoreHistory(dangKyId, vaiTro) {
+  try {
+    const params = new URLSearchParams({ dang_ky_id: dangKyId });
+    if (vaiTro) params.append('vai_tro', vaiTro);
+    
+    const response = await apiRequest(`/api/score-history?${params.toString()}`, { method: 'GET' });
+    const history = response.data?.history || [];
+    
+    if (!history.length) {
+      toast('Chưa có lịch sử chỉnh sửa cho điểm này', 'info');
+      return;
+    }
+    
+    // Build history HTML
+    let historyHtml = '<div style="max-height:500px;overflow-y:auto">';
+    historyHtml += history.map((h, idx) => `
+      <div style="border-bottom:1px solid var(--border);padding:12px 0;${idx === history.length - 1 ? 'border-bottom:none' : ''}">
+        <div style="font-size:12px;color:var(--text3);margin-bottom:8px">
+          <strong>${escapeHtml(h.edited_by_name || 'Không rõ')}</strong> • ${formatDate(h.edited_at)} (${h.vai_tro})
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:13px">
+          <div>
+            <div style="color:var(--text3);font-size:11px;margin-bottom:4px">ĐIỂM CŨ</div>
+            <div style="background:#FFE5E5;padding:8px;border-radius:4px">
+              ${h.old_diem !== null ? `<strong>${h.old_diem}</strong>` : '<span style="color:var(--text3)">Chưa có</span>'}
+            </div>
+            ${h.old_nhan_xet ? `<div style="color:var(--text3);font-size:11px;margin-top:4px">Nhận xét: ${escapeHtml(h.old_nhan_xet)}</div>` : ''}
+          </div>
+          <div>
+            <div style="color:var(--text3);font-size:11px;margin-bottom:4px">ĐIỂM MỚI</div>
+            <div style="background:#E5F9E5;padding:8px;border-radius:4px">
+              ${h.new_diem !== null ? `<strong>${h.new_diem}</strong>` : '<span style="color:var(--text3)">Không có</span>'}
+            </div>
+            ${h.new_nhan_xet ? `<div style="color:var(--text3);font-size:11px;margin-top:4px">Nhận xét: ${escapeHtml(h.new_nhan_xet)}</div>` : ''}
+          </div>
+        </div>
+      </div>
+    `).join('');
+    historyHtml += '</div>';
+    
+    showModal(`
+      <div class="modal-header">
+        <div class="modal-title">📋 Lịch sử chỉnh sửa điểm (${vaiTro || 'Tất cả'})</div>
+        <button class="modal-close" onclick="closeModalForce()">✕</button>
+      </div>
+      <div class="modal-body">
+        ${historyHtml}
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="closeModalForce()">Đóng</button>
+      </div>
+    `);
+  } catch (err) {
+    toast(err.message || 'Lỗi tải lịch sử', 'error');
+  }
+}
+
+async function loadScoredBCTT() {
+  try {
+    const u = DB.currentUser || {};
+    const role = String(u.role || '').trim().toUpperCase();
+    if (!Array.isArray(DB.bcttList)) return [];
+    return DB.bcttList.filter((b) =>
+      b.diemBCTT !== null && b.diemBCTT !== undefined &&
+      (role === 'TBM' || String(b.gvEmail || '').trim().toLowerCase() === String(u.email || '').trim().toLowerCase())
+    );
+  } catch (err) {
+    console.error('Lỗi tải BCTT đã chấm từ bộ nhớ:', err);
+    return [];
+  }
 }
 
 // ============================================================
@@ -2227,7 +2466,8 @@ function renderBCTT() {
       <div class="info-row"><span class="info-label">Công ty:</span><span class="info-value">${b.tenCongTy}</span></div>
       <div class="info-row"><span class="info-label">Giảng viên HD:</span><span class="info-value">${gv?.name || b.gvEmail}</span></div>
       <div class="info-row"><span class="info-label">Đợt đăng ký:</span><span class="info-value">${DB.dotDangKy.find(d=>d.id===b.dotId)?.ten || b.dotId}</span></div>
-      <div class="info-row"><span class="info-label">Hạn nộp BCTT:</span><span class="info-value">${dot?.ketThuc || 'Chưa cấu hình'}</span></div>
+      <div class="info-row"><span class="info-label">Hạn đăng ký:</span><span class="info-value">${formatDate(dot?.batDau) || 'Chưa cấu hình'}</span></div>
+      <div class="info-row"><span class="info-label">Hạn nộp BCTT:</span><span class="info-value">${formatDate(dot?.ketThuc) || 'Chưa cấu hình'}</span></div>
       <div class="info-row"><span class="info-label">Ngày đăng ký:</span><span class="info-value">${b.ngayDangKy}</span></div>
     </div>`;
 
@@ -2241,34 +2481,50 @@ function renderBCTT() {
         </div>
       </div>`;
     }
+    const isDeadlineOpen = isBeforeDeadline(dot);
+    const isSubmittedBCTT = b.trangThai === 'cho_cham' && b.fileBC && b.fileBCWord && b.fileXacNhan;
+    const isEditBCTT = DB.bcttEditModeId === b.id;
+    const isLateBCTT = Boolean(b.submittedLate) || !isDeadlineOpen;
     if (b.trangThai === 'gv_xac_nhan' || b.trangThai === 'cho_cham') {
-      html += `<div class="card"><div class="card-title" style="margin-bottom:16px">📤 Nộp hồ sơ BCTT</div>
-        <div class="grid-2">
-          <div>
-            <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">📄 Báo cáo Thực tập (PDF)</label>
-            <div class="upload-area ${b.fileBC ? 'has-file' : ''}" onclick="fakeUpload('bctt-bc','${b.id}','fileBC')">
-              <div class="upload-icon">${b.fileBC ? '✅' : '📁'}</div>
-              <div class="upload-text">${b.fileBC ? b.fileBC : 'Click để chọn file PDF'}</div>
+      if (isSubmittedBCTT && !isEditBCTT) {
+        html += `<div class="card"><div class="card-title" style="margin-bottom:16px">✅ Đã nộp hồ sơ BCTT</div>
+          <div class="info-row"><span class="info-label">Báo cáo PDF:</span><span class="info-value">${escapeHtml(b.fileBC)}</span></div>
+          <div class="info-row"><span class="info-label">Báo cáo Word:</span><span class="info-value">${escapeHtml(b.fileBCWord)}</span></div>
+          <div class="info-row"><span class="info-label">Giấy xác nhận:</span><span class="info-value">${escapeHtml(b.fileXacNhan)}</span></div>
+          ${isLateBCTT ? `<div style="margin-top:12px;font-size:13px;color:#b91c1c;font-weight:600">Hạn nộp BCTT đã qua. Đây là nộp trễ.</div>` : ''}
+          <button class="btn btn-secondary" style="margin-top:16px;width:100%" onclick="toggleBCTTEditMode('${b.id}')">✏️ Chỉnh sửa hồ sơ</button>
+        </div>`;
+      } else {
+        html += `<div class="card"><div class="card-title" style="margin-bottom:16px">📤 Nộp hồ sơ BCTT</div>
+          <div class="grid-2">
+            <div>
+              <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">📄 Báo cáo Thực tập (PDF)</label>
+              <div class="upload-area ${b.fileBC ? 'has-file' : ''}" onclick="fakeUpload('bctt-bc','${b.id}','fileBC')">
+                <div class="upload-icon">${b.fileBC ? '✅' : '📁'}</div>
+                <div class="upload-text">${b.fileBC ? b.fileBC : 'Click để chọn file PDF'}</div>
+              </div>
+            </div>
+            <div>
+              <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">📄 Báo cáo Thực tập (Word)</label>
+              <div class="upload-area ${b.fileBCWord ? 'has-file' : ''}" onclick="fakeUpload('bctt-bc-word','${b.id}','fileBCWord')">
+                <div class="upload-icon">${b.fileBCWord ? '✅' : '📁'}</div>
+                <div class="upload-text">${b.fileBCWord ? b.fileBCWord : 'Click để chọn file Word'}</div>
+              </div>
+            </div>
+            <div>
+              <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">📋 Giấy xác nhận TT (PDF)</label>
+              <div class="upload-area ${b.fileXacNhan ? 'has-file' : ''}" onclick="fakeUpload('bctt-xn','${b.id}','fileXacNhan')">
+                <div class="upload-icon">${b.fileXacNhan ? '✅' : '📁'}</div>
+                <div class="upload-text">${b.fileXacNhan ? b.fileXacNhan : 'Click để chọn file PDF'}</div>
+              </div>
             </div>
           </div>
-          <div>
-            <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">� Báo cáo Thực tập (Word)</label>
-            <div class="upload-area ${b.fileBCWord ? 'has-file' : ''}" onclick="fakeUpload('bctt-bc-word','${b.id}','fileBCWord')">
-              <div class="upload-icon">${b.fileBCWord ? '✅' : '📁'}</div>
-              <div class="upload-text">${b.fileBCWord ? b.fileBCWord : 'Click để chọn file Word'}</div>
-            </div>
-          </div>
-          <div>
-            <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">📋 Giấy xác nhận TT (PDF)</label>
-            <div class="upload-area ${b.fileXacNhan ? 'has-file' : ''}" onclick="fakeUpload('bctt-xn','${b.id}','fileXacNhan')">
-              <div class="upload-icon">${b.fileXacNhan ? '✅' : '📁'}</div>
-              <div class="upload-text">${b.fileXacNhan ? b.fileXacNhan : 'Click để chọn file PDF'}</div>
-            </div>
-          </div>
-        </div>
-        <div style="margin-top:12px;font-size:12px;color:var(--text3)">Yêu cầu: Upload Báo cáo Thực tập PDF, Báo cáo Thực tập Word và Giấy xác nhận TT PDF.</div>
-        ${b.fileBC && b.fileBCWord && b.fileXacNhan ? `<button class="btn btn-success" style="margin-top:16px;width:100%" onclick="hoanTatBCTT('${b.id}')">✅ Hoàn tất nộp hồ sơ BCTT</button>` : ''}
-      </div>`;
+          <div style="margin-top:12px;font-size:12px;color:var(--text3)">Yêu cầu: Upload Báo cáo Thực tập PDF, Báo cáo Thực tập Word và Giấy xác nhận TT PDF.</div>
+          ${!isDeadlineOpen ? `<div style="margin-top:12px;font-size:13px;color:#b91c1c;font-weight:600">Hạn nộp BCTT đã qua. Đây là nộp trễ.</div>` : ''}
+          ${b.fileBC && b.fileBCWord && b.fileXacNhan ? `<button class="btn btn-success" style="margin-top:16px;width:100%" onclick="hoanTatBCTT('${b.id}')">✅ Hoàn tất nộp hồ sơ BCTT</button>` : ''}
+          ${isSubmittedBCTT ? `<button class="btn btn-secondary" style="margin-top:12px;width:100%" onclick="toggleBCTTEditMode('${b.id}')">✏️ Chỉnh sửa hồ sơ</button>` : ''}
+        </div>`;
+      }
     }
     if (b.trangThai === 'cho_duyet') {
       html += `<div class="card" style="background:#FFF7D6;border:1px solid var(--accent3)"><div style="font-size:13px;font-weight:600;color:#974F0C">⏳ Đang chờ giảng viên xác nhận đề tài...</div></div>`;
@@ -2338,15 +2594,23 @@ function renderKLTN() {
   const el = document.getElementById('page-kltn');
   let html = `<div class="page-header"><h1>🎓 Đăng ký Khóa Luận Tốt Nghiệp</h1><p>Đăng ký và theo dõi tiến độ KLTN</p></div>`;
 
+
   if (myKLTN.length > 0) {
     const k = myKLTN[0];
     const gvHD = getUser(k.gvHDEmail);
+    const dot = DB.dotDangKy.find(d => d.id === k.dotId);
+    const isDeadlineOpen = isBeforeDeadline(dot);
+    const isSubmittedKLTN = k.trangThai === 'cham_diem' && (k.fileBai || k.fileBaiWord);
+    const isEditingKLTN = DB.kltnEditModeId === k.id;
     html += `<div class="card" style="margin-bottom:20px">
       <div class="card-header"><div><div class="card-title">📋 Thông tin KLTN</div></div>${statusBadge(k.trangThai)}</div>
       <div class="info-row"><span class="info-label">Tên đề tài:</span><span class="info-value" style="font-weight:700">${k.tenDeTai}</span></div>
       <div class="info-row"><span class="info-label">Loại đề tài:</span><span class="info-value">${getTopicTypeLabel(k.topicType)}</span></div>
       <div class="info-row"><span class="info-label">Mảng đề tài:</span><span class="info-value">${k.mangDeTai}</span></div>
       <div class="info-row"><span class="info-label">GV Hướng dẫn:</span><span class="info-value">${gvHD?.name || k.gvHDEmail}</span></div>
+      <div class="info-row"><span class="info-label">Đợt đăng ký:</span><span class="info-value">${dot ? escapeHtml(dot.ten) : escapeHtml(k.dotId)}</span></div>
+      <div class="info-row"><span class="info-label">Hạn đăng ký:</span><span class="info-value">${formatDate(dot?.batDau) || 'Chưa cấu hình'}</span></div>
+      <div class="info-row"><span class="info-label">Hạn nộp:</span><span class="info-value">${formatDate(dot?.ketThuc) || 'Chưa cấu hình'}</span></div>
       ${k.hoiDong ? `
       <div class="info-row"><span class="info-label">Chủ tịch HĐ:</span><span class="info-value">${getUser(k.hoiDong.ct)?.name || k.hoiDong.ct}</span></div>
       <div class="info-row"><span class="info-label">Thư ký HĐ:</span><span class="info-value">${getUser(k.hoiDong.tk)?.name || k.hoiDong.tk}</span></div>
@@ -2354,14 +2618,24 @@ function renderKLTN() {
       ` : '<div class="info-row"><span class="info-label">Hội đồng:</span><span class="info-value" style="color:var(--text3)">Chưa phân công</span></div>'}
     </div>`;
 
-    if (k.trangThai === 'thuc_hien') {
+    const isLateKLTN = Boolean(k.submittedLate) || !isDeadlineOpen;
+    if (isSubmittedKLTN && !isEditingKLTN) {
+      html += `<div class="card"><div class="card-title" style="margin-bottom:16px">✅ Đã nộp bài KLTN</div>
+        ${k.fileBaiWord ? `<div class="info-row"><span class="info-label">File Word:</span><span class="info-value">${escapeHtml(k.fileBaiWord)}</span></div>` : ''}
+        ${k.fileBai ? `<div class="info-row"><span class="info-label">File PDF:</span><span class="info-value">${escapeHtml(k.fileBai)}</span></div>` : ''}
+        ${isLateKLTN ? `<div style="margin-top:12px;font-size:13px;color:#b91c1c;font-weight:600">Hạn nộp KLTN đã qua. Đây là nộp trễ.</div>` : ''}
+        <button class="btn btn-secondary" style="margin-top:16px;width:100%" onclick="toggleKLTNEditMode('${k.id}')">✏️ Chỉnh sửa bài</button>
+      </div>`;
+    }
+
+    if (k.trangThai === 'thuc_hien' || (isSubmittedKLTN && isEditingKLTN)) {
       const hasAssignments = k.gvPBEmail && k.hoiDong;
       html += `<div class="card"><div class="card-title" style="margin-bottom:16px">📤 Nộp bài KLTN</div>
         ${!hasAssignments ? `<div style="background:#FFF7D6;border:1px solid var(--accent3);border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;font-size:13px;color:#974F0C">
             ⏳ Vui lòng chờ Trưởng bộ môn phân công Giảng viên phản biện và Hội đồng trước khi nộp bài.
            </div>` : ''}
         <div class="grid-2">
-          <div><label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">📄 File bài KLTN (PDF/ZIP)</label>
+          <div><label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">📄 File bài KLTN (Word)</label>
         <div class="upload-area ${k.fileBaiWord ? 'has-file' : ''}" onclick="fakeUploadKLTN('${k.id}','fileBaiWord')">
           <div class="upload-icon">${k.fileBaiWord ? '✅' : '📁'}</div>
           <div class="upload-text">${k.fileBaiWord || 'Click để chọn file Word'}</div>
@@ -2371,9 +2645,11 @@ function renderKLTN() {
           <div class="upload-text">${k.fileBai || 'Click để chọn file PDF'}</div>
         </div>
           </div>
-          <div><label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">📅 Hạn nộp</label><div class="uploaded-file">Hạn nộp KLTN: 23:59 ngày 15/06/2026</div></div>
+          <div><label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">📅 Hạn nộp</label><div class="uploaded-file">${formatDate(dot?.ketThuc) ? `Hạn nộp KLTN: ${formatDate(dot?.ketThuc)}` : 'Chưa cấu hình'}</div></div>
         </div>
+        ${!isDeadlineOpen ? `<div style="margin-top:12px;font-size:13px;color:#b91c1c;font-weight:600">Hạn nộp KLTN đã qua. Đây là nộp trễ.</div>` : ''}
         ${k.fileBai && hasAssignments ? `<button class="btn btn-success" style="margin-top:16px;width:100%" onclick="hoanTatKLTN('${k.id}')">✅ Hoàn tất nộp KLTN</button>` : ''}
+        ${isSubmittedKLTN ? `<button class="btn btn-secondary" style="margin-top:12px;width:100%" onclick="toggleKLTNEditMode('${k.id}')">✏️ Chỉnh sửa bài</button>` : ''}
       </div>`;
     }
 
@@ -2606,12 +2882,15 @@ function viewBCTTDetail(id) {
   if (!isBCTTVisibleForCurrentUser(b)) return toast('Bạn không có quyền xem đề tài này', 'error');
   const sv = getUser(b.svEmail);
   const gv = getUser(b.gvEmail);
+  const dot = getDotById(b.dotId);
   const u = DB.currentUser;
   
   // Cho phép GV của BCTT đó và TBM chấm điểm
   const isGVOfThis = u.email === b.gvEmail && u.role === 'gv';
   const isTBM = u.role === 'bm';
   const canScore = (isGVOfThis || isTBM) && b.trangThai === 'cho_cham';
+  const isDeadlineOpen = isBeforeDeadline(dot);
+  const canEditDeadline = isGVOfThis && dot && String(dot.loai || '').toUpperCase() === 'BCTT';
   
   const fileRow = (label, path) =>
     path
@@ -2647,7 +2926,11 @@ function viewBCTTDetail(id) {
     <div class="info-row"><span class="info-label">Công ty:</span><span class="info-value">${escapeHtml(b.tenCongTy)}</span></div>
     <div class="info-row"><span class="info-label">Mô tả ngắn:</span><span class="info-value">${escapeHtml(b.moTa || '–')}</span></div>
     <div class="info-row"><span class="info-label">GV HD:</span><span class="info-value">${escapeHtml(gv?.name || '')}</span></div>
+    <div class="info-row"><span class="info-label">Đợt đăng ký:</span><span class="info-value">${dot ? escapeHtml(dot.ten) : escapeHtml(b.dotId)}</span></div>
+    <div class="info-row"><span class="info-label">Hạn đăng ký:</span><span class="info-value">${formatDate(dot?.batDau) || 'Chưa cấu hình'}</span></div>
+    <div class="info-row"><span class="info-label">Hạn nộp:</span><span class="info-value">${formatDate(dot?.ketThuc) || 'Chưa cấu hình'}</span></div>
     <div class="info-row"><span class="info-label">Trạng thái:</span><span class="info-value">${statusBadge(b.trangThai)}</span></div>
+    ${!isDeadlineOpen ? `<div class="info-row"><span class="info-label">Tình trạng deadline:</span><span class="info-value" style="color:#b91c1c;font-weight:700">Đã hết hạn nộp BCTT (Nộp trễ)</span></div>` : ''}
     <div class="info-row"><span class="info-label">File báo cáo PDF:</span><span class="info-value">${fileRow('bc', b.fileBC)}</span></div>
     <div class="info-row"><span class="info-label">File báo cáo Word:</span><span class="info-value">${fileRow('bcw', b.fileBCWord)}</span></div>
     <div class="info-row"><span class="info-label">Giấy xác nhận:</span><span class="info-value">${fileRow('xn', b.fileXacNhan)}</span></div>
@@ -2749,6 +3032,7 @@ function viewKLTNDetail(id) {
       <div class="kltn-row"><span class="kltn-label">Ngành:</span><span class="kltn-value">Thương mại Điện tử</span></div>
       <div class="kltn-row"><span class="kltn-label">Lĩnh vực:</span><span class="kltn-value">${escapeHtml(k.mangDeTai)}</span></div>
       <div class="kltn-row"><span class="kltn-label">Trạng thái:</span><span class="kltn-value">${statusBadge(k.trangThai)}</span></div>
+    ${!isBeforeDeadline(getDotById(k.dotId)) ? `<div class="kltn-row"><span class="kltn-label">Tình trạng deadline:</span><span class="kltn-value" style="color:#b91c1c;font-weight:700">Đã hết hạn nộp KLTN (Nộp trễ)</span></div>` : ''}
     </div>
 
     <div class="kltn-section">
@@ -2870,6 +3154,21 @@ function renderDuyetDe() {
     }
     html += `</div>`;
 
+    const selectedDotType = String(selectedDot?.loai || '').toUpperCase();
+    const canEditSelectedDotDeadline = selectedDotType === 'KLTN';
+    html += `<div class="card" style="margin-top:20px"><div class="card-title" style="margin-bottom:12px">⏱️ Chỉnh hạn đợt</div>`;
+    if (!selectedDot) {
+      html += `<div class="empty-state"><div class="empty-state-title">Chọn hoặc tạo đợt để chỉnh slot</div></div>`;
+    } else if (canEditSelectedDotDeadline) {
+      html += `<div class="grid-2">
+          <div class="form-group"><label>Hạn đăng ký</label><input id="tbm-selected-dot-han-dk" type="date" value="${escapeHtml(selectedDot.batDau || '')}"></div>
+          <div class="form-group"><label>Hạn nộp</label><input id="tbm-selected-dot-han-nop" type="date" value="${escapeHtml(selectedDot.ketThuc || '')}"></div>
+        </div>
+        <div class="action-row" style="margin-top:12px"><button class="btn btn-primary" onclick="saveSelectedDotDeadline('${selectedDot.id}')">💾 Lưu hạn đợt</button></div>`;
+    } else {
+      html += `<div class="form-note" style="font-size:13px;color:var(--text3);line-height:1.5">Đợt hiện tại là <strong>${escapeHtml(selectedDot.loai || '')}</strong>. TBM chỉ được chỉnh hạn cho đợt <strong>KLTN</strong>. Nếu bạn cần chỉnh hạn BCTT, hãy liên hệ GVHD hoặc chỉnh hạn qua trang chi tiết BCTT.</div>`;
+    }
+    html += `</div>`;
     html += `<div class="card" style="margin-top:20px"><div class="card-title" style="margin-bottom:12px">👨‍🏫 Slot giảng viên theo đợt${selectedDot ? `: ${escapeHtml(selectedDot.ten)}` : ''}</div>`;
     if (!selectedDot) {
       html += `<div class="empty-state"><div class="empty-state-title">Chọn hoặc tạo đợt để chỉnh slot</div></div>`;
@@ -3768,11 +4067,11 @@ function handleSaveScoreCT(dangKyId, kltnId) {
     nhan_xet: note
   }
 }
-function renderHuongDan() {
+async function renderHuongDan() {
   const u = DB.currentUser;
   const bcttFilterState = DB.huongDanBCTTFilter || { q: '', mangDeTai: '' };
   const kltnFilterState = DB.huongDanKLTNFilter || { q: '', mangDeTai: '', loaiDeTai: '' };
-  const activeTab = DB.nextHuongDanTab || 'tab-bctt-huongdan';
+  const activeTab = DB.nextHuongDanTab === 'tab-kltn-huongdan' ? 'tab-kltn-huongdan' : 'tab-bctt-huongdan';
   const searchEl = document.getElementById(activeTab === 'tab-bctt-huongdan' ? 'huongdan-bctt-search' : 'huongdan-kltn-search');
   const searchHadFocus = searchEl === document.activeElement;
   const prevSelectionStart = searchHadFocus ? searchEl.selectionStart : null;
@@ -3843,6 +4142,38 @@ function renderHuongDan() {
           </div>
         </div>
         ${bcttFilterState.q || bcttFilterState.mangDeTai ? `<div style="margin-top:12px;color:var(--text3);font-size:13px">Đang lọc theo: ${bcttFilterState.q ? `"${escapeHtml(bcttFilterState.q)}"` : ''}${bcttFilterState.q && bcttFilterState.mangDeTai ? ' • ' : ''}${bcttFilterState.mangDeTai ? `Lĩnh vực: ${escapeHtml(bcttFilterState.mangDeTai)}` : ''}</div>` : ''}
+      </div>`;
+
+  const myBcttDotIds = new Set(DB.bcttList.filter((b) => b.gvEmail === u.email).map((b) => String(b.dotId)));
+  const managedBcttDots = DB.dotDangKy.filter((dot) => String(dot.loai || '').toUpperCase() === 'BCTT' && myBcttDotIds.has(String(dot.id)));
+  const selectedHuongDanBcttDotId = DB.hdSelectedBcttDotId && managedBcttDots.some((dot) => String(dot.id) === String(DB.hdSelectedBcttDotId))
+    ? String(DB.hdSelectedBcttDotId)
+    : String(managedBcttDots[0]?.id || '');
+  DB.hdSelectedBcttDotId = selectedHuongDanBcttDotId;
+  const selectedHuongDanBcttDot = managedBcttDots.find((dot) => String(dot.id) === selectedHuongDanBcttDotId);
+
+  html += `<div class="card" style="margin-bottom:16px;padding:16px;background:var(--bg-alt);border:1px solid var(--border);">
+        <div class="card-title" style="margin-bottom:12px">⏱️ Chỉnh hạn nộp đợt BCTT</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;align-items:flex-end">
+          <div class="form-group" style="margin-bottom:0">
+            <label>Đợt BCTT</label>
+            <select id="huongdan-bctt-dot" class="form-control" onchange="DB.hdSelectedBcttDotId=this.value; renderHuongDan();">
+              ${managedBcttDots.length ? managedBcttDots.map((dot) => `<option value="${escapeHtml(String(dot.id))}"${String(dot.id) === selectedHuongDanBcttDotId ? ' selected' : ''}>${escapeHtml(dot.ten || `Đợt ${dot.id}`)}</option>`).join('') : `<option value="">Không có đợt BCTT</option>`}
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label>Hạn đăng ký</label>
+            <input id="huongdan-bctt-dot-han-dk" type="datetime-local" class="form-control" value="${escapeHtml(formatDateTimeLocal(selectedHuongDanBcttDot?.batDau || ''))}">
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label>Hạn nộp</label>
+            <input id="huongdan-bctt-dot-han-nop" type="datetime-local" class="form-control" value="${escapeHtml(formatDateTimeLocal(selectedHuongDanBcttDot?.ketThuc || ''))}">
+          </div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;margin-top:12px;gap:12px">
+          <div style="font-size:13px;color:var(--text3);flex:1;min-width:220px">Hạn này áp dụng cho sinh viên trong đợt do giảng viên đó hướng dẫn.</div>
+          <button class="btn btn-primary" onclick="saveHuongDanBcttDeadline()" ${!selectedHuongDanBcttDot ? 'disabled' : ''}>💾 Lưu hạn đợt</button>
+        </div>
       </div>`;
 
   html += `<div class="card" style="margin-bottom:16px">
@@ -3944,6 +4275,58 @@ function renderHuongDan() {
   }
 
   html += `</div>`;
+
+  const scoredBctt = await loadScoredBCTT();
+  html += `<div class="card" style="margin-top:24px">
+    <div class="card-header">
+      <div class="card-title">📊 BCTT đã chấm</div>
+      <div style="font-size:12px;color:var(--text3)">${scoredBctt.length} hồ sơ</div>
+    </div>`;
+  
+  if (!scoredBctt.length) {
+    html += `<div class="empty-state"><div class="empty-state-icon">📭</div><div class="empty-state-title">Chưa có hồ sơ BCTT đã chấm</div></div>`;
+  } else {
+    scoredBctt.forEach(b => {
+      const sv = getUser(b.svEmail);
+      const scoreKey = b.dangKyId || b.id;
+      html += `<div class="card" style="margin-bottom:12px">
+        <div class="card-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+          <div style="flex:1;min-width:0">
+            <div class="card-title" style="cursor:pointer;color:var(--primary)" onclick="viewBCTTDetail('${b.id}')">${escapeHtml(b.tenDeTai)}</div>
+            <div style="display:grid;grid-template-columns:repeat(3,minmax(130px,1fr));gap:10px;margin-top:10px;font-size:12px;color:var(--text3)">
+              <span><strong>MSSV:</strong> ${escapeHtml(sv?.mssv || 'Chưa có')}</span>
+              <span><strong>Lĩnh vực:</strong> ${escapeHtml(b.mangDeTai || b.loaiDeTai || 'Chưa có')}</span>
+              <span><strong>Công ty:</strong> ${escapeHtml(b.tenCongTy || 'Chưa có')}</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+              <div class="form-group" style="margin-bottom:0">
+                <label>Điểm BCTT</label>
+                <input type="number" id="bctt-diem-${scoreKey}" min="0" max="10" step="0.1" value="${b.diemBCTT !== null && b.diemBCTT !== undefined ? escapeHtml(String(b.diemBCTT)) : ''}" class="form-control">
+              </div>
+              <div class="form-group" style="margin-bottom:0">
+                <label>Nhận xét</label>
+                <textarea id="bctt-nhanxet-${scoreKey}" placeholder="Nhập nhận xét cho sinh viên" style="min-height:88px">${escapeHtml(b.nhanXetBCTT || '')}</textarea>
+              </div>
+            </div>
+            <div style="font-size:12px;color:var(--text2);margin-top:10px">${escapeHtml(sv?.name || b.svEmail)}</div>
+          </div>
+          <div style="padding:12px;background:var(--bg-alt);border-radius:8px;min-width:200px">
+            <div style="text-align:center;margin-bottom:8px">
+              <div style="font-size:28px;font-weight:bold;color:var(--success)">${b.diemBCTT !== null ? b.diemBCTT : '—'}</div>
+              <div style="font-size:12px;color:var(--text3)">Điểm BCTT</div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+              <button class="btn btn-ghost btn-sm" onclick="viewBCTTDetail('${b.id}')">👁 Chi tiết</button>
+              <button class="btn btn-ghost btn-sm" onclick="viewScoreHistory(${scoreKey}, 'BCTT')">📋 Lịch sử</button>
+              <button class="btn btn-primary btn-sm" onclick="chamBCTT('${scoreKey}')">💾 Cập nhật</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    });
+  }
+
+  html += `</div>`;
   html += `</div><div id="tab-kltn-huongdan" class="tab-content ${activeTab === 'tab-kltn-huongdan' ? 'active' : ''}">
     <div class="card" style="margin-bottom:16px;padding:16px">
       <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:12px;align-items:flex-end">
@@ -3966,6 +4349,38 @@ function renderHuongDan() {
         </div>
       </div>
       ${kltnFilterState.q || kltnFilterState.mangDeTai || kltnFilterState.loaiDeTai ? `<div style="margin-top:12px;color:var(--text3);font-size:13px">Đang lọc theo: ${kltnFilterState.q ? `"${escapeHtml(kltnFilterState.q)}"` : ''}${(kltnFilterState.q && kltnFilterState.mangDeTai) ? ' • ' : ''}${kltnFilterState.mangDeTai ? `Lĩnh vực: ${escapeHtml(kltnFilterState.mangDeTai)}` : ''}${(kltnFilterState.loaiDeTai && (kltnFilterState.q || kltnFilterState.mangDeTai)) ? ' • ' : ''}${kltnFilterState.loaiDeTai ? `Loại đề tài: ${escapeHtml(getTopicTypeLabel(kltnFilterState.loaiDeTai))}` : ''}</div>` : ''}
+    </div>`;
+
+  const myKltnDotIds = new Set(DB.kltnList.filter((k) => String(k.gvHDEmail || '').toLowerCase() === String(u.email || '').toLowerCase()).map((k) => String(k.dotId)));
+  const managedKltnDots = DB.dotDangKy.filter((dot) => String(dot.loai || '').toUpperCase() === 'KLTN' && myKltnDotIds.has(String(dot.id)));
+  const selectedHuongDanKltnDotId = DB.hdSelectedKltnDotId && managedKltnDots.some((dot) => String(dot.id) === String(DB.hdSelectedKltnDotId))
+    ? String(DB.hdSelectedKltnDotId)
+    : String(managedKltnDots[0]?.id || '');
+  DB.hdSelectedKltnDotId = selectedHuongDanKltnDotId;
+  const selectedHuongDanKltnDot = managedKltnDots.find((dot) => String(dot.id) === selectedHuongDanKltnDotId);
+
+  html += `<div class="card" style="margin-bottom:16px;padding:16px;background:var(--bg-alt);border:1px solid var(--border);">
+      <div class="card-title" style="margin-bottom:12px">⏱️ Chỉnh hạn nộp đợt KLTN</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;align-items:flex-end">
+        <div class="form-group" style="margin-bottom:0">
+          <label>Đợt KLTN</label>
+          <select id="huongdan-kltn-dot" class="form-control" onchange="DB.hdSelectedKltnDotId=this.value; renderHuongDan();">
+            ${managedKltnDots.length ? managedKltnDots.map((dot) => `<option value="${escapeHtml(String(dot.id))}"${String(dot.id) === selectedHuongDanKltnDotId ? ' selected' : ''}>${escapeHtml(dot.ten || `Đợt ${dot.id}`)}</option>`).join('') : `<option value="">Không có đợt KLTN</option>`}
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>Hạn đăng ký</label>
+          <input id="huongdan-kltn-dot-han-dk" type="datetime-local" class="form-control" value="${escapeHtml(formatDateTimeLocal(selectedHuongDanKltnDot?.batDau || ''))}">
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>Hạn nộp</label>
+          <input id="huongdan-kltn-dot-han-nop" type="datetime-local" class="form-control" value="${escapeHtml(formatDateTimeLocal(selectedHuongDanKltnDot?.ketThuc || ''))}">
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;margin-top:12px;gap:12px">
+        <div style="font-size:13px;color:var(--text3);flex:1;min-width:220px">Hạn này áp dụng cho sinh viên trong đợt do giảng viên đó hướng dẫn.</div>
+        <button class="btn btn-primary" onclick="saveHuongDanKltnDeadline()" ${!selectedHuongDanKltnDot ? 'disabled' : ''}>💾 Lưu hạn đợt</button>
+      </div>
     </div>`;
 
   html += `<div class="card">

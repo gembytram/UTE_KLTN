@@ -59,6 +59,30 @@ def register_routes(app):
             return None, []
         return current_user, _split_csv(current_user["linh_vuc"])
 
+    def _parse_sql_datetime(value):
+        if not value:
+            return None
+        if isinstance(value, datetime):
+            return value
+        text = str(value).strip()
+        if not text:
+            return None
+        try:
+            return datetime.fromisoformat(text.replace(' ', 'T'))
+        except ValueError:
+            for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%d'):
+                try:
+                    return datetime.strptime(text, fmt)
+                except ValueError:
+                    continue
+        return None
+
+    def _is_past_deadline(deadline_text):
+        deadline = _parse_sql_datetime(deadline_text)
+        if not deadline:
+            return False
+        return datetime.now() > deadline
+
     def _assert_tbm_can_manage_dot(conn, dot_id):
         current_user, nganh_list = _current_user_majors(conn)
         if not current_user:
@@ -304,6 +328,21 @@ def register_routes(app):
         row["linhVucPhuTrachIds"] = ids
         row["linh_vuc_phu_trach"] = ", ".join(names) if names else (row.get("linh_vuc_phu_trach") or "")
         return row
+
+    def _log_score_history(conn, cham_diem_id, dang_ky_id, gv_id, vai_tro, old_diem, new_diem, old_nhan_xet, new_nhan_xet, edited_by_id):
+        """Log score edit history"""
+        try:
+            conn.execute(
+                """
+                INSERT INTO cham_diem_history 
+                (cham_diem_id, dang_ky_id, gv_id, vai_tro, old_diem, new_diem, old_nhan_xet, new_nhan_xet, edited_by_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (cham_diem_id, dang_ky_id, gv_id, vai_tro, old_diem, new_diem, old_nhan_xet, new_nhan_xet, edited_by_id)
+            )
+        except Exception as e:
+            print(f"Warning: Failed to log score history: {str(e)}")
+
     @app.errorhandler(413)
     def file_too_large(_):
         return fail("File vượt quá 20MB", 400)
@@ -854,6 +893,7 @@ def register_routes(app):
         if not reg:
             conn.close()
             return fail("Không tìm thấy đăng ký BCTT", 404)
+        dot = conn.execute("SELECT * FROM dot WHERE id = ?", (reg["dot_id"],)).fetchone()
         if reg["trang_thai"] not in ("gv_xac_nhan", "cho_cham"):
             conn.close()
             return fail("BCTT chưa ở trạng thái được nộp hồ sơ", 400)
@@ -865,7 +905,11 @@ def register_routes(app):
         if "bctt_baocao" not in types or "bctt_xacnhan" not in types:
             conn.close()
             return fail("Cần nộp đủ báo cáo BCTT (PDF và Word) và giấy xác nhận thực tập", 400)
-        conn.execute("UPDATE dang_ky SET trang_thai = 'cho_cham' WHERE id = ?", (dang_ky_id,))
+        late = 1 if _is_past_deadline(dot["han_nop"]) else 0
+        conn.execute(
+            "UPDATE dang_ky SET trang_thai = 'cho_cham', submitted_at = ?, submitted_late = ? WHERE id = ?",
+            (datetime.now(), late, dang_ky_id),
+        )
         conn.commit()
         conn.close()
         return ok("Đã nộp hồ sơ BCTT, chờ GV chấm")
@@ -903,7 +947,11 @@ def register_routes(app):
         if not reg:
             conn.close()
             return fail("Không tìm thấy BCTT cần chấm", 404)
-        if reg["trang_thai"] != "cho_cham":
+        old = conn.execute(
+            "SELECT id, diem, nhan_xet FROM cham_diem WHERE dang_ky_id = ? AND vai_tro = 'BCTT'",
+            (dang_ky_id,),
+        ).fetchone()
+        if not old and reg["trang_thai"] != "cho_cham":
             conn.close()
             return fail("BCTT chưa ở trạng thái chờ chấm", 400)
         # Bỏ yêu cầu Turnitin để cho phép GV chấm dù chưa có Turnitin
@@ -914,11 +962,12 @@ def register_routes(app):
         # if not has_turnitin:
         #     conn.close()
         #     return fail("Cần upload file Turnitin BCTT trước khi chấm", 400)
-        old = conn.execute(
-            "SELECT id FROM cham_diem WHERE dang_ky_id = ? AND vai_tro = 'BCTT'",
-            (dang_ky_id,),
-        ).fetchone()
         if old:
+            # Log history before updating
+            _log_score_history(
+                conn, old["id"], dang_ky_id, gv["id"], 'BCTT',
+                old["diem"], diem, old["nhan_xet"], nhan_xet, gv["id"]
+            )
             conn.execute(
                 "UPDATE cham_diem SET diem = ?, nhan_xet = ? WHERE id = ?",
                 (diem, nhan_xet, old["id"]),
@@ -988,10 +1037,15 @@ def register_routes(app):
         
         # Insert hoặc update cham_diem
         old = conn.execute(
-            "SELECT id FROM cham_diem WHERE dang_ky_id = ? AND vai_tro = ?",
+            "SELECT id, diem, nhan_xet, cau_hoi FROM cham_diem WHERE dang_ky_id = ? AND vai_tro = ?",
             (dang_ky_id, vai_tro),
         ).fetchone()
         if old:
+            # Log history before updating
+            _log_score_history(
+                conn, old["id"], dang_ky_id, gv["id"], vai_tro,
+                old["diem"], diem, old["nhan_xet"], nhan_xet, gv["id"]
+            )
             conn.execute(
                 "UPDATE cham_diem SET diem = ?, nhan_xet = ?, cau_hoi = ? WHERE id = ?",
                 (diem, nhan_xet, cau_hoi, old["id"]),
@@ -1033,6 +1087,7 @@ def register_routes(app):
         if not reg:
             conn.close()
             return fail("Không tìm thấy đăng ký KLTN", 404)
+        dot = conn.execute("SELECT * FROM dot WHERE id = ?", (reg["dot_id"],)).fetchone()
         if reg["trang_thai"] != "thuc_hien":
             conn.close()
             return fail("KLTN chưa ở trạng thái thực hiện", 400)
@@ -1051,7 +1106,11 @@ def register_routes(app):
         if not reg["gv_pb_id"] or not reg["chu_tich_id"] or not reg["thu_ky_id"] or not reg["uy_vien_ids"]:
             conn.close()
             return fail("Cần trưởng bộ môn phân công phản biện và hội đồng trước khi nộp KLTN", 400)
-        conn.execute("UPDATE dang_ky SET trang_thai = 'cham_diem' WHERE id = ?", (dang_ky_id,))
+        late = 1 if _is_past_deadline(dot["han_nop"]) else 0
+        conn.execute(
+            "UPDATE dang_ky SET trang_thai = 'cham_diem', submitted_at = ?, submitted_late = ? WHERE id = ?",
+            (datetime.now(), late, dang_ky_id),
+        )
         conn.commit()
         conn.close()
         return ok("Đã nộp KLTN, chờ chấm điểm")
@@ -1772,6 +1831,95 @@ def register_routes(app):
         conn.close()
         return ok("Lưu điểm thành công")
 
+    @app.route("/api/score-history", methods=["GET"])
+    @login_required
+    def get_score_history():
+        dang_ky_id = request.args.get("dang_ky_id")
+        vai_tro = request.args.get("vai_tro")  # Optional
+        if not dang_ky_id:
+            return fail("Thiếu dang_ky_id", 400)
+        try:
+            dang_ky_id = int(dang_ky_id)
+        except ValueError:
+            return fail("dang_ky_id không hợp lệ", 400)
+        
+        conn = get_db()
+        try:
+            if vai_tro:
+                history = conn.execute(
+                    """
+                    SELECT h.*, u.ho_ten as edited_by_name
+                    FROM cham_diem_history h
+                    LEFT JOIN users u ON h.edited_by_id = u.id
+                    WHERE h.dang_ky_id = ? AND h.vai_tro = ?
+                    ORDER BY h.edited_at DESC
+                    """,
+                    (dang_ky_id, vai_tro)
+                ).fetchall()
+            else:
+                history = conn.execute(
+                    """
+                    SELECT h.*, u.ho_ten as edited_by_name
+                    FROM cham_diem_history h
+                    LEFT JOIN users u ON h.edited_by_id = u.id
+                    WHERE h.dang_ky_id = ?
+                    ORDER BY h.edited_at DESC
+                    """,
+                    (dang_ky_id,)
+                ).fetchall()
+            conn.close()
+            return ok("Lịch sử chỉnh sửa điểm", {"history": [dict(row) for row in history]})
+        except Exception as e:
+            conn.close()
+            return fail(f"Lỗi lấy lịch sử: {str(e)}", 500)
+
+    @app.route("/api/bctt/scored", methods=["GET"])
+    @login_required
+    def list_scored_bctt():
+        """List BCTT that have been scored"""
+        conn = get_db()
+        gv = get_current_user(conn)
+        role_hdr = str(request.headers.get("X-User-Role") or session.get("role") or "").upper()
+        
+        try:
+            # TBM sees all scored BCTT, GV sees their own
+            if role_hdr == "TBM":
+                records = conn.execute(
+                    """
+                    SELECT d.id, d.id as dangKyId, s.ma as svMa, s.ho_ten as svName, s.gmail as svEmail,
+                           d.ten_de_tai as tenDeTai, d.mang_de_tai as mangDeTai, d.loai_de_tai as loaiDeTai,
+                           d.gv_id as gvId, g.ho_ten as gvName, g.gmail as gvEmail,
+                           c.id as chamDiemId, c.diem as diemBCTT, c.nhan_xet as nhanXetBCTT
+                    FROM dang_ky d
+                    LEFT JOIN users s ON d.sv_id = s.id
+                    LEFT JOIN users g ON d.gv_id = g.id
+                    LEFT JOIN cham_diem c ON d.id = c.dang_ky_id AND c.vai_tro = 'BCTT'
+                    WHERE d.loai = 'BCTT' AND c.diem IS NOT NULL
+                    ORDER BY d.id DESC
+                    """
+                ).fetchall()
+            else:
+                records = conn.execute(
+                    """
+                    SELECT d.id, d.id as dangKyId, s.ma as svMa, s.ho_ten as svName, s.gmail as svEmail,
+                           d.ten_de_tai as tenDeTai, d.mang_de_tai as mangDeTai, d.loai_de_tai as loaiDeTai,
+                           d.gv_id as gvId, g.ho_ten as gvName, g.gmail as gvEmail,
+                           c.id as chamDiemId, c.diem as diemBCTT, c.nhan_xet as nhanXetBCTT
+                    FROM dang_ky d
+                    LEFT JOIN users s ON d.sv_id = s.id
+                    LEFT JOIN users g ON d.gv_id = g.id
+                    LEFT JOIN cham_diem c ON d.id = c.dang_ky_id AND c.vai_tro = 'BCTT'
+                    WHERE d.loai = 'BCTT' AND d.gv_id = ? AND c.diem IS NOT NULL
+                    ORDER BY d.id DESC
+                    """,
+                    (gv["id"],)
+                ).fetchall()
+            conn.close()
+            return ok("Danh sách BCTT đã chấm", {"bcttList": [dict(row) for row in records]})
+        except Exception as e:
+            conn.close()
+            return fail(f"Lỗi lấy danh sách BCTT: {str(e)}", 500)
+
     @app.route("/api/cham-diem/xuat-docx", methods=["POST"])
     @login_required
     def xuat_cham_diem_docx():
@@ -1920,6 +2068,82 @@ def register_routes(app):
 
         status_text = "Mở" if trang_thai == "mo" else "Khóa"
         return ok(f"{status_text} đợt thành công")
+
+    @app.route("/api/dot/update", methods=["POST"])
+    @role_required("GV", "TBM")
+    def update_dot():
+        data = request.json or {}
+        dot_id = data.get("dot_id")
+        han_dang_ky = (data.get("han_dang_ky") or "").strip()
+        han_nop = (data.get("han_nop") or "").strip()
+
+        if not dot_id:
+            return fail("Thiếu dot_id", 400)
+        if not han_dang_ky and not han_nop:
+            return fail("Thiếu dữ liệu cập nhật", 400)
+
+        try:
+            dot_id = int(dot_id)
+        except (TypeError, ValueError):
+            return fail("dot_id không hợp lệ", 400)
+
+        conn = get_db()
+        current_user, nganh_list = _current_user_majors(conn)
+        if not current_user:
+            conn.close()
+            return fail("Chưa đăng nhập", 401)
+
+        dot = conn.execute("SELECT * FROM dot WHERE id = ?", (dot_id,)).fetchone()
+        if not dot:
+            conn.close()
+            return fail("Không tìm thấy đợt", 404)
+
+        if current_user["role"].upper() == "GV":
+            if str(dot["loai"] or "").upper() == "BCTT":
+                assignment = conn.execute(
+                    "SELECT 1 FROM dang_ky WHERE dot_id = ? AND gv_id = ? AND loai = 'BCTT' LIMIT 1",
+                    (dot_id, current_user["id"]),
+                ).fetchone()
+                if not assignment:
+                    conn.close()
+                    return fail("Bạn không được phép chỉnh hạn của đợt này", 403)
+            elif str(dot["loai"] or "").upper() == "KLTN":
+                assignment = conn.execute(
+                    "SELECT 1 FROM dang_ky WHERE dot_id = ? AND gv_id = ? AND loai = 'KLTN' LIMIT 1",
+                    (dot_id, current_user["id"]),
+                ).fetchone()
+                if not assignment:
+                    conn.close()
+                    return fail("Bạn không được phép chỉnh hạn của đợt này", 403)
+            else:
+                conn.close()
+                return fail("Giảng viên không được chỉnh hạn của đợt này", 403)
+        else:
+            if str(dot["loai"] or "").upper() != "KLTN":
+                conn.close()
+                return fail("TBM chỉ được chỉnh hạn đợt KLTN", 403)
+            _, _, error_response = _assert_tbm_can_manage_dot(conn, dot_id)
+            if error_response:
+                conn.close()
+                return error_response
+
+        fields = []
+        params = []
+        if han_dang_ky:
+            fields.append("han_dang_ky = ?")
+            params.append(han_dang_ky)
+        if han_nop:
+            fields.append("han_nop = ?")
+            params.append(han_nop)
+        if not fields:
+            conn.close()
+            return fail("Không có dữ liệu cập nhật", 400)
+
+        params.append(dot_id)
+        conn.execute(f"UPDATE dot SET {', '.join(fields)} WHERE id = ?", tuple(params))
+        conn.commit()
+        conn.close()
+        return ok("Cập nhật hạn đợt thành công")
 
     @app.route("/api/dot/create", methods=["POST"])
     @role_required("TBM")
@@ -2186,13 +2410,26 @@ def register_routes(app):
         if not f.filename.lower().endswith((".pdf", ".doc", ".docx")):
             return fail("Chỉ chấp nhận PDF, DOC, DOCX", 400)
 
+        conn = get_db()
+        current_user = get_current_user(conn)
+        dk = conn.execute("SELECT * FROM dang_ky WHERE id = ?", (dang_ky_id,)).fetchone()
+        if not dk:
+            conn.close()
+            return fail("Không tìm thấy đăng ký", 404)
+
+        dot = conn.execute("SELECT * FROM dot WHERE id = ?", (dk["dot_id"],)).fetchone()
+
+        if current_user and str(current_user.get("role", "")).upper() == "SV":
+            if str(ma_sv or "").strip().lower() not in [str(current_user.get("ma", "")).strip().lower(), str(current_user.get("mssv", "")).strip().lower()]:
+                conn.close()
+                return fail("Thông tin sinh viên không khớp", 403)
+
         # 🚀 Upload lên Google Drive
         file_id = upload_to_drive(f)
 
         if not file_id:
+            conn.close()
             return fail("Upload Google Drive thất bại", 500)
-
-        conn = get_db()
 
         conn.execute(
             "INSERT INTO nop_bai (dang_ky_id, loai_file, file_path) VALUES (?, ?, ?)",

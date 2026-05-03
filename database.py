@@ -358,6 +358,10 @@ def migrate_db(conn):
     if "criteria_json" not in ccols:
         cur.execute("ALTER TABLE cham_diem ADD COLUMN criteria_json TEXT DEFAULT ''")
     dkcols = _table_columns(conn, "dang_ky")
+    if "submitted_at" not in dkcols:
+        cur.execute("ALTER TABLE dang_ky ADD COLUMN submitted_at TEXT")
+    if "submitted_late" not in dkcols:
+        cur.execute("ALTER TABLE dang_ky ADD COLUMN submitted_late INTEGER DEFAULT 0")
     if "gv_pb_id" not in dkcols:
         cur.execute("ALTER TABLE dang_ky ADD COLUMN gv_pb_id INTEGER")
     if "chu_tich_id" not in dkcols:
@@ -445,6 +449,8 @@ def init_db():
                 ten_de_tai TEXT,
                 linh_vuc TEXT,
                 trang_thai TEXT DEFAULT 'cho_duyet',
+                submitted_at TIMESTAMP,
+                submitted_late INTEGER DEFAULT 0,
                 gv_pb_id INTEGER REFERENCES users(id),
                 hoi_dong_id INTEGER REFERENCES hoi_dong(id),
                 chu_tich_id INTEGER REFERENCES users(id),
@@ -509,6 +515,23 @@ def init_db():
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS cham_diem_history (
+                id SERIAL PRIMARY KEY,
+                cham_diem_id INTEGER REFERENCES cham_diem(id),
+                dang_ky_id INTEGER REFERENCES dang_ky(id),
+                gv_id INTEGER REFERENCES users(id),
+                vai_tro TEXT,
+                old_diem REAL,
+                new_diem REAL,
+                old_nhan_xet TEXT,
+                new_nhan_xet TEXT,
+                edited_by_id INTEGER REFERENCES users(id),
+                edited_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
     else:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS users (
@@ -555,6 +578,8 @@ def init_db():
                 ten_de_tai TEXT,
                 linh_vuc TEXT,
                 trang_thai TEXT DEFAULT 'cho_duyet',  -- cho_duyet/dong_y/tu_choi/pass/fail
+                submitted_at TEXT,
+                submitted_late INTEGER DEFAULT 0,
                 gv_pb_id INTEGER,               -- GV phản biện (assigned by TBM)
                 hoi_dong_id INTEGER,            -- ID của hội đồng từ bảng hoi_dong
                 chu_tich_id INTEGER,            -- Chủ tịch hội đồng (assigned by TBM)
@@ -632,6 +657,24 @@ def init_db():
                 FOREIGN KEY(chu_tich_id) REFERENCES users(id),
                 FOREIGN KEY(thu_ky_id) REFERENCES users(id),
                 FOREIGN KEY(gv_pb_id) REFERENCES users(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS cham_diem_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cham_diem_id INTEGER,
+                dang_ky_id INTEGER,
+                gv_id INTEGER,
+                vai_tro TEXT,
+                old_diem REAL,
+                new_diem REAL,
+                old_nhan_xet TEXT,
+                new_nhan_xet TEXT,
+                edited_by_id INTEGER,
+                edited_at TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY(cham_diem_id) REFERENCES cham_diem(id),
+                FOREIGN KEY(dang_ky_id) REFERENCES dang_ky(id),
+                FOREIGN KEY(gv_id) REFERENCES users(id),
+                FOREIGN KEY(edited_by_id) REFERENCES users(id)
             );
         """)
 

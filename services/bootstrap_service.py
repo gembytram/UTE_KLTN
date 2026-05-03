@@ -153,6 +153,8 @@ def fetch_bootstrap(conn):
             record["fileTurnitinBCTT"] = upload_map.get(r["id"], {}).get("turnitin_bctt")
             record["diemBCTT"] = sc_bctt["diem"] if sc_bctt else None
             record["nhanXetBCTT"] = sc_bctt["nhan_xet"] if sc_bctt else ""
+            record["submittedLate"] = bool(r["submitted_late"]) if "submitted_late" in r.keys() else False
+            record["submittedAt"] = r["submitted_at"] if "submitted_at" in r.keys() else None
             bctt_list.append(record)
         else:
             sc = score_map.get(r["id"], {})
@@ -226,6 +228,8 @@ def fetch_bootstrap(conn):
             record["diemBB"] = sc["CT"]["diem"] if sc.get("CT") else None
             pb_row = sc.get("PB")
             record["pbNote"] = (pb_row["nhan_xet"] or "") if pb_row else ""
+            record["submittedLate"] = bool(r["submitted_late"]) if "submitted_late" in r.keys() else False
+            record["submittedAt"] = r["submitted_at"] if "submitted_at" in r.keys() else None
             record["pbCauHoi"] = (pb_row["cau_hoi"] or "") if pb_row else ""
             ct_row = sc.get("CT")
             record["ctNote"] = (ct_row["nhan_xet"] or "") if ct_row else ""
