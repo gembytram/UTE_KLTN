@@ -132,6 +132,7 @@ def fetch_bootstrap(conn):
             "id": f"{r['loai'].lower()}{r['id']}",
             "dangKyId": r["id"],
             "svEmail": user_map.get(r["sv_id"], {}).get("email") or build_email(r["sv_ma"]),
+            "svMa": r["sv_ma"],
             "tenDot": r["ten_dot"] if "ten_dot" in r.keys() else "",
             "tenDeTai": r["ten_de_tai"],
             "mangDeTai": meta["mangDeTai"],

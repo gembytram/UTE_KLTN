@@ -1175,6 +1175,18 @@ function openAppScreen() {
   document.getElementById("screen-app").classList.add("active");
 }
 
+function showLoginWarning(message) {
+  const el = document.getElementById("login-warning");
+  if (!el) return;
+  if (!message) {
+    el.style.display = "none";
+    el.textContent = "";
+    return;
+  }
+  el.style.display = "block";
+  el.textContent = message;
+}
+
 function toOauthErrorMessage(code) {
   const mapping = {
     google_oauth_not_configured: "Google OAuth chưa được cấu hình.",
@@ -1217,6 +1229,7 @@ async function doLogin() {
     const mapped = mapApiUserToCurrentUser(out.data.user);
     DB.currentUser = mapped;
     localStorage.setItem("currentUser", JSON.stringify(mapped));
+    showLoginWarning();
     openAppScreen();
     await initApp();
     if (mapped.role === "sv") navigateTo("dashboard");
@@ -1225,6 +1238,9 @@ async function doLogin() {
     if (mapped.role === "admin") navigateTo("users");
     toast("Đăng nhập thành công");
   } catch (err) {
+    if (window.location.protocol === "file:") {
+      showLoginWarning("Bạn đang mở trang bằng file trực tiếp. Hãy chạy backend Flask và mở URL server (ví dụ http://127.0.0.1:5000 hoặc 5001). Nếu backend chưa chạy thì đăng nhập sẽ không được.");
+    }
     toast(err.message, "error");
   }
 }
@@ -3027,15 +3043,46 @@ function renderPhanCong() {
     return;
   }
   const el = document.getElementById('page-phancong');
-  const needPB = DB.kltnList.filter(k => !k.gvPBEmail);
-  const needHD = DB.kltnList.filter(k => !k.hoiDong);
-  const needAction = DB.kltnList.slice();
+  const searchEl = document.getElementById('tbm-phancong-search');
+  const searchHadFocus = searchEl === document.activeElement;
+  const prevSelectionStart = searchHadFocus ? searchEl.selectionStart : null;
+  const prevSelectionEnd = searchHadFocus ? searchEl.selectionEnd : null;
 
- let html = `<div class="page-header">
+  if (!DB.tbmKLTNFilterState) {
+    DB.tbmKLTNFilterState = { q: '', gvhd: '', major: '', hoidong: '' };
+  }
+  const { q, gvhd, major, hoidong } = DB.tbmKLTNFilterState;
+  const needAction = DB.kltnList.filter(k => k.trangThai === 'thuc_hien');
+  const advisorEmails = Array.from(new Set(needAction.map((k) => (getUser(k.gvHDEmail)?.email || k.gvHDEmail || '').trim().toLowerCase()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'vi'));
+  const majorOptions = Array.from(new Set(needAction.map((k) => (k.mangDeTai || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'vi'));
+
+  const filteredList = needAction.filter((k) => {
+    const sv = getUser(k.svEmail);
+    const gvHD = getUser(k.gvHDEmail);
+    const query = String(q || '').trim().toLowerCase();
+    const matchesSearch = !query || [
+      sv?.name,
+      sv?.ma,
+      k.svEmail,
+      k.tenDeTai,
+      k.mangDeTai,
+      k.tenDot,
+      gvHD?.name,
+      gvHD?.email,
+    ].some((value) => String(value || '').toLowerCase().includes(query));
+    const matchesGVHD = !gvhd || String((gvHD?.email || k.gvHDEmail || '')).toLowerCase() === String(gvhd).toLowerCase();
+    const matchesMajor = !major || String(k.mangDeTai || '').toLowerCase() === String(major).toLowerCase();
+    const matchesHoiDong = hoidong === '' || (hoidong === 'assigned' ? Boolean(k.hoiDong) : hoidong === 'unassigned' ? !k.hoiDong : true);
+    return matchesSearch && matchesGVHD && matchesMajor && matchesHoiDong;
+  });
+  const needPB = filteredList.filter(k => !k.gvPBEmail);
+  const needHD = filteredList.filter(k => !k.hoiDong);
+
+  let html = `<div class="page-header">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
         <div>
           <h1>👥 Phân công KLTN</h1>
-          <p>${needPB.length} KLTN cần phân công PB • ${needHD.length} KLTN cần lập HĐ</p>
+          <p>${filteredList.length} đề tài đang hiển thị • ${needPB.length} cần phân công PB • ${needHD.length} cần lập HĐ</p>
         </div>
         <div style="display:flex; gap:8px">
           <button class="btn btn-primary" onclick="showHoiDongModal()">➕ Thêm hội đồng</button>
@@ -3043,7 +3090,6 @@ function renderPhanCong() {
       </div>
     </div>`;
 
-  // === KHỐI 1: DANH SÁCH HỘI ĐỒNG BẠN ĐÃ TẠO ===
   html += `<div class="card" style="margin-bottom:14px">
     <div class="card-title" style="margin-bottom:10px">🏛️ Danh sách Hội đồng bạn đã tạo</div>`;
     
@@ -3083,12 +3129,43 @@ function renderPhanCong() {
   }
   html += `</div>`;
 
+  html += `<div class="card" style="margin-bottom:14px;padding:16px">
+      <div style="display:grid;grid-template-columns:1.8fr 1fr 1fr 1fr;gap:12px;align-items:end;">
+        <div class="form-group" style="margin-bottom:0">
+          <label>Tìm kiếm</label>
+          <input id="tbm-phancong-search" type="text" class="form-control" placeholder="Tìm theo SV, MSSV, GVHD, đề tài..." value="${escapeHtml(q)}" oninput="DB.tbmKLTNFilterState.q=this.value; renderPhanCong();" />
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>GVHD</label>
+          <select class="form-control" onchange="DB.tbmKLTNFilterState.gvhd=this.value; renderPhanCong();">
+            <option value="">Tất cả GVHD</option>
+            ${advisorEmails.map((email) => `<option value="${escapeHtml(email)}"${email === String(gvhd).toLowerCase() ? ' selected' : ''}>${escapeHtml(getUser(email)?.name || email)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>Lĩnh vực</label>
+          <select class="form-control" onchange="DB.tbmKLTNFilterState.major=this.value; renderPhanCong();">
+            <option value="">Tất cả lĩnh vực</option>
+            ${majorOptions.map((item) => `<option value="${escapeHtml(item)}"${item === major ? ' selected' : ''}>${escapeHtml(item)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>Phân công HĐ</label>
+          <select class="form-control" onchange="DB.tbmKLTNFilterState.hoidong=this.value; renderPhanCong();">
+            <option value="">Tất cả</option>
+            <option value="assigned"${hoidong === 'assigned' ? ' selected' : ''}>Đã xếp HĐ</option>
+            <option value="unassigned"${hoidong === 'unassigned' ? ' selected' : ''}>Chưa xếp HĐ</option>
+          </select>
+        </div>
+      </div>
+    </div>`;
+
   // === KHỐI 2: DANH SÁCH KLTN ===
   html += `<div class="card" style="margin-bottom:14px"><div class="card-title" style="margin-bottom:10px">🧾 Danh sách KLTN cần phân công</div>`;
-  if (!needAction.length) {
-    html += `<div class="empty-state"><div class="empty-state-icon">✅</div><div class="empty-state-title">Tất cả KLTN đã được phân công đầy đủ PB và HĐ</div></div>`;
+  if (!filteredList.length) {
+    html += `<div class="empty-state"><div class="empty-state-icon">🔍</div><div class="empty-state-title">Không tìm thấy đề tài phù hợp bộ lọc</div></div>`;
   } else {
-    needAction.forEach(k => {
+    filteredList.forEach(k => {
       const sv = getUser(k.svEmail);
       const gvHD = getUser(k.gvHDEmail);
       const hasHD = k.hoiDong ? '<span class="badge" style="background:#10b981;color:#fff;padding:4px 8px;border-radius:3px;font-size:11px;font-weight:700;">✅ Đã xếp Hội đồng</span>' : '<span class="badge badge-red">Thiếu HĐ</span>';
@@ -3099,7 +3176,7 @@ function renderPhanCong() {
         <div style="flex:1;min-width:320px">
           <div style="font-weight:700;cursor:pointer;color:var(--primary);font-size:14px" onclick="viewKLTNDetail('${k.id}')">Đề tài: ${escapeHtml(k.tenDeTai)}</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;font-size:12px;">
-            <div style="color:var(--text2)"><span style="font-weight:600;">SV:</span> ${escapeHtml(sv?.name || k.svEmail)}</div>
+            <div style="color:var(--text2)"><span style="font-weight:600;">SV:</span> ${escapeHtml(sv?.name || k.svEmail)}${escapeHtml((sv?.ma || sv?.mssv || k.svMa) ? ` (${sv?.ma || sv?.mssv || k.svMa})` : '')}</div>
             <div style="color:var(--text2)"><span style="font-weight:600;">GVHD:</span> ${escapeHtml(gvHD?.name || k.gvHDEmail || 'Chưa có')}</div>
             <div style="color:var(--text2)"><span style="font-weight:600;">Hội đồng:</span> ${hdName}</div>
             <div style="color:var(--text2)"><span style="font-weight:600;">Lĩnh vực:</span> ${escapeHtml(k.mangDeTai)}</div>
@@ -3116,6 +3193,17 @@ function renderPhanCong() {
   }
   html += `</div>`;
   el.innerHTML = html;
+  if (searchHadFocus) {
+    const newSearchEl = document.getElementById('tbm-phancong-search');
+    if (newSearchEl) {
+      setTimeout(() => {
+        newSearchEl.focus({ preventScroll: true });
+        if (prevSelectionStart !== null && prevSelectionEnd !== null) {
+          newSearchEl.setSelectionRange(prevSelectionStart, prevSelectionEnd);
+        }
+      }, 0);
+    }
+  }
 }
 
 
@@ -5001,6 +5089,9 @@ function switchTab(e, tabId) {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+  if (window.location.protocol === "file:") {
+    showLoginWarning("Bạn đang mở giao diện bằng file tĩnh. Hãy chạy backend Flask và mở URL server (ví dụ http://127.0.0.1:5000 hoặc 5001) để đăng nhập được.");
+  }
   const params = new URLSearchParams(window.location.search);
   const oauthState = params.get("oauth");
   const oauthError = params.get("error");
