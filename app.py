@@ -18,7 +18,12 @@ FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
 
 app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path="")
 configure_app(app)
-CORS(app, supports_credentials=True)
+CORS(app, supports_credentials=True, origins=[
+    "http://127.0.0.1:5000",
+    "http://localhost:5000",
+    "http://127.0.0.1:5500",
+    "http://localhost:5500",
+])
 
 oauth = OAuth(app)
 oauth.register(
