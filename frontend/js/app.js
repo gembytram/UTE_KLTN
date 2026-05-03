@@ -705,6 +705,13 @@ function renderKLTNScoreBlock(k, vaiTro, title, hint, options = {}) {
   const questionValue = options.questionValue || '';
   const showQuestion = Boolean(options.showQuestion);
   const isLocked = existingScore != null && existingScore !== '';
+  const canUploadTurnitin = vaiTro === 'HD' && canGradeRole(DB.currentUser, k, 'HD');
+  const turnitinStatus = k.fileTurnitin
+    ? `<div style="margin-bottom:12px;font-size:13px;color:var(--text2);">Turnitin: <a href="${uploadFileHref(k.fileTurnitin)}" target="_blank" rel="noopener" style="color:var(--accent)">📑 Mở Turnitin</a></div>`
+    : `<div style="margin-bottom:12px;font-size:13px;color:var(--text3);">Turnitin do GVHD upload. ${canUploadTurnitin ? 'Bạn có thể upload file bên dưới.' : 'Đang chờ GVHD upload.'}</div>`;
+  const turnitinUploadButton = canUploadTurnitin
+    ? `<button class="btn btn-secondary btn-sm" onclick="fakeUploadKLTN('${k.id}','fileTurnitin')">${k.fileTurnitin ? '📑 Thay Turnitin' : '📑 Upload Turnitin'}</button>`
+    : '';
 
   const rows = template.map(([name, max], index) => {
     const stored = existingCriteria[index];
@@ -723,7 +730,7 @@ function renderKLTNScoreBlock(k, vaiTro, title, hint, options = {}) {
   return `<div style="font-size:16px;font-weight:800;color:var(--primary-dark);margin:12px 0 8px">${escapeHtml(getScoreSheetTitle(k.topicType, vaiTro))}</div>
     <div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:8px">${escapeHtml(title)}</div>
     <div style="font-size:12px;color:var(--text3);margin-bottom:10px">${escapeHtml(hint)}</div>
-    <div style="font-size:12px;color:var(--text2);margin-bottom:10px">Mẫu phiếu: ${escapeHtml(getTopicTypeLabel(k.topicType))} • ${escapeHtml(SCORE_ROLE_LABELS[vaiTro] || vaiTro)}</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:10px">Đề tài: ${escapeHtml(getTopicTypeLabel(k.topicType))} • Vai trò: ${escapeHtml(SCORE_ROLE_LABELS[vaiTro] || vaiTro)}</div>
     ${infoMessage}
     <div class="table-wrap" style="margin-bottom:12px">
       <table>
@@ -734,8 +741,10 @@ function renderKLTNScoreBlock(k, vaiTro, title, hint, options = {}) {
     <div class="form-group"><label>Tổng điểm</label><input type="number" id="${totalInputId(k.id, vaiTro)}" value="${existingScore ?? ''}" readonly style="background:var(--bg)"></div>
     <div class="form-group"><label>Nhận xét</label><textarea id="${noteInputId(k.id, vaiTro)}" style="min-height:110px" placeholder="Nhập nhận xét">${escapeHtml(noteValue)}</textarea></div>
     ${showQuestion ? `<div class="form-group"><label>Câu hỏi / góp ý</label><textarea id="${questionInputId(k.id, vaiTro)}" style="min-height:110px" placeholder="Nhập câu hỏi hoặc góp ý cho sinh viên">${escapeHtml(questionValue)}</textarea></div>` : ''}
+    ${turnitinStatus}
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       ${historyButton}
+      ${turnitinUploadButton}
       <button class="btn btn-primary btn-sm" onclick="saveKLTNScore('${k.id}','${vaiTro}')">💾 Lưu phiếu chấm</button>
       <button class="btn btn-ghost btn-sm" onclick="exportKLTNScoreDocx('${k.id}','${vaiTro}')">📄 Xuất phiếu DOCX</button>
     </div>`;
@@ -1249,19 +1258,15 @@ function getScoreTemplate(topicType, vaiTro) {
 function getScoreSheetTitle(topicType, vaiTro) {
   const normalized = normalizeTopicType(topicType);
   if (vaiTro === 'HD') {
-    return normalized === 'nghien_cuu'
-      ? 'BIÊN BẢN GIÁO VIÊN HƯỚNG DẪN'
-      : 'BIÊN BẢN GIÁO VIÊN HƯỚNG DẪN';
+    return 'Phiếu chấm GV hướng dẫn';
   }
   if (vaiTro === 'PB') {
-    return normalized === 'nghien_cuu'
-      ? 'BIÊN BẢN GIÁO VIÊN PHẢN BIỆN '
-      : 'BIÊN BẢN GIÁO VIÊN PHẢN BIỆN';
+    return 'Phiếu chấm GV phản biện';
   }
   if (vaiTro === 'CT' || vaiTro === 'TV') {
-    return 'BIÊN BẢN HỘI ĐỒNG';
+    return 'Phiếu chấm Hội đồng';
   }
-  return 'BIÊN BẢN CHẤM ĐIỂM';
+  return 'Phiếu chấm KLTN';
 }
 
 function mapApiUserToCurrentUser(user) {
@@ -1904,12 +1909,17 @@ function fakeUploadKLTN(recordId, field) {
   const loaiFileMap = {
     fileBaiWord: "kltn_bai_word",
     fileBai: "kltn_bai_pdf",
+    fileTurnitin: "turnitin",
     fileBaiChinhSua: "kltn_chinhsua",
     fileGiaiTrinh: "bien_ban_giai_trinh",
   };
   const loaiFile = loaiFileMap[field];
   if (!loaiFile) {
     toast("Loại file upload không hợp lệ", "error");
+    return;
+  }
+  if (field === 'fileTurnitin' && !canGradeRole(DB.currentUser, record, 'HD')) {
+    toast('Chỉ GVHD mới được upload file Turnitin', 'error');
     return;
   }
   const dot = getDotById(record.dotId);
@@ -2723,6 +2733,7 @@ function renderKLTN() {
       html += `<div class="card"><div class="card-title" style="margin-bottom:16px">✅ Đã nộp bài KLTN</div>
         ${k.fileBaiWord ? `<div class="info-row"><span class="info-label">File Word:</span><span class="info-value">${escapeHtml(k.fileBaiWord)}</span></div>` : ''}
         ${k.fileBai ? `<div class="info-row"><span class="info-label">File PDF:</span><span class="info-value">${escapeHtml(k.fileBai)}</span></div>` : ''}
+        ${k.fileTurnitin ? `<div class="info-row"><span class="info-label">Turnitin:</span><span class="info-value"><a href="${uploadFileHref(k.fileTurnitin)}" target="_blank" rel="noopener">📑 Turnitin</a></span></div>` : ''}
         ${isLateKLTN ? `<div style="margin-top:12px;font-size:13px;color:#b91c1c;font-weight:600">Hạn nộp KLTN đã qua. Đây là nộp trễ.</div>` : ''}
         <button class="btn btn-secondary" style="margin-top:16px;width:100%" onclick="toggleKLTNEditMode('${k.id}')">✏️ Chỉnh sửa bài</button>
       </div>`;
@@ -2747,8 +2758,8 @@ function renderKLTN() {
           </div>
           <div><label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">📅 Hạn nộp</label><div class="uploaded-file">${formatDate(dot?.ketThuc) ? `Hạn nộp KLTN: ${formatDate(dot?.ketThuc)}` : 'Chưa cấu hình'}</div></div>
         </div>
-        ${!isDeadlineOpen ? `<div style="margin-top:12px;font-size:13px;color:#b91c1c;font-weight:600">Hạn nộp KLTN đã qua. Đây là nộp trễ.</div>` : ''}
-        ${k.fileBai && hasAssignments ? `<button class="btn btn-success" style="margin-top:16px;width:100%" onclick="hoanTatKLTN('${k.id}')">✅ Hoàn tất nộp KLTN</button>` : ''}
+        <div style="margin-top:12px;font-size:13px;color:var(--text3);">Turnitin do GVHD upload. ${k.fileTurnitin ? `<a href="${uploadFileHref(k.fileTurnitin)}" target="_blank" rel="noopener" style="font-weight:600; color:var(--accent)">📑 Mở Turnitin</a>` : 'Chưa có file Turnitin.'}</div>
+        ${k.fileBai && k.fileTurnitin && hasAssignments ? `<button class="btn btn-success" style="margin-top:16px;width:100%" onclick="hoanTatKLTN('${k.id}')">✅ Hoàn tất nộp KLTN</button>` : ''}
         ${isSubmittedKLTN ? `<button class="btn btn-secondary" style="margin-top:12px;width:100%" onclick="toggleKLTNEditMode('${k.id}')">✏️ Chỉnh sửa bài</button>` : ''}
       </div>`;
     }
@@ -3147,7 +3158,7 @@ function viewKLTNDetail(id) {
       <div class="kltn-grid-files">
         <div class="kltn-row" style="margin:0; align-items: center;"><span class="kltn-label" style="min-width: 90px;">File Word:</span><span class="kltn-value">${linkFile(k.fileBaiWord, '📄 Tải Word')}</span></div>
         <div class="kltn-row" style="margin:0; align-items: center;"><span class="kltn-label" style="min-width: 90px;">File PDF:</span><span class="kltn-value">${linkFile(k.fileBai, '📕 Tải PDF')}</span></div>
-        <div class="kltn-row" style="margin:0; align-items: center;"><span class="kltn-label" style="min-width: 90px;">Turnitin:</span><span class="kltn-value">${linkFile(k.fileTurnitin, '📑 Tải Turnitin')}</span></div>
+        <div class="kltn-row" style="margin:0; align-items: center;"><span class="kltn-label" style="min-width: 90px;">Turnitin:</span><span class="kltn-value">${linkFile(k.fileTurnitin, '📑 Tải Turnitin')}${!k.fileTurnitin && normalizeEmail(k.gvHDEmail) === normalizeEmail(u.email) ? `<button class="btn btn-secondary btn-sm" style="margin-left:12px" onclick="fakeUploadKLTN('${k.id}','fileTurnitin')">📑 Upload Turnitin</button>` : ''}</span></div>
         <div class="kltn-row" style="margin:0; align-items: center;"><span class="kltn-label" style="min-width: 90px;">Bản sửa:</span><span class="kltn-value">${linkFile(k.fileBaiChinhSua, '📄 Tải bản sửa')}</span></div>
         <div class="kltn-row" style="margin:0; grid-column: 1 / -1; align-items: center;"><span class="kltn-label" style="min-width: 90px;">Giải trình:</span><span class="kltn-value">${linkFile(k.fileGiaiTrinh, '📑 Tải biên bản giải trình')}</span></div>
       </div>
