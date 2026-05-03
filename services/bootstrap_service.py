@@ -145,7 +145,8 @@ def fetch_bootstrap(conn):
         }
         if r["loai"] == "BCTT":
             sc_bctt = score_map.get(r["id"], {}).get("BCTT")
-            record["tenCongTy"] = meta["tenCongTy"]
+            record["tenCongTy"] = meta.get("tenCongTy", "")
+            record["moTa"] = meta.get("moTa", "")
             record["fileBC"] = upload_map.get(r["id"], {}).get("bctt_baocao")
             record["fileBCWord"] = upload_map.get(r["id"], {}).get("bctt_baocao_word")
             record["fileXacNhan"] = upload_map.get(r["id"], {}).get("bctt_xacnhan")

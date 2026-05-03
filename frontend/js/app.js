@@ -2092,7 +2092,7 @@ function renderDashboard() {
       <div class="stat-card" onclick="navigateTo('bctt')" style="cursor:pointer"><div class="stat-icon blue">📝</div><div><div class="stat-value">${myBCTT.length}</div><div class="stat-label">BCTT đã đăng ký</div></div></div>
       <div class="stat-card" onclick="navigateTo('kltn')" style="cursor:pointer"><div class="stat-icon green">🎓</div><div><div class="stat-value">${myKLTN.length}</div><div class="stat-label">KLTN đã đăng ký</div></div></div>
       <div class="stat-card" onclick="toggleNotif()" style="cursor:pointer"><div class="stat-icon orange">📬</div><div><div class="stat-value">${getUnreadNotifs(u.email).length}</div><div class="stat-label">Thông báo mới</div></div></div>
-      <div class="stat-card" onclick="navigateTo('theodoi')" style="cursor:pointer"><div class="stat-icon red">📅</div><div><div class="stat-value">${DB.dotDangKy.filter(d => d.trangThai === 'dang_mo').length}</div><div class="stat-label">Đợt đang mở</div></div></div>
+      <div class="stat-card" onclick="navigateTo('theodoi')" style="cursor:pointer"><div class="stat-icon red">📅</div><div><div class="stat-value">${DB.dotDangKy.filter(d => d.trangThai === 'dang_mo' && dotMatchesStudentHeAndMajor(d)).length}</div><div class="stat-label">Đợt đang mở</div></div></div>
     </div>`;
 
     const bctt = myBCTT[0];
@@ -2125,10 +2125,12 @@ function renderDashboard() {
     html += `</div>`;
 
     html += `<div class="card"><div class="card-header"><div><div class="card-title">📅 Đợt đăng ký</div></div></div>`;
-    html += DB.dotDangKy.map(d => `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">
-      <div><div style="font-size:13px;font-weight:600">${d.ten}</div><div style="font-size:11px;color:var(--text3)">${d.batDau} → ${d.ketThuc}</div></div>
-      <span class="badge ${d.trangThai === 'dang_mo' ? 'badge-green' : 'badge-gray'}">${d.trangThai === 'dang_mo' ? '🟢 Đang mở' : '🔒 Sắp mở'}</span>
-    </div>`).join('');
+    html += DB.dotDangKy
+      .filter((d) => d.trangThai === 'dang_mo' && dotMatchesStudentHeAndMajor(d))
+      .map(d => `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">
+        <div><div style="font-size:13px;font-weight:600">${escapeHtml(d.ten)}</div><div style="font-size:11px;color:var(--text3)">${escapeHtml(d.loai || 'BCTT')} • ${escapeHtml(d.batDau)} → ${escapeHtml(d.ketThuc)}</div></div>
+        <span class="badge ${d.trangThai === 'dang_mo' ? 'badge-green' : 'badge-gray'}">${d.trangThai === 'dang_mo' ? '🟢 Đang mở' : '🔒 Sắp mở'}</span>
+      </div>`).join('');
     html += `</div></div>`;
 
     if (kltn && ['bao_ve', 'hoan_thanh', 'pass', 'fail'].includes(kltn.trangThai)) {
@@ -2177,7 +2179,7 @@ function renderDashboard() {
       html += pendingList.map(b => {
         const sv = getUser(b.svEmail);
         return `<tr><td><div style="font-weight:600">${sv?.name}</div><div style="font-size:11px;color:var(--text3)">${b.svEmail}</div></td>
-          <td><div style="font-weight:500;max-width:240px;cursor:pointer;color:var(--primary)" onclick="viewBCTTDetail('${b.id}')">${escapeHtml(b.tenDeTai)}</div><div style="font-size:11px;color:var(--text3)">${escapeHtml(b.mangDeTai)}</div></td>
+          <td><div style="font-weight:500;max-width:240px;cursor:pointer;color:var(--primary)" onclick="viewBCTTDetail('${b.id}')">${escapeHtml(b.tenDeTai)}</div><div style="font-size:11px;color:var(--text3)">${escapeHtml(b.mangDeTai)}</div>${b.moTa ? `<div style="font-size:11px;color:var(--text4);margin-top:4px">${escapeHtml(b.moTa)}</div>` : ''}</td>
           <td style="font-size:12px;color:var(--text3)">${b.ngayDangKy}</td>
           <td><div class="action-row">
             <button class="btn btn-ghost btn-sm" onclick="viewBCTTDetail('${b.id}')">👁</button>
@@ -2496,7 +2498,7 @@ function renderDeTai() {
       const sv = getUser(b.svEmail); const gv = getUser(b.gvEmail);
       html += `<tr>
         <td><div style="font-weight:600">${sv?.name || b.svEmail}</div><div style="font-size:11px;color:var(--text3)">${b.svEmail}</div></td>
-        <td style="max-width:200px"><div style="font-weight:500;cursor:pointer;color:var(--primary)" title="Xem chi tiết" onclick="viewBCTTDetail('${b.id}')">${escapeHtml(b.tenDeTai)}</div></td>
+        <td style="max-width:200px"><div style="font-weight:500;cursor:pointer;color:var(--primary)" title="Xem chi tiết" onclick="viewBCTTDetail('${b.id}')">${escapeHtml(b.tenDeTai)}</div>${b.moTa ? `<div style="font-size:11px;color:var(--text4);margin-top:4px">${escapeHtml(b.moTa)}</div>` : ''}</td>
         <td><span class="badge badge-blue" style="white-space:nowrap">${b.mangDeTai}</span></td>
         <td style="font-size:12px">${gv?.name || b.gvEmail}</td>
         <td>${statusBadge(b.trangThai)}</td>
@@ -2643,6 +2645,7 @@ function viewBCTTDetail(id) {
     <div class="info-row"><span class="info-label">Tên đề tài:</span><span class="info-value" style="font-weight:700">${escapeHtml(b.tenDeTai)}</span></div>
     <div class="info-row"><span class="info-label">Ngành:</span><span class="info-value">${escapeHtml(b.mangDeTai)}</span></div>
     <div class="info-row"><span class="info-label">Công ty:</span><span class="info-value">${escapeHtml(b.tenCongTy)}</span></div>
+    <div class="info-row"><span class="info-label">Mô tả ngắn:</span><span class="info-value">${escapeHtml(b.moTa || '–')}</span></div>
     <div class="info-row"><span class="info-label">GV HD:</span><span class="info-value">${escapeHtml(gv?.name || '')}</span></div>
     <div class="info-row"><span class="info-label">Trạng thái:</span><span class="info-value">${statusBadge(b.trangThai)}</span></div>
     <div class="info-row"><span class="info-label">File báo cáo PDF:</span><span class="info-value">${fileRow('bc', b.fileBC)}</span></div>
@@ -3867,6 +3870,7 @@ function renderHuongDan() {
               <span><strong>Lĩnh vực:</strong> ${escapeHtml(b.mangDeTai || b.loaiDeTai || 'Chưa có')}</span>
               <span><strong>Công ty:</strong> ${escapeHtml(b.tenCongTy || 'Chưa có')}</span>
             </div>
+            ${b.moTa ? `<div style="margin-top:10px;font-size:12px;color:var(--text3)"><strong>Mô tả:</strong> ${escapeHtml(b.moTa)}</div>` : ''}
             <div style="font-size:12px;color:var(--text2);margin-top:10px">${escapeHtml(sv?.name || b.svEmail)}</div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -3905,6 +3909,7 @@ function renderHuongDan() {
               <span><strong>Lĩnh vực:</strong> ${escapeHtml(b.mangDeTai || b.loaiDeTai || 'Chưa có')}</span>
               <span><strong>Công ty:</strong> ${escapeHtml(b.tenCongTy || 'Chưa có')}</span>
             </div>
+            ${b.moTa ? `<div style="margin-top:10px;font-size:12px;color:var(--text3)"><strong>Mô tả:</strong> ${escapeHtml(b.moTa)}</div>` : ''}
             <div style="font-size:12px;color:var(--text2);margin-top:10px">${escapeHtml(sv?.name || b.svEmail)} • ${statusBadge(b.trangThai)}</div>
             <div style="font-size:12px;color:var(--text2);margin-top:8px">
               Báo cáo PDF:
