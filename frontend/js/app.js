@@ -2316,6 +2316,37 @@ async function loadScoredBCTT() {
 }
 
 // ============================================================
+// SKELETON LOADING FOR DASHBOARD
+// ============================================================
+
+function renderDashboardSkeleton() {
+  const el = document.getElementById('page-dashboard');
+  const u = DB.currentUser;
+  const skeleton = `
+    <div class="page-header"><h1>Xin chào, ${u.name} 👋</h1><p>Hệ thống quản lý BCTT & KLTN – Khoa FE, UTE</p></div>
+    <div class="stats-grid">
+      <div class="stat-card" style="opacity:0.6"><div class="stat-icon blue">📝</div><div><div class="stat-value skeleton" style="width:40px;height:24px;background:var(--bg3);border-radius:4px;margin-bottom:8px"></div><div class="stat-label">BCTT đã đăng ký</div></div></div>
+      <div class="stat-card" style="opacity:0.6"><div class="stat-icon green">🎓</div><div><div class="stat-value skeleton" style="width:40px;height:24px;background:var(--bg3);border-radius:4px;margin-bottom:8px"></div><div class="stat-label">KLTN đã đăng ký</div></div></div>
+      <div class="stat-card" style="opacity:0.6"><div class="stat-icon orange">📬</div><div><div class="stat-value skeleton" style="width:40px;height:24px;background:var(--bg3);border-radius:4px;margin-bottom:8px"></div><div class="stat-label">Thông báo mới</div></div></div>
+      <div class="stat-card" style="opacity:0.6"><div class="stat-icon red">📅</div><div><div class="stat-value skeleton" style="width:40px;height:24px;background:var(--bg3);border-radius:4px;margin-bottom:8px"></div><div class="stat-label">Đợt đang mở</div></div></div>
+    </div>
+    <div class="grid-2">
+      <div class="card" style="opacity:0.6"><div class="card-header"><div><div class="card-title">🗺️ Tiến độ BCTT</div></div></div>
+        <div style="padding:16px"><div style="width:100%;height:120px;background:var(--bg3);border-radius:4px"></div></div>
+      </div>
+      <div class="card" style="opacity:0.6"><div class="card-header"><div><div class="card-title">📅 Đợt đăng ký</div></div></div>
+        <div style="padding:16px"><div style="width:100%;height:120px;background:var(--bg3);border-radius:4px"></div></div>
+      </div>
+    </div>
+    <div id="dashboard-loading-indicator" style="text-align:center;padding:32px;color:var(--text3);font-size:13px">
+      <div style="animation:spin 1s linear infinite;display:inline-block;margin-bottom:8px">⏳</div>
+      <div>Đang tải dữ liệu...</div>
+    </div>
+  `;
+  el.innerHTML = skeleton;
+}
+
+// ============================================================
 // PAGES RENDER (BCTT, KLTN, DUYỆT, ... )
 // ============================================================
 

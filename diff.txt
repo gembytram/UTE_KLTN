@@ -1,0 +1,353 @@
+﻿diff --git a/frontend/js/app.js b/frontend/js/app.js
+index 9872c2a..2b704c6 100644
+--- a/frontend/js/app.js
++++ b/frontend/js/app.js
+@@ -50,6 +50,7 @@ const DB = {
+   nhapDiemFilter: { q: '', topicType: '', mangDeTai: '' },
+   huongDanBCTTFilter: { q: '', mangDeTai: '' },
+   huongDanKLTNFilter: { q: '', mangDeTai: '', loaiDeTai: '' },
++  hdSelectedBcttDotId: null,
+   phanBienFilter: { q: '', mangDeTai: '' },
+   hoiDongFilter: { q: '', mangDeTai: '' },
+   chuTichFilter: { q: '', mangDeTai: '' },
+@@ -134,6 +135,43 @@ function hasCommonMajor(a, b) {
+     return majorsA.length && majorsB.length && majorsA.some((m) => majorsB.includes(m));
+ }
+ 
++function parseDateString(value) {
++  if (!value) return null;
++  const date = new Date(value);
++  if (Number.isNaN(date.getTime())) return null;
++  return date;
++}
++
++function formatDateTimeLocal(value) {
++  if (!value) return '';
++  const date = new Date(value);
++  if (Number.isNaN(date.getTime())) return '';
++  const pad = (num) => String(num).padStart(2, '0');
++  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
++}
++
++function getDotById(dotId) {
++  return DB.dotDangKy.find((d) => String(d.id) === String(dotId));
++}
++
++function isBeforeDeadline(dot) {
++  if (!dot || !dot.ketThuc) return true;
++  const deadline = parseDateString(dot.ketThuc);
++  if (!deadline) return true;
++  const today = new Date();
++  today.setHours(0, 0, 0, 0);
++  return today <= deadline;
++}
++
++function isCurrentUserStudent() {
++  return String(DB.currentUser?.role || '').toLowerCase() === 'sv';
++}
++
++function isCurrentUserGVOfBCTT(record) {
++  if (!record || !DB.currentUser) return false;
++  return DB.currentUser.role === 'gv' && String(DB.currentUser.email || '').toLowerCase() === String(record.gvEmail || '').toLowerCase();
++}
++
+ function normalizeMajorName(value) {
+   const raw = String(value || '').trim().toLowerCase();
+   if (raw === 'logistic' || raw === 'log') return 'log';
+@@ -1776,6 +1814,11 @@ function fakeUpload(kind, recordId) {
+     toast("Loß║íi file upload kh├┤ng hß╗úp lß╗ç", "error");
+     return;
+   }
++  const dot = getDotById(record.dotId);
++  if (isCurrentUserStudent() && !isBeforeDeadline(dot)) {
++    toast("Hß║┐t hß║ín nß╗Öp BCTT. Bß║ín kh├┤ng thß╗â chß╗ënh sß╗¡a file nß╗»a", "error");
++    return;
++  }
+   chooseFileAndUpload(record.dangKyId || extractId(record.id), loaiFile);
+ }
+ 
+@@ -1817,6 +1860,98 @@ async function hoanTatBCTT(recordId) {
+   }
+ }
+ 
++async function updateDotDeadline(dotId) {
++  const han_dang_ky = document.getElementById("view-bctt-han-dk")?.value || "";
++  const han_nop = document.getElementById("view-bctt-han-nop")?.value || "";
++  if (!han_dang_ky && !han_nop) {
++    toast("Vui l├▓ng nhß║¡p ├¡t nhß║Ñt mß╗Öt hß║ín cß║ºn cß║¡p nhß║¡t", "error");
++    return;
++  }
++  try {
++    await apiRequest("/api/dot/update", {
++      method: "POST",
++      body: JSON.stringify({ dot_id: dotId, han_dang_ky, han_nop }),
++    });
++    toast("Cß║¡p nhß║¡t hß║ín ─æß╗út th├ánh c├┤ng");
++    closeModalForce();
++    await refreshCurrentView();
++  } catch (err) {
++    toast(err.message, "error");
++  }
++}
++
++async function saveSelectedDotDeadline(dotId) {
++  const selectedDot = DB.dotDangKy.find((d) => String(d.id) === String(dotId));
++  if (selectedDot && String(selectedDot.loai || '').toUpperCase() !== 'KLTN') {
++    toast("TBM chß╗ë ─æ╞░ß╗úc chß╗ënh hß║ín ─æß╗út KLTN", "error");
++    return;
++  }
++  const han_dang_ky = document.getElementById("tbm-selected-dot-han-dk")?.value || "";
++  const han_nop = document.getElementById("tbm-selected-dot-han-nop")?.value || "";
++  if (!han_dang_ky && !han_nop) {
++    toast("Vui l├▓ng nhß║¡p ├¡t nhß║Ñt mß╗Öt hß║ín cß║ºn cß║¡p nhß║¡t", "error");
++    return;
++  }
++  try {
++    await apiRequest("/api/dot/update", {
++      method: "POST",
++      body: JSON.stringify({ dot_id: dotId, han_dang_ky, han_nop }),
++    });
++    toast("Cß║¡p nhß║¡t hß║ín ─æß╗út th├ánh c├┤ng");
++    await refreshCurrentView();
++  } catch (err) {
++    toast(err.message, "error");
++  }
++}
++
++async function saveHuongDanBcttDeadline() {
++  const dotId = DB.hdSelectedBcttDotId;
++  if (!dotId) {
++    toast("Vui l├▓ng chß╗ìn ─æß╗út BCTT", "error");
++    return;
++  }
++  const han_dang_ky = document.getElementById("huongdan-bctt-dot-han-dk")?.value || "";
++  const han_nop = document.getElementById("huongdan-bctt-dot-han-nop")?.value || "";
++  if (!han_dang_ky && !han_nop) {
++    toast("Vui l├▓ng nhß║¡p ├¡t nhß║Ñt mß╗Öt hß║ín cß║ºn cß║¡p nhß║¡t", "error");
++    return;
++  }
++  try {
++    await apiRequest("/api/dot/update", {
++      method: "POST",
++      body: JSON.stringify({ dot_id: dotId, han_dang_ky, han_nop }),
++    });
++    toast("Cß║¡p nhß║¡t hß║ín ─æß╗út BCTT th├ánh c├┤ng");
++    await refreshCurrentView();
++  } catch (err) {
++    toast(err.message, "error");
++  }
++}
++
++async function saveHuongDanKltnDeadline() {
++  const dotId = DB.hdSelectedKltnDotId;
++  if (!dotId) {
++    toast("Vui l├▓ng chß╗ìn ─æß╗út KLTN", "error");
++    return;
++  }
++  const han_dang_ky = document.getElementById("huongdan-kltn-dot-han-dk")?.value || "";
++  const han_nop = document.getElementById("huongdan-kltn-dot-han-nop")?.value || "";
++  if (!han_dang_ky && !han_nop) {
++    toast("Vui l├▓ng nhß║¡p ├¡t nhß║Ñt mß╗Öt hß║ín cß║ºn cß║¡p nhß║¡t", "error");
++    return;
++  }
++  try {
++    await apiRequest("/api/dot/update", {
++      method: "POST",
++      body: JSON.stringify({ dot_id: dotId, han_dang_ky, han_nop }),
++    });
++    toast("Cß║¡p nhß║¡t hß║ín ─æß╗út KLTN th├ánh c├┤ng");
++    await refreshCurrentView();
++  } catch (err) {
++    toast(err.message, "error");
++  }
++}
++
+ async function hoanTatKLTN(recordId) {
+   const record = findKltnRecord(recordId);
+   if (!record) {
+@@ -2241,32 +2376,34 @@ function renderBCTT() {
+         </div>
+       </div>`;
+     }
++    const isDeadlineOpen = isBeforeDeadline(dot);
+     if (b.trangThai === 'gv_xac_nhan' || b.trangThai === 'cho_cham') {
+       html += `<div class="card"><div class="card-title" style="margin-bottom:16px">≡ƒôñ Nß╗Öp hß╗ô s╞í BCTT</div>
+         <div class="grid-2">
+           <div>
+             <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">≡ƒôä B├ío c├ío Thß╗▒c tß║¡p (PDF)</label>
+-            <div class="upload-area ${b.fileBC ? 'has-file' : ''}" onclick="fakeUpload('bctt-bc','${b.id}','fileBC')">
++            <div class="upload-area ${b.fileBC ? 'has-file' : ''}${!isDeadlineOpen ? ' disabled' : ''}" onclick="${isDeadlineOpen ? `fakeUpload('bctt-bc','${b.id}','fileBC')` : `toast('Hß║┐t hß║ín nß╗Öp BCTT. Bß║ín kh├┤ng thß╗â chß╗ënh sß╗¡a file nß╗»a','error')`}">
+               <div class="upload-icon">${b.fileBC ? 'Γ£à' : '≡ƒôü'}</div>
+               <div class="upload-text">${b.fileBC ? b.fileBC : 'Click ─æß╗â chß╗ìn file PDF'}</div>
+             </div>
+           </div>
+           <div>
+-            <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">∩┐╜ B├ío c├ío Thß╗▒c tß║¡p (Word)</label>
+-            <div class="upload-area ${b.fileBCWord ? 'has-file' : ''}" onclick="fakeUpload('bctt-bc-word','${b.id}','fileBCWord')">
++            <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">≡ƒôä B├ío c├ío Thß╗▒c tß║¡p (Word)</label>
++            <div class="upload-area ${b.fileBCWord ? 'has-file' : ''}${!isDeadlineOpen ? ' disabled' : ''}" onclick="${isDeadlineOpen ? `fakeUpload('bctt-bc-word','${b.id}','fileBCWord')` : `toast('Hß║┐t hß║ín nß╗Öp BCTT. Bß║ín kh├┤ng thß╗â chß╗ënh sß╗¡a file nß╗»a','error')`}">
+               <div class="upload-icon">${b.fileBCWord ? 'Γ£à' : '≡ƒôü'}</div>
+               <div class="upload-text">${b.fileBCWord ? b.fileBCWord : 'Click ─æß╗â chß╗ìn file Word'}</div>
+             </div>
+           </div>
+           <div>
+             <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">≡ƒôï Giß║Ñy x├íc nhß║¡n TT (PDF)</label>
+-            <div class="upload-area ${b.fileXacNhan ? 'has-file' : ''}" onclick="fakeUpload('bctt-xn','${b.id}','fileXacNhan')">
++            <div class="upload-area ${b.fileXacNhan ? 'has-file' : ''}${!isDeadlineOpen ? ' disabled' : ''}" onclick="${isDeadlineOpen ? `fakeUpload('bctt-xn','${b.id}','fileXacNhan')` : `toast('Hß║┐t hß║ín nß╗Öp BCTT. Bß║ín kh├┤ng thß╗â chß╗ënh sß╗¡a file nß╗»a','error')`}">
+               <div class="upload-icon">${b.fileXacNhan ? 'Γ£à' : '≡ƒôü'}</div>
+               <div class="upload-text">${b.fileXacNhan ? b.fileXacNhan : 'Click ─æß╗â chß╗ìn file PDF'}</div>
+             </div>
+           </div>
+         </div>
+         <div style="margin-top:12px;font-size:12px;color:var(--text3)">Y├¬u cß║ºu: Upload B├ío c├ío Thß╗▒c tß║¡p PDF, B├ío c├ío Thß╗▒c tß║¡p Word v├á Giß║Ñy x├íc nhß║¡n TT PDF.</div>
++        ${!isDeadlineOpen ? `<div style="margin-top:12px;font-size:13px;color:#b91c1c;font-weight:600">Hß║ín nß╗Öp BCTT ─æ├ú qua. Bß║ín kh├┤ng thß╗â thay ─æß╗òi file nß╗»a.</div>` : ''}
+         ${b.fileBC && b.fileBCWord && b.fileXacNhan ? `<button class="btn btn-success" style="margin-top:16px;width:100%" onclick="hoanTatBCTT('${b.id}')">Γ£à Ho├án tß║Ñt nß╗Öp hß╗ô s╞í BCTT</button>` : ''}
+       </div>`;
+     }
+@@ -2338,6 +2475,7 @@ function renderKLTN() {
+   const el = document.getElementById('page-kltn');
+   let html = `<div class="page-header"><h1>≡ƒÄô ─É─âng k├╜ Kh├│a Luß║¡n Tß╗æt Nghiß╗çp</h1><p>─É─âng k├╜ v├á theo d├╡i tiß║┐n ─æß╗Ö KLTN</p></div>`;
+ 
++
+   if (myKLTN.length > 0) {
+     const k = myKLTN[0];
+     const gvHD = getUser(k.gvHDEmail);
+@@ -2606,12 +2744,15 @@ function viewBCTTDetail(id) {
+   if (!isBCTTVisibleForCurrentUser(b)) return toast('Bß║ín kh├┤ng c├│ quyß╗ün xem ─æß╗ü t├ái n├áy', 'error');
+   const sv = getUser(b.svEmail);
+   const gv = getUser(b.gvEmail);
++  const dot = getDotById(b.dotId);
+   const u = DB.currentUser;
+   
+   // Cho ph├⌐p GV cß╗ºa BCTT ─æ├│ v├á TBM chß║Ñm ─æiß╗âm
+   const isGVOfThis = u.email === b.gvEmail && u.role === 'gv';
+   const isTBM = u.role === 'bm';
+   const canScore = (isGVOfThis || isTBM) && b.trangThai === 'cho_cham';
++  const isDeadlineOpen = isBeforeDeadline(dot);
++  const canEditDeadline = isGVOfThis && dot && String(dot.loai || '').toUpperCase() === 'BCTT';
+   
+   const fileRow = (label, path) =>
+     path
+@@ -2647,7 +2788,22 @@ function viewBCTTDetail(id) {
+     <div class="info-row"><span class="info-label">C├┤ng ty:</span><span class="info-value">${escapeHtml(b.tenCongTy)}</span></div>
+     <div class="info-row"><span class="info-label">M├┤ tß║ú ngß║»n:</span><span class="info-value">${escapeHtml(b.moTa || 'ΓÇô')}</span></div>
+     <div class="info-row"><span class="info-label">GV HD:</span><span class="info-value">${escapeHtml(gv?.name || '')}</span></div>
++    <div class="info-row"><span class="info-label">─Éß╗út ─æ─âng k├╜:</span><span class="info-value">${dot ? escapeHtml(dot.ten) : escapeHtml(b.dotId)}</span></div>
++    <div class="info-row"><span class="info-label">Hß║ín ─æ─âng k├╜:</span><span class="info-value">${dot?.batDau || 'Ch╞░a cß║Ñu h├¼nh'}</span></div>
++    <div class="info-row"><span class="info-label">Hß║ín nß╗Öp:</span><span class="info-value">${dot?.ketThuc || 'Ch╞░a cß║Ñu h├¼nh'}</span></div>
+     <div class="info-row"><span class="info-label">Trß║íng th├íi:</span><span class="info-value">${statusBadge(b.trangThai)}</span></div>
++    ${canEditDeadline ? `
++      <div class="modal-section" style="margin-top:14px;padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-alt);">
++        <div style="font-weight:700;margin-bottom:8px">Chß╗ënh hß║ín ─æß╗út BCTT</div>
++        <div style="font-size:13px;color:var(--text3);margin-bottom:12px">L╞░u ├╜: hß║ín n├áy ├íp dß╗Ñng cho to├án bß╗Ö ─æß╗út BCTT v├á cho tß║Ñt cß║ú sinh vi├¬n ─æ─âng k├╜ trong ─æß╗út, kh├┤ng phß║úi chß╗ënh tß╗½ng hß╗ô s╞í ri├¬ng.</div>
++        <div class="grid-2" style="gap:12px;">
++          <div class="form-group"><label>Hß║ín ─æ─âng k├╜</label><input id="view-bctt-han-dk" type="date" value="${escapeHtml(dot?.batDau || '')}" style="width:100%"></div>
++          <div class="form-group"><label>Hß║ín nß╗Öp</label><input id="view-bctt-han-nop" type="date" value="${escapeHtml(dot?.ketThuc || '')}" style="width:100%"></div>
++        </div>
++        <div class="action-row" style="margin-top:12px"><button class="btn btn-primary" onclick="updateDotDeadline('${dot?.id}')">≡ƒÆ╛ L╞░u hß║ín ─æß╗út BCTT</button></div>
++      </div>
++    ` : ''}
++    ${!isDeadlineOpen ? `<div class="info-row"><span class="info-label">T├¼nh trß║íng deadline:</span><span class="info-value" style="color:#b91c1c;font-weight:700">Hß║┐t hß║ín nß╗Öp BCTT</span></div>` : ''}
+     <div class="info-row"><span class="info-label">File b├ío c├ío PDF:</span><span class="info-value">${fileRow('bc', b.fileBC)}</span></div>
+     <div class="info-row"><span class="info-label">File b├ío c├ío Word:</span><span class="info-value">${fileRow('bcw', b.fileBCWord)}</span></div>
+     <div class="info-row"><span class="info-label">Giß║Ñy x├íc nhß║¡n:</span><span class="info-value">${fileRow('xn', b.fileXacNhan)}</span></div>
+@@ -2870,6 +3026,21 @@ function renderDuyetDe() {
+     }
+     html += `</div>`;
+ 
++    const selectedDotType = String(selectedDot?.loai || '').toUpperCase();
++    const canEditSelectedDotDeadline = selectedDotType === 'KLTN';
++    html += `<div class="card" style="margin-top:20px"><div class="card-title" style="margin-bottom:12px">ΓÅ▒∩╕Å Chß╗ënh hß║ín ─æß╗út</div>`;
++    if (!selectedDot) {
++      html += `<div class="empty-state"><div class="empty-state-title">Chß╗ìn hoß║╖c tß║ío ─æß╗út ─æß╗â chß╗ënh slot</div></div>`;
++    } else if (canEditSelectedDotDeadline) {
++      html += `<div class="grid-2">
++          <div class="form-group"><label>Hß║ín ─æ─âng k├╜</label><input id="tbm-selected-dot-han-dk" type="date" value="${escapeHtml(selectedDot.batDau || '')}"></div>
++          <div class="form-group"><label>Hß║ín nß╗Öp</label><input id="tbm-selected-dot-han-nop" type="date" value="${escapeHtml(selectedDot.ketThuc || '')}"></div>
++        </div>
++        <div class="action-row" style="margin-top:12px"><button class="btn btn-primary" onclick="saveSelectedDotDeadline('${selectedDot.id}')">≡ƒÆ╛ L╞░u hß║ín ─æß╗út</button></div>`;
++    } else {
++      html += `<div class="form-note" style="font-size:13px;color:var(--text3);line-height:1.5">─Éß╗út hiß╗çn tß║íi l├á <strong>${escapeHtml(selectedDot.loai || '')}</strong>. TBM chß╗ë ─æ╞░ß╗úc chß╗ënh hß║ín cho ─æß╗út <strong>KLTN</strong>. Nß║┐u bß║ín cß║ºn chß╗ënh hß║ín BCTT, h├úy li├¬n hß╗ç GVHD hoß║╖c chß╗ënh hß║ín qua trang chi tiß║┐t BCTT.</div>`;
++    }
++    html += `</div>`;
+     html += `<div class="card" style="margin-top:20px"><div class="card-title" style="margin-bottom:12px">≡ƒæ¿ΓÇì≡ƒÅ½ Slot giß║úng vi├¬n theo ─æß╗út${selectedDot ? `: ${escapeHtml(selectedDot.ten)}` : ''}</div>`;
+     if (!selectedDot) {
+       html += `<div class="empty-state"><div class="empty-state-title">Chß╗ìn hoß║╖c tß║ío ─æß╗út ─æß╗â chß╗ënh slot</div></div>`;
+@@ -3845,6 +4016,38 @@ function renderHuongDan() {
+         ${bcttFilterState.q || bcttFilterState.mangDeTai ? `<div style="margin-top:12px;color:var(--text3);font-size:13px">─Éang lß╗ìc theo: ${bcttFilterState.q ? `"${escapeHtml(bcttFilterState.q)}"` : ''}${bcttFilterState.q && bcttFilterState.mangDeTai ? ' ΓÇó ' : ''}${bcttFilterState.mangDeTai ? `L─⌐nh vß╗▒c: ${escapeHtml(bcttFilterState.mangDeTai)}` : ''}</div>` : ''}
+       </div>`;
+ 
++  const myBcttDotIds = new Set(DB.bcttList.filter((b) => b.gvEmail === u.email).map((b) => String(b.dotId)));
++  const managedBcttDots = DB.dotDangKy.filter((dot) => String(dot.loai || '').toUpperCase() === 'BCTT' && myBcttDotIds.has(String(dot.id)));
++  const selectedHuongDanBcttDotId = DB.hdSelectedBcttDotId && managedBcttDots.some((dot) => String(dot.id) === String(DB.hdSelectedBcttDotId))
++    ? String(DB.hdSelectedBcttDotId)
++    : String(managedBcttDots[0]?.id || '');
++  DB.hdSelectedBcttDotId = selectedHuongDanBcttDotId;
++  const selectedHuongDanBcttDot = managedBcttDots.find((dot) => String(dot.id) === selectedHuongDanBcttDotId);
++
++  html += `<div class="card" style="margin-bottom:16px;padding:16px;background:var(--bg-alt);border:1px solid var(--border);">
++        <div class="card-title" style="margin-bottom:12px">ΓÅ▒∩╕Å Chß╗ënh hß║ín nß╗Öp ─æß╗út BCTT</div>
++        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;align-items:flex-end">
++          <div class="form-group" style="margin-bottom:0">
++            <label>─Éß╗út BCTT</label>
++            <select id="huongdan-bctt-dot" class="form-control" onchange="DB.hdSelectedBcttDotId=this.value; renderHuongDan();">
++              ${managedBcttDots.length ? managedBcttDots.map((dot) => `<option value="${escapeHtml(String(dot.id))}"${String(dot.id) === selectedHuongDanBcttDotId ? ' selected' : ''}>${escapeHtml(dot.ten || `─Éß╗út ${dot.id}`)}</option>`).join('') : `<option value="">Kh├┤ng c├│ ─æß╗út BCTT</option>`}
++            </select>
++          </div>
++          <div class="form-group" style="margin-bottom:0">
++            <label>Hß║ín ─æ─âng k├╜</label>
++            <input id="huongdan-bctt-dot-han-dk" type="datetime-local" class="form-control" value="${escapeHtml(formatDateTimeLocal(selectedHuongDanBcttDot?.batDau || ''))}">
++          </div>
++          <div class="form-group" style="margin-bottom:0">
++            <label>Hß║ín nß╗Öp</label>
++            <input id="huongdan-bctt-dot-han-nop" type="datetime-local" class="form-control" value="${escapeHtml(formatDateTimeLocal(selectedHuongDanBcttDot?.ketThuc || ''))}">
++          </div>
++        </div>
++        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;margin-top:12px;gap:12px">
++          <div style="font-size:13px;color:var(--text3);flex:1;min-width:220px">Hß║ín n├áy ├íp dß╗Ñng cho sinh vi├¬n trong ─æß╗út do giß║úng vi├¬n ─æ├│ h╞░ß╗¢ng dß║½n.</div>
++          <button class="btn btn-primary" onclick="saveHuongDanBcttDeadline()" ${!selectedHuongDanBcttDot ? 'disabled' : ''}>≡ƒÆ╛ L╞░u hß║ín ─æß╗út</button>
++        </div>
++      </div>`;
++
+   html += `<div class="card" style="margin-bottom:16px">
+     <div class="card-header">
+       <div class="card-title">≡ƒƒí BCTT chß╗¥ duyß╗çt</div>
+@@ -3968,6 +4171,38 @@ function renderHuongDan() {
+       ${kltnFilterState.q || kltnFilterState.mangDeTai || kltnFilterState.loaiDeTai ? `<div style="margin-top:12px;color:var(--text3);font-size:13px">─Éang lß╗ìc theo: ${kltnFilterState.q ? `"${escapeHtml(kltnFilterState.q)}"` : ''}${(kltnFilterState.q && kltnFilterState.mangDeTai) ? ' ΓÇó ' : ''}${kltnFilterState.mangDeTai ? `L─⌐nh vß╗▒c: ${escapeHtml(kltnFilterState.mangDeTai)}` : ''}${(kltnFilterState.loaiDeTai && (kltnFilterState.q || kltnFilterState.mangDeTai)) ? ' ΓÇó ' : ''}${kltnFilterState.loaiDeTai ? `Loß║íi ─æß╗ü t├ái: ${escapeHtml(getTopicTypeLabel(kltnFilterState.loaiDeTai))}` : ''}</div>` : ''}
+     </div>`;
+ 
++  const myKltnDotIds = new Set(DB.kltnList.filter((k) => String(k.gvHDEmail || '').toLowerCase() === String(u.email || '').toLowerCase()).map((k) => String(k.dotId)));
++  const managedKltnDots = DB.dotDangKy.filter((dot) => String(dot.loai || '').toUpperCase() === 'KLTN' && myKltnDotIds.has(String(dot.id)));
++  const selectedHuongDanKltnDotId = DB.hdSelectedKltnDotId && managedKltnDots.some((dot) => String(dot.id) === String(DB.hdSelectedKltnDotId))
++    ? String(DB.hdSelectedKltnDotId)
++    : String(managedKltnDots[0]?.id || '');
++  DB.hdSelectedKltnDotId = selectedHuongDanKltnDotId;
++  const selectedHuongDanKltnDot = managedKltnDots.find((dot) => String(dot.id) === selectedHuongDanKltnDotId);
++
++  html += `<div class="card" style="margin-bottom:16px;padding:16px;background:var(--bg-alt);border:1px solid var(--border);">
++      <div class="card-title" style="margin-bottom:12px">ΓÅ▒∩╕Å Chß╗ënh hß║ín nß╗Öp ─æß╗út KLTN</div>
++      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;align-items:flex-end">
++        <div class="form-group" style="margin-bottom:0">
++          <label>─Éß╗út KLTN</label>
++          <select id="huongdan-kltn-dot" class="form-control" onchange="DB.hdSelectedKltnDotId=this.value; renderHuongDan();">
++            ${managedKltnDots.length ? managedKltnDots.map((dot) => `<option value="${escapeHtml(String(dot.id))}"${String(dot.id) === selectedHuongDanKltnDotId ? ' selected' : ''}>${escapeHtml(dot.ten || `─Éß╗út ${dot.id}`)}</option>`).join('') : `<option value="">Kh├┤ng c├│ ─æß╗út KLTN</option>`}
++          </select>
++        </div>
++        <div class="form-group" style="margin-bottom:0">
++          <label>Hß║ín ─æ─âng k├╜</label>
++          <input id="huongdan-kltn-dot-han-dk" type="datetime-local" class="form-control" value="${escapeHtml(formatDateTimeLocal(selectedHuongDanKltnDot?.batDau || ''))}">
++        </div>
++        <div class="form-group" style="margin-bottom:0">
++          <label>Hß║ín nß╗Öp</label>
++          <input id="huongdan-kltn-dot-han-nop" type="datetime-local" class="form-control" value="${escapeHtml(formatDateTimeLocal(selectedHuongDanKltnDot?.ketThuc || ''))}">
++        </div>
++      </div>
++      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;margin-top:12px;gap:12px">
++        <div style="font-size:13px;color:var(--text3);flex:1;min-width:220px">Hß║ín n├áy ├íp dß╗Ñng cho sinh vi├¬n trong ─æß╗út do giß║úng vi├¬n ─æ├│ h╞░ß╗¢ng dß║½n.</div>
++        <button class="btn btn-primary" onclick="saveHuongDanKltnDeadline()" ${!selectedHuongDanKltnDot ? 'disabled' : ''}>≡ƒÆ╛ L╞░u hß║ín ─æß╗út</button>
++      </div>
++    </div>`;
++
+   html += `<div class="card">
+     <div class="card-header">
+       <div class="card-title">≡ƒƒí KLTN chß╗¥ duyß╗çt</div>
