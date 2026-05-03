@@ -47,6 +47,13 @@ const DB = {
   currentPage: 'dashboard',
   nextDetaiTab: null,
   nhapDiemSelectedKLTN: null,
+  nhapDiemFilter: { q: '', topicType: '', mangDeTai: '' },
+  huongDanBCTTFilter: { q: '', mangDeTai: '' },
+  huongDanKLTNFilter: { q: '', mangDeTai: '', loaiDeTai: '' },
+  phanBienFilter: { q: '', mangDeTai: '' },
+  hoiDongFilter: { q: '', mangDeTai: '' },
+  chuTichFilter: { q: '', mangDeTai: '' },
+  thuKyFilter: { q: '', mangDeTai: '' },
 };
 
 const ADMIN_USER_FILTER_STATE = {
@@ -959,7 +966,7 @@ const NAV_CONFIG = {
     { id: 'chutich', label: 'Chủ tịch', icon: '👨‍⚖️' },
     { id: 'thuky', label: 'Thư ký', icon: '📝' },
     { id: 'goiy', label: 'Gợi ý đề tài', icon: '💡' },
-    { id: 'nhapDiem', label: 'Chấm điểm đề tài', icon: '📊' },
+    { id: 'nhapDiem', label: 'Chấm điểm KLTN', icon: '📊' },
     { section: 'Tài khoản' },
     { id: 'profile', label: 'Hồ sơ cá nhân', icon: '👤' },
   ],
@@ -976,7 +983,7 @@ const NAV_CONFIG = {
     { id: 'chutich', label: 'Chủ tịch', icon: '👨‍⚖️' },
     { id: 'thuky', label: 'Thư ký', icon: '📝' },
     { id: 'goiy', label: 'Gợi ý đề tài', icon: '💡' },
-    { id: 'nhapDiem', label: 'Chấm điểm', icon: '📊' },
+    { id: 'nhapDiem', label: 'Chấm điểm KLTN', icon: '📊' },
     { id: 'thongke', label: 'Thống kê', icon: '📈' },
     { section: 'Tài khoản' },
     { id: 'profile', label: 'Hồ sơ cá nhân', icon: '👤' },
@@ -2222,6 +2229,16 @@ function renderBCTT() {
       <div class="info-row"><span class="info-label">Ngày đăng ký:</span><span class="info-value">${b.ngayDangKy}</span></div>
     </div>`;
 
+    if (b.diemBCTT != null || b.nhanXetBCTT) {
+      html += `<div class="card" style="margin-bottom:20px">
+        <div class="card-header"><div><div class="card-title">📌 Kết quả chấm BCTT</div></div></div>
+        <div class="info-row"><span class="info-label">Điểm BCTT:</span><span class="info-value">${b.diemBCTT != null && b.diemBCTT !== '' ? escapeHtml(String(b.diemBCTT)) : '–'}</span></div>
+        <div class="form-group" style="margin-top:12px">
+          <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">Nhận xét BCTT</label>
+          <textarea readonly style="width:100%;min-height:100px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:10px">${escapeHtml(b.nhanXetBCTT || 'Chưa có nhận xét')}</textarea>
+        </div>
+      </div>`;
+    }
     if (b.trangThai === 'gv_xac_nhan' || b.trangThai === 'cho_cham') {
       html += `<div class="card"><div class="card-title" style="margin-bottom:16px">📤 Nộp hồ sơ BCTT</div>
         <div class="grid-2">
@@ -2267,7 +2284,7 @@ function renderBCTT() {
       }
     }
     if (b.trangThai === 'fail') {
-      html += `<div class="card" style="background:#FFEBE6;border:1px solid #FF8F73"><div style="font-size:13px;font-weight:700;color:#BF2600">❌ BCTT chưa đạt (&lt; 4). Vui lòng cập nhật và nộp lại hồ sơ.</div></div>`;
+      html += `<div class="card" style="background:#FFEBE6;border:1px solid #FF8F73"><div style="font-size:13px;font-weight:700;color:#BF2600">❌ BCTT chưa đạt (&lt; 5). Vui lòng cập nhật và nộp lại hồ sơ.</div></div>`;
     }
     if (canReRegisterBCTT) {
       const fieldOptions = getCurrentStudentFields();
@@ -3750,12 +3767,56 @@ function handleSaveScoreCT(dangKyId, kltnId) {
 }
 function renderHuongDan() {
   const u = DB.currentUser;
-  const bcttList = DB.bcttList.filter(b => b.gvEmail === u.email && b.trangThai === 'cho_duyet');
-  const bcttChamList = DB.bcttList.filter(b => b.gvEmail === u.email && b.trangThai === 'cho_cham');
-  const kltnList = DB.kltnList.filter(k => k.gvHDEmail === u.email && k.trangThai === 'cho_duyet');
-  const kltnChamList = DB.kltnList.filter(k => k.gvHDEmail === u.email && ['thuc_hien', 'bao_ve', 'pass', 'fail', 'hoan_thanh'].includes(k.trangThai));
-  const activeTab = DB.nextHuongDanTab === 'tab-kltn-huongdan' ? 'tab-kltn-huongdan' : 'tab-bctt-huongdan';
-  DB.nextHuongDanTab = null;
+  const bcttFilterState = DB.huongDanBCTTFilter || { q: '', mangDeTai: '' };
+  const kltnFilterState = DB.huongDanKLTNFilter || { q: '', mangDeTai: '', loaiDeTai: '' };
+  const activeTab = DB.nextHuongDanTab || 'tab-bctt-huongdan';
+  const searchEl = document.getElementById(activeTab === 'tab-bctt-huongdan' ? 'huongdan-bctt-search' : 'huongdan-kltn-search');
+  const searchHadFocus = searchEl === document.activeElement;
+  const prevSelectionStart = searchHadFocus ? searchEl.selectionStart : null;
+  const prevSelectionEnd = searchHadFocus ? searchEl.selectionEnd : null;
+
+  let bcttList = DB.bcttList.filter(b => b.gvEmail === u.email && b.trangThai === 'cho_duyet');
+  let bcttChamList = DB.bcttList.filter(b => b.gvEmail === u.email && ['gv_xac_nhan', 'cho_cham'].includes(b.trangThai));
+  let kltnList = DB.kltnList.filter(k => k.gvHDEmail === u.email && k.trangThai === 'cho_duyet');
+  let kltnChamList = DB.kltnList.filter(k => k.gvHDEmail === u.email && ['thuc_hien', 'bao_ve', 'pass', 'fail', 'hoan_thanh'].includes(k.trangThai));
+
+  const normalizeHuongDanTopicType = (value) => {
+    const raw = String(value || '').trim().toLowerCase();
+    if (raw === 'ung_dung' || raw.includes('ứng dụng') || raw.includes('ung dung')) return 'ung_dung';
+    if (raw === 'nghien_cuu' || raw.includes('nghiên cứu') || raw.includes('nghien cuu')) return 'nghien_cuu';
+    return '';
+  };
+
+  const matchesFilter = (item, filterState) => {
+    const sv = getUser(item.svEmail);
+    const text = [sv?.name, sv?.mssv, item.svEmail, item.tenDeTai, item.mangDeTai, item.loaiDeTai, item.tenCongTy]
+      .filter(Boolean).join(' ').toLowerCase();
+    const query = String(filterState.q || '').trim().toLowerCase();
+    const fieldValue = String(filterState.mangDeTai || '').trim();
+    const typeValue = String(filterState.loaiDeTai || '').trim();
+    const itemType = normalizeHuongDanTopicType(item.topicType || item.loaiDeTai);
+    const matchesText = !query || text.includes(query);
+    const matchesField = !fieldValue || String(item.mangDeTai || '').trim() === fieldValue;
+    const matchesType = !typeValue || itemType === typeValue;
+    return matchesText && matchesField && matchesType;
+  };
+
+  bcttList = bcttList.filter(item => matchesFilter(item, bcttFilterState));
+  bcttChamList = bcttChamList.filter(item => matchesFilter(item, bcttFilterState));
+  kltnList = kltnList.filter(item => matchesFilter(item, kltnFilterState));
+  kltnChamList = kltnChamList.filter(item => matchesFilter(item, kltnFilterState));
+
+  const bcttFieldOptions = Array.from(new Set([bcttFilterState.mangDeTai, ...bcttList, ...bcttChamList]
+    .map((item) => String(item.mangDeTai || item.loaiDeTai || '').trim())
+    .filter(Boolean))).sort((a, b) => a.localeCompare(b, 'vi'));
+  const kltnFieldOptions = Array.from(new Set([kltnFilterState.mangDeTai, ...kltnList, ...kltnChamList]
+    .map((item) => String(item.mangDeTai || '').trim())
+    .filter(Boolean))).sort((a, b) => a.localeCompare(b, 'vi'));
+  const kltnTypeOptions = [
+    { value: '', label: 'Tất cả loại đề tài' },
+    { value: 'ung_dung', label: 'Đề tài ứng dụng' },
+    { value: 'nghien_cuu', label: 'Đề tài nghiên cứu' },
+  ];
 
   const el = document.getElementById('page-huongdan');
   let html = `<div class="page-header"><h1>✅ Hướng dẫn</h1><p>Duyệt BCTT và KLTN theo quy trình</p></div>
@@ -3763,7 +3824,23 @@ function renderHuongDan() {
       <button class="tab-btn ${activeTab === 'tab-bctt-huongdan' ? 'active' : ''}" onclick="switchTab(event,'tab-bctt-huongdan')">📝 BCTT (${bcttList.length + bcttChamList.length})</button>
       <button class="tab-btn ${activeTab === 'tab-kltn-huongdan' ? 'active' : ''}" onclick="switchTab(event,'tab-kltn-huongdan')">🎓 KLTN (${kltnList.length + kltnChamList.length})</button>
     </div>
-    <div id="tab-bctt-huongdan" class="tab-content ${activeTab === 'tab-bctt-huongdan' ? 'active' : ''}">`;
+    <div id="tab-bctt-huongdan" class="tab-content ${activeTab === 'tab-bctt-huongdan' ? 'active' : ''}">
+      <div class="card" style="margin-bottom:16px;padding:16px">
+        <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:12px;align-items:flex-end">
+          <div class="form-group" style="margin-bottom:0">
+            <label>Tìm kiếm</label>
+            <input id="huongdan-bctt-search" type="text" class="form-control" placeholder="Tìm SV, MSSV, đề tài..." value="${escapeHtml(bcttFilterState.q || '')}" oninput="DB.huongDanBCTTFilter.q=this.value; renderHuongDan();" />
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label>Lĩnh vực / Loại</label>
+            <select id="huongdan-bctt-field" class="form-control" onchange="DB.huongDanBCTTFilter.mangDeTai=this.value; renderHuongDan();">
+              <option value="">Tất cả</option>
+              ${bcttFieldOptions.map((opt) => `<option value="${escapeHtml(opt)}"${opt === bcttFilterState.mangDeTai ? ' selected' : ''}>${escapeHtml(opt)}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        ${bcttFilterState.q || bcttFilterState.mangDeTai ? `<div style="margin-top:12px;color:var(--text3);font-size:13px">Đang lọc theo: ${bcttFilterState.q ? `"${escapeHtml(bcttFilterState.q)}"` : ''}${bcttFilterState.q && bcttFilterState.mangDeTai ? ' • ' : ''}${bcttFilterState.mangDeTai ? `Lĩnh vực: ${escapeHtml(bcttFilterState.mangDeTai)}` : ''}</div>` : ''}
+      </div>`;
 
   html += `<div class="card" style="margin-bottom:16px">
     <div class="card-header">
@@ -3776,17 +3853,29 @@ function renderHuongDan() {
     html += `<div class="form-group" style="margin-bottom:12px"><label><input type="checkbox" id="select-all-bctt-huongdan" onchange="toggleSelectAllHuongDan('bctt')"> Chọn tất cả</label></div>`;
     bcttList.forEach(b => {
       const sv = getUser(b.svEmail);
-      html += `<div class="card" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap">
-      <div style="flex:1;min-width:160px">
-        <label style="display:flex;align-items:flex-start;gap:8px">
-          <input type="checkbox" class="select-bctt-huongdan" value="${b.dangKyId || extractId(b.id)}">
-          <div>
-            <div style="font-weight:700;cursor:pointer;color:var(--primary)" onclick="viewBCTTDetail('${b.id}')">${escapeHtml(b.tenDeTai)}</div>
-            <div style="font-size:12px;color:var(--text3);margin-top:4px">${escapeHtml(sv?.name || b.svEmail)} • ${escapeHtml(b.tenCongTy || '')}</div>
+      html += `<div class="card" style="margin-bottom:10px">
+        <div class="card-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                <input type="checkbox" class="select-bctt-huongdan" value="${b.dangKyId || extractId(b.id)}">
+                <span style="font-weight:700;cursor:pointer;color:var(--primary)" onclick="viewBCTTDetail('${b.id}')">${escapeHtml(b.tenDeTai)}</span>
+              </label>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(3,minmax(130px,1fr));gap:10px;margin-top:10px;font-size:12px;color:var(--text3)">
+              <span><strong>MSSV:</strong> ${escapeHtml(sv?.mssv || 'Chưa có')}</span>
+              <span><strong>Lĩnh vực:</strong> ${escapeHtml(b.mangDeTai || b.loaiDeTai || 'Chưa có')}</span>
+              <span><strong>Công ty:</strong> ${escapeHtml(b.tenCongTy || 'Chưa có')}</span>
+            </div>
+            <div style="font-size:12px;color:var(--text2);margin-top:10px">${escapeHtml(sv?.name || b.svEmail)}</div>
           </div>
-        </label>
-      </div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-ghost btn-sm" onclick="viewBCTTDetail('${b.id}')">👁 Chi tiết</button><button class="btn btn-success btn-sm" onclick="duyetBCTT('${b.id}',true)">Đồng ý</button> <button class="btn btn-danger btn-sm" onclick="duyetBCTT('${b.id}',false)">Không đồng ý</button></div></div></div>`;
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <button class="btn btn-ghost btn-sm" onclick="viewBCTTDetail('${b.id}')">👁 Chi tiết</button>
+            <button class="btn btn-success btn-sm" onclick="duyetBCTT('${b.id}',true)">Đồng ý</button>
+            <button class="btn btn-danger btn-sm" onclick="duyetBCTT('${b.id}',false)">Không đồng ý</button>
+          </div>
+        </div>
+      </div>`;
     });
     html += `<div class="action-row" style="margin-top:16px">
       <button class="btn btn-success" onclick="duyetSelectedBCTTHuongDan(true)">✓ Duyệt các đề tài đã chọn</button>
@@ -3798,44 +3887,51 @@ function renderHuongDan() {
 
   html += `<div class="card">
     <div class="card-header">
-      <div class="card-title">🧑‍🏫 BCTT chờ chấm</div>
+      <div class="card-title">🧑‍🏫 BCTT chờ nộp / chấm</div>
       <div style="font-size:12px;color:var(--text3)">${bcttChamList.length} hồ sơ</div>
     </div>`;
   if (!bcttChamList.length) {
-    html += `<div class="empty-state"><div class="empty-state-icon">📝</div><div class="empty-state-title">Chưa có hồ sơ BCTT nào chờ chấm</div></div>`;
+    html += `<div class="empty-state"><div class="empty-state-icon">📝</div><div class="empty-state-title">Chưa có hồ sơ BCTT nào chờ xử lý</div></div>`;
   } else {
     bcttChamList.forEach(b => {
       const sv = getUser(b.svEmail);
+      const isReadyToGrade = b.trangThai === 'cho_cham';
       html += `<div class="card" style="margin-bottom:12px">
-        <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap">
-          <div style="flex:1;min-width:220px">
-            <div style="font-weight:700;cursor:pointer;color:var(--primary)" onclick="viewBCTTDetail('${b.id}')">${escapeHtml(b.tenDeTai)}</div>
-            <div style="font-size:12px;color:var(--text3);margin-top:4px">${escapeHtml(sv?.name || b.svEmail)} • ${escapeHtml(b.mangDeTai || '')}</div>
-            <div style="font-size:12px;color:var(--text3);margin-top:4px">${escapeHtml(b.tenCongTy || '')}</div>
+        <div class="card-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+          <div style="flex:1;min-width:0">
+            <div class="card-title" style="cursor:pointer;color:var(--primary)" onclick="viewBCTTDetail('${b.id}')">${escapeHtml(b.tenDeTai)}</div>
+            <div style="display:grid;grid-template-columns:repeat(3,minmax(130px,1fr));gap:10px;margin-top:10px;font-size:12px;color:var(--text3)">
+              <span><strong>MSSV:</strong> ${escapeHtml(sv?.mssv || 'Chưa có')}</span>
+              <span><strong>Lĩnh vực:</strong> ${escapeHtml(b.mangDeTai || b.loaiDeTai || 'Chưa có')}</span>
+              <span><strong>Công ty:</strong> ${escapeHtml(b.tenCongTy || 'Chưa có')}</span>
+            </div>
+            <div style="font-size:12px;color:var(--text2);margin-top:10px">${escapeHtml(sv?.name || b.svEmail)} • ${statusBadge(b.trangThai)}</div>
             <div style="font-size:12px;color:var(--text2);margin-top:8px">
               Báo cáo PDF:
-              ${b.fileBC ? `<a href="${uploadFileHref(b.fileBC)}" target="_blank" rel="noopener">Mở file</a>` : "Chưa có"}
+              ${b.fileBC ? `<a href="${uploadFileHref(b.fileBC)}" target="_blank" rel="noopener">Mở file</a>` : "<span style='color:var(--text3)'>Chưa có</span>"}
               &nbsp;•&nbsp;
               Báo cáo Word:
-              ${b.fileBCWord ? `<a href="${uploadFileHref(b.fileBCWord)}" target="_blank" rel="noopener">Mở file</a>` : "Chưa có"}
+              ${b.fileBCWord ? `<a href="${uploadFileHref(b.fileBCWord)}" target="_blank" rel="noopener">Mở file</a>` : "<span style='color:var(--text3)'>Chưa có</span>"}
               &nbsp;•&nbsp;
               Xác nhận:
-              ${b.fileXacNhan ? `<a href="${uploadFileHref(b.fileXacNhan)}" target="_blank" rel="noopener">Mở file</a>` : "Chưa có"}
+              ${b.fileXacNhan ? `<a href="${uploadFileHref(b.fileXacNhan)}" target="_blank" rel="noopener">Mở file</a>` : "<span style='color:var(--text3)'>Chưa có</span>"}
             </div>
           </div>
           <div style="width:320px;max-width:100%">
-            <div class="form-group">
-              <label>Điểm BCTT</label>
-              <input type="number" id="bctt-diem-${b.id}" min="0" max="10" step="0.1" value="${b.diemBCTT ?? ''}" placeholder="Nhập điểm từ 0 đến 10">
-            </div>
-            <div class="form-group">
-              <label>Nhận xét</label>
-              <textarea id="bctt-nhanxet-${b.id}" placeholder="Nhập nhận xét cho sinh viên" style="min-height:88px">${escapeHtml(b.nhanXetBCTT || '')}</textarea>
-            </div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
-              <button class="btn btn-ghost btn-sm" onclick="viewBCTTDetail('${b.id}')">👁 Chi tiết</button>
-              <button class="btn btn-primary btn-sm" onclick="chamBCTT('${b.id}')">💾 Lưu điểm BCTT</button>
-            </div>
+            ${isReadyToGrade ? `<div>
+              <div class="form-group">
+                <label>Điểm BCTT</label>
+                <input type="number" id="bctt-diem-${b.id}" min="0" max="10" step="0.1" value="${b.diemBCTT ?? ''}" placeholder="Nhập điểm từ 0 đến 10">
+              </div>
+              <div class="form-group">
+                <label>Nhận xét</label>
+                <textarea id="bctt-nhanxet-${b.id}" placeholder="Nhập nhận xét cho sinh viên" style="min-height:88px">${escapeHtml(b.nhanXetBCTT || '')}</textarea>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                <button class="btn btn-ghost btn-sm" onclick="viewBCTTDetail('${b.id}')">👁 Chi tiết</button>
+                <button class="btn btn-primary btn-sm" onclick="chamBCTT('${b.id}')">💾 Lưu điểm BCTT</button>
+              </div>
+            </div>` : `<div class="card" style="background:#FFF7D6;border:1px solid var(--accent3)"><div style="font-size:13px;font-weight:600;color:#974F0C">SV đang hoàn thiện hồ sơ, chờ nộp để GV chấm.</div></div>`}
           </div>
         </div>
       </div>`;
@@ -3843,7 +3939,29 @@ function renderHuongDan() {
   }
 
   html += `</div>`;
-  html += `</div><div id="tab-kltn-huongdan" class="tab-content ${activeTab === 'tab-kltn-huongdan' ? 'active' : ''}">`;
+  html += `</div><div id="tab-kltn-huongdan" class="tab-content ${activeTab === 'tab-kltn-huongdan' ? 'active' : ''}">
+    <div class="card" style="margin-bottom:16px;padding:16px">
+      <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:12px;align-items:flex-end">
+        <div class="form-group" style="margin-bottom:0">
+          <label>Tìm kiếm</label>
+          <input id="huongdan-kltn-search" type="text" class="form-control" placeholder="Tìm SV, MSSV, đề tài..." value="${escapeHtml(kltnFilterState.q || '')}" oninput="DB.huongDanKLTNFilter.q=this.value; renderHuongDan();" />
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>Lĩnh vực</label>
+          <select id="huongdan-kltn-field" class="form-control" onchange="DB.huongDanKLTNFilter.mangDeTai=this.value; renderHuongDan();">
+            <option value="">Tất cả lĩnh vực</option>
+            ${kltnFieldOptions.map((opt) => `<option value="${escapeHtml(opt)}"${opt === kltnFilterState.mangDeTai ? ' selected' : ''}>${escapeHtml(opt)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>Loại đề tài</label>
+          <select id="huongdan-kltn-type" class="form-control" onchange="DB.huongDanKLTNFilter.loaiDeTai=this.value; renderHuongDan();">
+            ${kltnTypeOptions.map((opt) => `<option value="${escapeHtml(opt.value)}"${opt.value === kltnFilterState.loaiDeTai ? ' selected' : ''}>${escapeHtml(opt.label)}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      ${kltnFilterState.q || kltnFilterState.mangDeTai || kltnFilterState.loaiDeTai ? `<div style="margin-top:12px;color:var(--text3);font-size:13px">Đang lọc theo: ${kltnFilterState.q ? `"${escapeHtml(kltnFilterState.q)}"` : ''}${(kltnFilterState.q && kltnFilterState.mangDeTai) ? ' • ' : ''}${kltnFilterState.mangDeTai ? `Lĩnh vực: ${escapeHtml(kltnFilterState.mangDeTai)}` : ''}${(kltnFilterState.loaiDeTai && (kltnFilterState.q || kltnFilterState.mangDeTai)) ? ' • ' : ''}${kltnFilterState.loaiDeTai ? `Loại đề tài: ${escapeHtml(getTopicTypeLabel(kltnFilterState.loaiDeTai))}` : ''}</div>` : ''}
+    </div>`;
 
   html += `<div class="card">
     <div class="card-header">
@@ -3856,17 +3974,23 @@ function renderHuongDan() {
     html += `<div class="form-group" style="margin-bottom:12px"><label><input type="checkbox" id="select-all-kltn-huongdan" onchange="toggleSelectAllHuongDan('kltn')"> Chọn tất cả</label></div>`;
     kltnList.forEach(k => {
       const sv = getUser(k.svEmail);
-      html += `<div class="card" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap">
-      <div style="flex:1;min-width:160px">
-        <label style="display:flex;align-items:flex-start;gap:8px">
-          <input type="checkbox" class="select-kltn-huongdan" value="${k.dangKyId || extractId(k.id)}">
-          <div>
-            <div style="font-weight:700;cursor:pointer;color:var(--primary)" onclick="viewKLTNDetail('${k.id}')">${escapeHtml(k.tenDeTai)}</div>
-            <div style="font-size:12px;color:var(--text3);margin-top:4px">${escapeHtml(sv?.name || k.svEmail)} • ${escapeHtml(k.loaiDeTai || '')}</div>
+      html += `<div class="card" style="margin-bottom:10px">
+        <div class="card-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+          <div style="flex:1;min-width:0">
+            <div class="card-title" style="cursor:pointer;color:var(--primary)" onclick="viewKLTNDetail('${k.id}')">${escapeHtml(k.tenDeTai)}</div>
+            <div style="display:grid;grid-template-columns:repeat(3,minmax(130px,1fr));gap:10px;margin-top:10px;font-size:12px;color:var(--text3)">
+              <span><strong>MSSV:</strong> ${escapeHtml(sv?.mssv || 'Chưa có')}</span>
+              <span><strong>Lĩnh vực:</strong> ${escapeHtml(k.mangDeTai || 'Chưa có')}</span>
+              <span><strong>Loại đề tài:</strong> ${escapeHtml(getTopicTypeLabel(k.topicType))}</span>
+            </div>
+            <div style="font-size:12px;color:var(--text2);margin-top:10px">${escapeHtml(sv?.name || k.svEmail)} • Vai trò chấm: ${escapeHtml(roles.join(', ') || 'Được phân công')}</div>
           </div>
-        </label>
-      </div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-ghost btn-sm" onclick="viewKLTNDetail('${k.id}')">👁 Chi tiết</button><button class="btn btn-success btn-sm" onclick="duyetKLTN('${k.id}',true)">Đồng ý</button> <button class="btn btn-danger btn-sm" onclick="duyetKLTN('${k.id}',false)">Không đồng ý</button></div></div></div>`;
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button class="btn btn-ghost btn-sm" onclick="viewKLTNDetail('${k.id}')">👁 Chi tiết</button>
+            ${statusBadge(k.trangThai)}
+          </div>
+        </div>
+      </div>`;
     });
     html += `<div class="action-row" style="margin-top:16px">
       <button class="btn btn-success" onclick="duyetSelectedKLTNHuongDan(true)">✓ Duyệt các đề tài đã chọn</button>
@@ -3887,11 +4011,15 @@ function renderHuongDan() {
     kltnChamList.forEach(k => {
       const sv = getUser(k.svEmail);
       html += `<div class="card" style="margin-bottom:12px">
-        <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap">
-          <div style="flex:1">
-            <div style="font-weight:700;cursor:pointer;color:var(--primary)" onclick="viewKLTNDetail('${k.id}')">${escapeHtml(k.tenDeTai)}</div>
-            <div style="font-size:12px;color:var(--text3);margin-top:4px">${escapeHtml(sv?.name || k.svEmail)} • ${escapeHtml(k.loaiDeTai || '')}</div>
-            <div style="font-size:12px;color:var(--text3);margin-top:4px">${statusBadge(k.trangThai)}</div>
+        <div class="card-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+          <div style="flex:1;min-width:0">
+            <div class="card-title" style="cursor:pointer;color:var(--primary)" onclick="viewKLTNDetail('${k.id}')">${escapeHtml(k.tenDeTai)}</div>
+            <div style="display:grid;grid-template-columns:repeat(3,minmax(130px,1fr));gap:10px;margin-top:10px;font-size:12px;color:var(--text3)">
+              <span><strong>MSSV:</strong> ${escapeHtml(sv?.mssv || 'Chưa có')}</span>
+              <span><strong>Lĩnh vực:</strong> ${escapeHtml(k.mangDeTai || 'Chưa có')}</span>
+              <span><strong>Loại đề tài:</strong> ${escapeHtml(getTopicTypeLabel(k.topicType))}</span>
+            </div>
+            <div style="font-size:12px;color:var(--text2);margin-top:10px">${escapeHtml(sv?.name || k.svEmail)} • ${statusBadge(k.trangThai)}</div>
             <div style="font-size:12px;color:var(--text2);margin-top:8px">
               Bài nộp: 
               ${k.fileBai ? `<a href="${uploadFileHref(k.fileBai)}" target="_blank" rel="noopener">📕 PDF</a>` : "<span style='color:var(--text3)'>📕 Chưa có</span>"}
@@ -3902,8 +4030,9 @@ function renderHuongDan() {
               Điểm: ${k.diemHD != null ? `<strong style="color:var(--accent)">${k.diemHD}/10</strong>` : '<span style="color:var(--text3)">Chưa chấm</span>'}
             </div>
           </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn btn-ghost btn-sm" onclick="openKLTNInNhapDiem('${k.id}')">👁 Chấm điểm</button>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <button class="btn btn-ghost btn-sm" onclick="viewKLTNDetail('${k.id}')">👁 Chi tiết</button>
+            <button class="btn btn-ghost btn-sm" onclick="openKLTNInNhapDiem('${k.id}')">✍️ Chấm điểm</button>
             <button class="btn btn-primary btn-sm" onclick="exportKLTNScoreDocx('${k.id}','HD')">📄 Xuất phiếu</button>
           </div>
         </div>
@@ -3914,14 +4043,75 @@ function renderHuongDan() {
   html += `</div>`;
   html += `</div>`;
   el.innerHTML = html;
+
+  if (searchHadFocus) {
+    const newSearchEl = document.getElementById(searchEl.id);
+    if (newSearchEl) {
+      setTimeout(() => {
+        newSearchEl.focus({ preventScroll: true });
+        if (prevSelectionStart !== null && prevSelectionEnd !== null) {
+          newSearchEl.setSelectionRange(prevSelectionStart, prevSelectionEnd);
+        }
+      }, 0);
+    }
+  }
 }
 
 function renderNhapDiem() {
   const u = DB.currentUser;
   const el = document.getElementById('page-nhapDiem');
   const selectedKLTNId = DB.nhapDiemSelectedKLTN;
+  const searchEl = document.getElementById('nhapDiem-search');
+  const searchHadFocus = searchEl === document.activeElement;
+  const prevSelectionStart = searchHadFocus ? searchEl.selectionStart : null;
+  const prevSelectionEnd = searchHadFocus ? searchEl.selectionEnd : null;
   const list = gvKLTNListForNhapDiem(u);
-  let html = `<div class="page-header"><h1>📊 Chấm điểm đề tài</h1><p>Danh sách KLTN bạn đang được phân công chấm điểm</p></div>`;
+  const filterState = DB.nhapDiemFilter || { q: '', topicType: '', mangDeTai: '' };
+  const fieldOptions = Array.from(new Set(list.map((k) => String(k.mangDeTai || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'vi'));
+  const topicTypeOptions = [
+    { value: '', label: 'Tất cả loại đề tài' },
+    { value: 'ung_dung', label: 'Đề tài ứng dụng' },
+    { value: 'nghien_cuu', label: 'Đề tài nghiên cứu' },
+  ];
+  const query = String(filterState.q || '').trim().toLowerCase();
+
+  const filteredList = list.filter((k) => {
+    const sv = getUser(k.svEmail);
+    const studentName = String(sv?.name || '').toLowerCase();
+    const studentId = String(sv?.mssv || sv?.ma || '').toLowerCase();
+    const topicText = String(k.tenDeTai || '').toLowerCase();
+    const matchesSearch = !query || [studentName, studentId, topicText].some((value) => value.includes(query));
+    const matchesType = !filterState.topicType || String(k.topicType) === filterState.topicType;
+    const matchesField = !filterState.mangDeTai || String(k.mangDeTai || '') === filterState.mangDeTai;
+    return matchesSearch && matchesType && matchesField;
+  });
+
+  let html = `<div class="page-header"><h1>📊 Chấm điểm KLTN</h1><p>Danh sách KLTN bạn đang được phân công chấm điểm</p></div>
+    <div class="card" style="margin-bottom:16px">
+      <div style="display:grid;grid-template-columns:1.7fr 1fr 1fr;gap:12px;align-items:end;margin-bottom:0">
+        <div class="form-group" style="margin-bottom:0">
+          <label>Tìm kiếm</label>
+          <input id="nhapDiem-search" type="text" class="form-control" placeholder="Tìm SV, MSSV, đề tài..." value="${escapeHtml(filterState.q || '')}" oninput="DB.nhapDiemFilter.q=this.value; renderNhapDiem();" />
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>Loại đề tài</label>
+          <select id="nhapDiem-topicType" class="form-control" onchange="DB.nhapDiemFilter.topicType=this.value; renderNhapDiem();">
+            ${topicTypeOptions.map((opt) => `<option value="${opt.value}"${opt.value === filterState.topicType ? ' selected' : ''}>${escapeHtml(opt.label)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>Lĩnh vực</label>
+          <select id="nhapDiem-field" class="form-control" onchange="DB.nhapDiemFilter.mangDeTai=this.value; renderNhapDiem();">
+            <option value="">Tất cả lĩnh vực</option>
+            ${fieldOptions.map((field) => `<option value="${escapeHtml(field)}"${field === filterState.mangDeTai ? ' selected' : ''}>${escapeHtml(field)}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      ${(filterState.q || filterState.topicType || filterState.mangDeTai) ? `<div style="margin-top:12px;font-size:13px;color:var(--text3);display:flex;gap:8px;align-items:center">
+          <span>${filteredList.length} đề tài phù hợp</span>
+          <button class="btn btn-ghost btn-sm" onclick="clearNhapDiemFilters()">✕ Xóa bộ lọc</button>
+        </div>` : ''}
+    </div>`;
 
   if (!list.length) {
     el.innerHTML = `${html}<div class="card"><div class="empty-state"><div class="empty-state-icon">📊</div><div class="empty-state-title">Hiện chưa có đề tài nào cần bạn chấm điểm</div></div></div>`;
@@ -3929,33 +4119,41 @@ function renderNhapDiem() {
     return;
   }
 
-  list.sort((a, b) => String(a.tenDeTai || '').localeCompare(String(b.tenDeTai || ''), 'vi'));
-  list.forEach((k) => {
+  if (!filteredList.length) {
+    el.innerHTML = `${html}<div class="card"><div class="empty-state"><div class="empty-state-icon">🔍</div><div class="empty-state-title">Không tìm thấy đề tài nào phù hợp với bộ lọc</div><div style="margin-top:8px;color:var(--text3)">Thử xóa bộ lọc hoặc thay đổi từ khóa tìm kiếm.</div></div></div>`;
+    return;
+  }
+
+  filteredList.sort((a, b) => String(a.tenDeTai || '').localeCompare(String(b.tenDeTai || ''), 'vi'));
+  filteredList.forEach((k) => {
     const sv = getUser(k.svEmail);
     const assignment = getKLTNAssignment(u, k);
     const roles = [];
     if (assignment.isAdvisor) roles.push('Hướng dẫn');
     if (assignment.isReviewer) roles.push('Phản biện');
-    if (assignment.isChair) roles.push('Chủ tịch');
+    if (!assignment.isAdvisor && assignment.isChair) roles.push('Chủ tịch');
     if (assignment.isSecretary) roles.push('Thư ký');
     if (assignment.isCommitteeMember) roles.push('Thành viên HĐ');
     const isHD = Boolean(assignment.isAdvisor);
     const isPB = Boolean(assignment.isReviewer);
-    const isCT = Boolean(assignment.isChair);
     const isTK = Boolean(assignment.isSecretary);
     const isTVMember = Boolean(assignment.isCommitteeMember);
 
     html += `<div class="card" id="kltn-card-${k.id}" style="margin-bottom:12px">
-      <div class="card-header">
-        <div>
+      <div class="card-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+        <div style="flex:1;min-width:0">
           <div class="card-title" style="cursor:pointer;color:var(--primary)" onclick="viewKLTNDetail('${k.id}')">${escapeHtml(k.tenDeTai)}</div>
-          <div style="font-size:12px;color:var(--text3);margin-top:4px">${escapeHtml(sv?.name || k.svEmail)} • ${escapeHtml(getTopicTypeLabel(k.topicType))}</div>
-          <div style="font-size:12px;color:var(--text2);margin-top:6px">Vai trò chấm: ${escapeHtml(roles.join(', ') || 'Được phân công')}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:8px;font-size:12px;color:var(--text3)">
+            <span style="display:inline-flex;align-items:center;gap:6px"><strong>MSSV:</strong> ${escapeHtml(sv?.mssv || 'Chưa có')}</span>
+            <span style="display:inline-flex;align-items:center;gap:6px"><strong>Lĩnh vực:</strong> ${escapeHtml(k.mangDeTai || 'Chưa có')}</span>
+            <span style="display:inline-flex;align-items:center;gap:6px"><strong>Loại đề tài:</strong> ${escapeHtml(getTopicTypeLabel(k.topicType))}</span>
+          </div>
+          <div style="font-size:12px;color:var(--text2);margin-top:8px">${escapeHtml(sv?.name || k.svEmail)} • Vai trò chấm: ${escapeHtml(roles.join(', ') || 'Được phân công')}</div>
         </div>
-        ${statusBadge(k.trangThai)}
-      </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
-        <button class="btn btn-ghost btn-sm" onclick="viewKLTNDetail('${k.id}')">👁 Chi tiết</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <button class="btn btn-ghost btn-sm" onclick="viewKLTNDetail('${k.id}')">👁 Chi tiết</button>
+          ${statusBadge(k.trangThai)}
+        </div>
       </div>`;
 
     if (isHD) {
@@ -3976,10 +4174,6 @@ function renderNhapDiem() {
         'Vai trò phản biện cần nhập đủ nhận xét và câu hỏi để đưa vào biên bản.',
         { existingScore: k.diemPB, noteValue: k.pbNote || '', questionValue: k.pbCauHoi || '', showQuestion: true }
       );
-    }
-
-    if (isCT) {
-      html += `<div style="font-size:13px;color:var(--text3);margin-top:12px">👨‍⚖️ Bạn đang là Chủ tịch hội đồng. Ở tab này, bạn chỉ xác nhận đồng ý hoặc không đồng ý buổi báo cáo/bảo vệ sau khi hội đồng đã chấm; đây không phải bước duyệt bài chỉnh sửa của sinh viên.</div>`;
     }
 
     if (isTK) {
@@ -4009,13 +4203,29 @@ function renderNhapDiem() {
     }
     DB.nhapDiemSelectedKLTN = null;
   }
-  list.forEach((k) => {
+  if (searchHadFocus) {
+    const newSearchEl = document.getElementById('nhapDiem-search');
+    if (newSearchEl) {
+      setTimeout(() => {
+        newSearchEl.focus({ preventScroll: true });
+        if (prevSelectionStart !== null && prevSelectionEnd !== null) {
+          newSearchEl.setSelectionRange(prevSelectionStart, prevSelectionEnd);
+        }
+      }, 0);
+    }
+  }
+  filteredList.forEach((k) => {
     ['HD', 'PB', 'TV'].forEach((vaiTro) => {
       if (document.getElementById(totalInputId(k.id, vaiTro))) {
         recalcKLTNRoleTotal(k.id, vaiTro);
       }
     });
   });
+}
+
+function clearNhapDiemFilters() {
+  DB.nhapDiemFilter = { q: '', topicType: '', mangDeTai: '' };
+  renderNhapDiem();
 }
 
 function renderUsers() {
@@ -4803,11 +5013,55 @@ async function exportSecretaryBienBan(recordId, saveToServer = false) {
 
 function renderPhanBien() {
   const el = document.getElementById('page-phanbien');
-  const list = getKLTNRoleRecords((assignment) => assignment.isReviewer);
+  const filterState = DB.phanBienFilter || { q: '', mangDeTai: '' };
+  const searchEl = document.getElementById('phanbien-search');
+  const searchHadFocus = searchEl === document.activeElement;
+  const prevSelectionStart = searchHadFocus ? searchEl.selectionStart : null;
+  const prevSelectionEnd = searchHadFocus ? searchEl.selectionEnd : null;
+
+  let list = getKLTNRoleRecords((assignment) => assignment.isReviewer);
+  const query = String(filterState.q || '').trim().toLowerCase();
+  const fieldValue = String(filterState.mangDeTai || '').trim();
+  const matchesFilter = (item) => {
+    const sv = getUser(item.svEmail);
+    const text = [sv?.name, sv?.mssv, item.svEmail, item.tenDeTai, item.mangDeTai, item.loaiDeTai]
+      .filter(Boolean).join(' ').toLowerCase();
+    return (!query || text.includes(query)) && (!fieldValue || String(item.mangDeTai || item.loaiDeTai || '').trim() === fieldValue);
+  };
+  const fieldOptions = Array.from(new Set([fieldValue, ...list.map((item) => String(item.mangDeTai || item.loaiDeTai || '').trim()).filter(Boolean)])).sort((a, b) => a.localeCompare(b, 'vi'));
+  list = list.filter(matchesFilter);
+
   let html = renderKLTNRoleHeader('🧾 Phản biện', 'được phân công phản biện', list.length);
+  html += `<div class="card" style="margin-bottom:16px;padding:16px">
+    <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:12px;align-items:flex-end">
+      <div class="form-group" style="margin-bottom:0">
+        <label>Tìm kiếm</label>
+        <input id="phanbien-search" type="text" class="form-control" placeholder="Tìm SV, MSSV, đề tài..." value="${escapeHtml(filterState.q || '')}" oninput="DB.phanBienFilter.q=this.value; renderPhanBien();" />
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label>Lĩnh vực / Loại</label>
+        <select id="phanbien-field" class="form-control" onchange="DB.phanBienFilter.mangDeTai=this.value; renderPhanBien();">
+          <option value="">Tất cả</option>
+          ${fieldOptions.map((opt) => `<option value="${escapeHtml(opt)}"${opt === fieldValue ? ' selected' : ''}>${escapeHtml(opt)}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+  </div>
+  ${filterState.q || fieldValue ? `<div style="margin-bottom:16px;color:var(--text3);font-size:13px">Đang lọc theo: ${filterState.q ? `“${escapeHtml(filterState.q)}”` : ''}${filterState.q && fieldValue ? ' • ' : ''}${fieldValue ? `Lĩnh vực: ${escapeHtml(fieldValue)}` : ''}</div>` : ''}`;
 
   if (!list.length) {
     el.innerHTML = `${html}<div class="card"><div class="empty-state"><div class="empty-state-icon">🧾</div><div class="empty-state-title">Bạn chưa được phân công phản biện KLTN nào</div></div></div>`;
+    if (searchHadFocus) {
+      const newSearchEl = document.getElementById('phanbien-search');
+      if (newSearchEl) {
+        setTimeout(() => {
+          newSearchEl.focus({ preventScroll: true });
+          if (prevSelectionStart !== null && prevSelectionEnd !== null) {
+            newSearchEl.setSelectionRange(prevSelectionStart, prevSelectionEnd);
+          }
+        }, 0);
+      }
+    }
     return;
   }
 
@@ -4831,17 +5085,72 @@ function renderPhanBien() {
 
   el.innerHTML = html;
   list.forEach((k) => recalcKLTNRoleTotal(k.id, 'PB'));
+  if (searchHadFocus) {
+    const newSearchEl = document.getElementById('phanbien-search');
+    if (newSearchEl) {
+      setTimeout(() => {
+        newSearchEl.focus({ preventScroll: true });
+        if (prevSelectionStart !== null && prevSelectionEnd !== null) {
+          newSearchEl.setSelectionRange(prevSelectionStart, prevSelectionEnd);
+        }
+      }, 0);
+    }
+  }
 }
 
 function renderHoiDong() {
   const el = document.getElementById('page-hoidong');
-  const list = DB.kltnList
+  const filterState = DB.hoiDongFilter || { q: '', mangDeTai: '' };
+  const searchEl = document.getElementById('hoidong-search');
+  const searchHadFocus = searchEl === document.activeElement;
+  const prevSelectionStart = searchHadFocus ? searchEl.selectionStart : null;
+  const prevSelectionEnd = searchHadFocus ? searchEl.selectionEnd : null;
+
+  let list = DB.kltnList
     .filter((k) => Boolean(k.myAssignment?.isCommitteeMember) || isUserCommitteeMemberOnRecord(DB.currentUser, k))
     .sort((a, b) => Number(b.dangKyId || 0) - Number(a.dangKyId || 0));
+  const query = String(filterState.q || '').trim().toLowerCase();
+  const fieldValue = String(filterState.mangDeTai || '').trim();
+  const matchesFilter = (item) => {
+    const sv = getUser(item.svEmail);
+    const text = [sv?.name, sv?.mssv, item.svEmail, item.tenDeTai, item.mangDeTai, item.loaiDeTai]
+      .filter(Boolean).join(' ').toLowerCase();
+    return (!query || text.includes(query)) && (!fieldValue || String(item.mangDeTai || item.loaiDeTai || '').trim() === fieldValue);
+  };
+  const fieldOptions = Array.from(new Set([fieldValue, ...list.map((item) => String(item.mangDeTai || item.loaiDeTai || '').trim()).filter(Boolean)])).sort((a, b) => a.localeCompare(b, 'vi'));
+  list = list.filter(matchesFilter);
+
   let html = renderKLTNRoleHeader('🏛️ Hội đồng', 'thuộc hội đồng bạn tham gia', list.length);
+  html += `<div class="card" style="margin-bottom:16px;padding:16px">
+    <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:12px;align-items:flex-end">
+      <div class="form-group" style="margin-bottom:0">
+        <label>Tìm kiếm</label>
+        <input id="hoidong-search" type="text" class="form-control" placeholder="Tìm SV, MSSV, đề tài..." value="${escapeHtml(filterState.q || '')}" oninput="DB.hoiDongFilter.q=this.value; renderHoiDong();" />
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label>Lĩnh vực / Loại</label>
+        <select id="hoidong-field" class="form-control" onchange="DB.hoiDongFilter.mangDeTai=this.value; renderHoiDong();">
+          <option value="">Tất cả</option>
+          ${fieldOptions.map((opt) => `<option value="${escapeHtml(opt)}"${opt === fieldValue ? ' selected' : ''}>${escapeHtml(opt)}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+  </div>
+  ${filterState.q || fieldValue ? `<div style="margin-bottom:16px;color:var(--text3);font-size:13px">Đang lọc theo: ${filterState.q ? `“${escapeHtml(filterState.q)}”` : ''}${filterState.q && fieldValue ? ' • ' : ''}${fieldValue ? `Lĩnh vực: ${escapeHtml(fieldValue)}` : ''}</div>` : ''}`;
 
   if (!list.length) {
     el.innerHTML = `${html}<div class="card"><div class="empty-state"><div class="empty-state-icon">🏛️</div><div class="empty-state-title">Bạn chưa là thành viên hội đồng của KLTN nào</div></div></div>`;
+    if (searchHadFocus) {
+      const newSearchEl = document.getElementById('hoidong-search');
+      if (newSearchEl) {
+        setTimeout(() => {
+          newSearchEl.focus({ preventScroll: true });
+          if (prevSelectionStart !== null && prevSelectionEnd !== null) {
+            newSearchEl.setSelectionRange(prevSelectionStart, prevSelectionEnd);
+          }
+        }, 0);
+      }
+    }
     return;
   }
 
@@ -4861,15 +5170,70 @@ function renderHoiDong() {
 
   el.innerHTML = html;
   list.forEach((k) => recalcKLTNRoleTotal(k.id, 'TV'));
+  if (searchHadFocus) {
+    const newSearchEl = document.getElementById('hoidong-search');
+    if (newSearchEl) {
+      setTimeout(() => {
+        newSearchEl.focus({ preventScroll: true });
+        if (prevSelectionStart !== null && prevSelectionEnd !== null) {
+          newSearchEl.setSelectionRange(prevSelectionStart, prevSelectionEnd);
+        }
+      }, 0);
+    }
+  }
 }
 
 function renderChuTich() {
   const el = document.getElementById('page-chutich');
-  const list = getKLTNRoleRecords((assignment) => assignment.isChair);
+  const filterState = DB.chuTichFilter || { q: '', mangDeTai: '' };
+  const searchEl = document.getElementById('chutich-search');
+  const searchHadFocus = searchEl === document.activeElement;
+  const prevSelectionStart = searchHadFocus ? searchEl.selectionStart : null;
+  const prevSelectionEnd = searchHadFocus ? searchEl.selectionEnd : null;
+
+  let list = getKLTNRoleRecords((assignment) => assignment.isChair);
+  const query = String(filterState.q || '').trim().toLowerCase();
+  const fieldValue = String(filterState.mangDeTai || '').trim();
+  const matchesFilter = (item) => {
+    const sv = getUser(item.svEmail);
+    const text = [sv?.name, sv?.mssv, item.svEmail, item.tenDeTai, item.mangDeTai, item.loaiDeTai]
+      .filter(Boolean).join(' ').toLowerCase();
+    return (!query || text.includes(query)) && (!fieldValue || String(item.mangDeTai || item.loaiDeTai || '').trim() === fieldValue);
+  };
+  const fieldOptions = Array.from(new Set([fieldValue, ...list.map((item) => String(item.mangDeTai || item.loaiDeTai || '').trim()).filter(Boolean)])).sort((a, b) => a.localeCompare(b, 'vi'));
+  list = list.filter(matchesFilter);
+
   let html = renderKLTNRoleHeader('👨‍⚖️ Chủ tịch', 'do bạn làm Chủ tịch hội đồng', list.length);
+  html += `<div class="card" style="margin-bottom:16px;padding:16px">
+    <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:12px;align-items:flex-end">
+      <div class="form-group" style="margin-bottom:0">
+        <label>Tìm kiếm</label>
+        <input id="chutich-search" type="text" class="form-control" placeholder="Tìm SV, MSSV, đề tài..." value="${escapeHtml(filterState.q || '')}" oninput="DB.chuTichFilter.q=this.value; renderChuTich();" />
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label>Lĩnh vực / Loại</label>
+        <select id="chutich-field" class="form-control" onchange="DB.chuTichFilter.mangDeTai=this.value; renderChuTich();">
+          <option value="">Tất cả</option>
+          ${fieldOptions.map((opt) => `<option value="${escapeHtml(opt)}"${opt === fieldValue ? ' selected' : ''}>${escapeHtml(opt)}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+  </div>
+  ${filterState.q || fieldValue ? `<div style="margin-bottom:16px;color:var(--text3);font-size:13px">Đang lọc theo: ${filterState.q ? `“${escapeHtml(filterState.q)}”` : ''}${filterState.q && fieldValue ? ' • ' : ''}${fieldValue ? `Lĩnh vực: ${escapeHtml(fieldValue)}` : ''}</div>` : ''}`;
 
   if (!list.length) {
     el.innerHTML = `${html}<div class="card"><div class="empty-state"><div class="empty-state-icon">👨‍⚖️</div><div class="empty-state-title">Bạn chưa được phân công làm Chủ tịch hội đồng</div></div></div>`;
+    if (searchHadFocus) {
+      const newSearchEl = document.getElementById('chutich-search');
+      if (newSearchEl) {
+        setTimeout(() => {
+          newSearchEl.focus({ preventScroll: true });
+          if (prevSelectionStart !== null && prevSelectionEnd !== null) {
+            newSearchEl.setSelectionRange(prevSelectionStart, prevSelectionEnd);
+          }
+        }, 0);
+      }
+    }
     return;
   }
 
@@ -4907,15 +5271,70 @@ function renderChuTich() {
   });
 
   el.innerHTML = html;
+  if (searchHadFocus) {
+    const newSearchEl = document.getElementById('chutich-search');
+    if (newSearchEl) {
+      setTimeout(() => {
+        newSearchEl.focus({ preventScroll: true });
+        if (prevSelectionStart !== null && prevSelectionEnd !== null) {
+          newSearchEl.setSelectionRange(prevSelectionStart, prevSelectionEnd);
+        }
+      }, 0);
+    }
+  }
 }
 
 function renderThuKy() {
   const el = document.getElementById('page-thuky');
-  const list = getKLTNRoleRecords((assignment) => assignment.isSecretary);
+  const filterState = DB.thuKyFilter || { q: '', mangDeTai: '' };
+  const searchEl = document.getElementById('thuky-search');
+  const searchHadFocus = searchEl === document.activeElement;
+  const prevSelectionStart = searchHadFocus ? searchEl.selectionStart : null;
+  const prevSelectionEnd = searchHadFocus ? searchEl.selectionEnd : null;
+
+  let list = getKLTNRoleRecords((assignment) => assignment.isSecretary);
+  const query = String(filterState.q || '').trim().toLowerCase();
+  const fieldValue = String(filterState.mangDeTai || '').trim();
+  const matchesFilter = (item) => {
+    const sv = getUser(item.svEmail);
+    const text = [sv?.name, sv?.mssv, item.svEmail, item.tenDeTai, item.mangDeTai, item.loaiDeTai]
+      .filter(Boolean).join(' ').toLowerCase();
+    return (!query || text.includes(query)) && (!fieldValue || String(item.mangDeTai || item.loaiDeTai || '').trim() === fieldValue);
+  };
+  const fieldOptions = Array.from(new Set([fieldValue, ...list.map((item) => String(item.mangDeTai || item.loaiDeTai || '').trim()).filter(Boolean)])).sort((a, b) => a.localeCompare(b, 'vi'));
+  list = list.filter(matchesFilter);
+
   let html = renderKLTNRoleHeader('📝 Thư ký', 'do bạn làm Thư ký hội đồng', list.length);
+  html += `<div class="card" style="margin-bottom:16px;padding:16px">
+    <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:12px;align-items:flex-end">
+      <div class="form-group" style="margin-bottom:0">
+        <label>Tìm kiếm</label>
+        <input id="thuky-search" type="text" class="form-control" placeholder="Tìm SV, MSSV, đề tài..." value="${escapeHtml(filterState.q || '')}" oninput="DB.thuKyFilter.q=this.value; renderThuKy();" />
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label>Lĩnh vực / Loại</label>
+        <select id="thuky-field" class="form-control" onchange="DB.thuKyFilter.mangDeTai=this.value; renderThuKy();">
+          <option value="">Tất cả</option>
+          ${fieldOptions.map((opt) => `<option value="${escapeHtml(opt)}"${opt === fieldValue ? ' selected' : ''}>${escapeHtml(opt)}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+  </div>
+  ${filterState.q || fieldValue ? `<div style="margin-bottom:16px;color:var(--text3);font-size:13px">Đang lọc theo: ${filterState.q ? `“${escapeHtml(filterState.q)}”` : ''}${filterState.q && fieldValue ? ' • ' : ''}${fieldValue ? `Lĩnh vực: ${escapeHtml(fieldValue)}` : ''}</div>` : ''}`;
 
   if (!list.length) {
     el.innerHTML = `${html}<div class="card"><div class="empty-state"><div class="empty-state-icon">📝</div><div class="empty-state-title">Bạn chưa được phân công làm Thư ký hội đồng</div></div></div>`;
+    if (searchHadFocus) {
+      const newSearchEl = document.getElementById('thuky-search');
+      if (newSearchEl) {
+        setTimeout(() => {
+          newSearchEl.focus({ preventScroll: true });
+          if (prevSelectionStart !== null && prevSelectionEnd !== null) {
+            newSearchEl.setSelectionRange(prevSelectionStart, prevSelectionEnd);
+          }
+        }, 0);
+      }
+    }
     return;
   }
 
@@ -5008,6 +5427,17 @@ function renderThuKy() {
   });
 
   el.innerHTML = html;
+  if (searchHadFocus) {
+    const newSearchEl = document.getElementById('thuky-search');
+    if (newSearchEl) {
+      setTimeout(() => {
+        newSearchEl.focus({ preventScroll: true });
+        if (prevSelectionStart !== null && prevSelectionEnd !== null) {
+          newSearchEl.setSelectionRange(prevSelectionStart, prevSelectionEnd);
+        }
+      }, 0);
+    }
+  }
 }
 function renderGoiY() { document.getElementById('page-goiy').innerHTML = `<div class="page-header"><h1>💡 Gợi ý đề tài</h1></div>`; }
 function renderThongKe() { document.getElementById('page-thongke').innerHTML = `<div class="page-header"><h1>📈 Thống kê</h1></div>`; }
@@ -5194,6 +5624,9 @@ function switchTab(e, tabId) {
   parent.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
   e.target.classList.add('active');
   document.getElementById(tabId)?.classList.add('active');
+  if (tabId === 'tab-bctt-huongdan' || tabId === 'tab-kltn-huongdan') {
+    DB.nextHuongDanTab = tabId;
+  }
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
