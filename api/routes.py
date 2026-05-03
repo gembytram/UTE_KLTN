@@ -1115,6 +1115,38 @@ def register_routes(app):
         conn.close()
         return ok("Đã nộp KLTN, chờ chấm điểm")
 
+    @app.route("/api/kltn/revision-submit", methods=["POST"])
+    @role_required("SV")
+    def submit_kltn_revision():
+        data = request.json or {}
+        dang_ky_id = data.get("dang_ky_id")
+        if not dang_ky_id:
+            return fail("Thiếu dang_ky_id", 400)
+        conn = get_db()
+        sv = get_current_user(conn)
+        reg = conn.execute(
+            "SELECT * FROM dang_ky WHERE id = ? AND sv_id = ? AND loai = 'KLTN'",
+            (dang_ky_id, sv["id"]),
+        ).fetchone()
+        if not reg:
+            conn.close()
+            return fail("Không tìm thấy đăng ký KLTN", 404)
+        uploads = conn.execute(
+            "SELECT loai_file FROM nop_bai WHERE dang_ky_id = ? AND loai_file IN ('kltn_chinhsua','bien_ban_giai_trinh')",
+            (dang_ky_id,),
+        ).fetchall()
+        up_types = {u["loai_file"] for u in uploads}
+        if "kltn_chinhsua" not in up_types or "bien_ban_giai_trinh" not in up_types:
+            conn.close()
+            return fail("SV chưa nộp đủ bài chỉnh sửa và biên bản giải trình", 400)
+        conn.execute(
+            "DELETE FROM nop_bai WHERE dang_ky_id = ? AND loai_file IN ('tu_choi_gvhd','tu_choi_cthd','xac_nhan_gvhd','xac_nhan_cthd')",
+            (dang_ky_id,),
+        )
+        conn.commit()
+        conn.close()
+        return ok("Đã nộp lại bài chỉnh sửa, chờ GVHD và CTHĐ duyệt lại")
+
     @app.route("/api/kltn/revision-approve", methods=["POST"])
     @role_required("GV")
     def approve_kltn_revision():
@@ -1777,7 +1809,7 @@ def register_routes(app):
         criteria_json = data.get("criteria_json", "")
         if not all([dang_ky_id, vai_tro]) or diem is None:
             return fail("Thiếu dữ liệu chấm điểm", 400)
-        if vai_tro not in ("HD", "PB", "TV"):
+        if vai_tro not in ("HD", "PB", "TV", "CT"):
             return fail("Vai trò chấm điểm không hợp lệ", 400)
         try:
             diem = float(diem)
@@ -2000,6 +2032,13 @@ def register_routes(app):
         if not cthd_confirmed:
             conn.close()
             return fail("CTHĐ cần xác nhận đồng ý báo cáo trước khi kết thúc KLTN", 400)
+        gvhd_confirmed = conn.execute(
+            "SELECT id FROM nop_bai WHERE dang_ky_id = ? AND loai_file = 'xac_nhan_gvhd' LIMIT 1",
+            (dang_ky_id,),
+        ).fetchone()
+        if not gvhd_confirmed:
+            conn.close()
+            return fail("GVHD cần duyệt bài chỉnh sửa trước khi kết thúc KLTN", 400)
         rows = conn.execute(
             "SELECT vai_tro, diem FROM cham_diem WHERE dang_ky_id = ?",
             (dang_ky_id,),
@@ -2007,20 +2046,18 @@ def register_routes(app):
 
         diem_hd = next((r["diem"] for r in rows if r["vai_tro"] == "HD"), None)
         diem_pb = next((r["diem"] for r in rows if r["vai_tro"] == "PB"), None)
-
-        diem_tv_list = [r["diem"] for r in rows if r["vai_tro"] == "TV"]
         diem_ct = next((r["diem"] for r in rows if r["vai_tro"] == "CT"), None)
+        diem_tv_list = [r["diem"] for r in rows if r["vai_tro"] == "TV"]
 
-        hoi_dong_scores = diem_tv_list
-        if diem_ct is not None:
-            hoi_dong_scores.append(diem_ct)
+        # Tính trung bình hội đồng = TB của Chủ tịch + tất cả thành viên hội đồng
+        hoi_dong_scores = ([diem_ct] if diem_ct is not None else []) + diem_tv_list
 
-        if diem_hd is None or diem_pb is None or not hoi_dong_scores:
+        if diem_hd is None or diem_pb is None or diem_ct is None or not hoi_dong_scores:
             conn.close()
-            return fail("Chưa đủ điểm HD/PB/HĐ để kết thúc KLTN", 400)
+            return fail("Chưa đủ điểm HD/PB/Chủ tịch hội đồng/TV để kết thúc KLTN", 400)
 
-        avg_hd = sum(hoi_dong_scores) / len(hoi_dong_scores)
-        final_avg = (diem_hd * 0.2) + (diem_pb * 0.2) + (avg_hd * 0.6)
+        avg_hoi_dong = sum(hoi_dong_scores) / len(hoi_dong_scores)
+        final_avg = (diem_hd * 0.2) + (diem_pb * 0.2) + (avg_hoi_dong * 0.6)
 
         result = "pass" if final_avg >= 4 else "fail"
         conn.execute("UPDATE dang_ky SET trang_thai = ? WHERE id = ? AND loai = 'KLTN'", (result, dang_ky_id))

@@ -109,6 +109,8 @@ def _can_score_kltn(conn, dang_ky_id, gv_id, vai_tro):
         return assignment["advisor_id"] == gv_id
     if vai_tro == "PB":
         return assignment["reviewer_id"] == gv_id
+    if vai_tro == "CT":
+        return assignment["chairman_id"] == gv_id
     if vai_tro == "TV":
         return gv_id in (assignment["committee_members"] or [])
     return False
