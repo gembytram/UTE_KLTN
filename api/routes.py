@@ -6,7 +6,12 @@ import tempfile
 from datetime import datetime
 import requests
 import io
-
+from docx import Document
+from docx.shared import Pt, Inches
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+import io
 from docx import Document
 from flask import request, send_file
 from flask import after_this_request, app, request, send_from_directory, session
@@ -2706,43 +2711,148 @@ def register_routes(app):
     @login_required
     def xuat_bien_ban_docx():
         data = request.json or {}
-        tmp = tempfile.NamedTemporaryFile(suffix=".docx", delete=False)
-        tmp.close()
-        out_path = tmp.name
-        script_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "..", "scripts", "node", "gen_bien_ban.js"
-        )
-        script_path = os.path.abspath(script_path)
+
         try:
-            result = subprocess.run(
-                ["node", script_path, _json_mod.dumps(data, ensure_ascii=False), out_path],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            if result.returncode != 0 or not os.path.exists(out_path):
-                return fail(f"Lỗi tạo file: {result.stderr or result.stdout}", 500)
-            ma_sv = data.get("maSV", "SV")
-            ten = data.get("tenDeTai", "bien_ban")[:30].replace(" ", "_")
+            doc = Document()
 
-            @after_this_request
-            def cleanup(response):
-                try:
-                    os.unlink(out_path)
-                except Exception:
-                    pass
-                return response
+            # ===== FONT =====
+            style = doc.styles['Normal']
+            font = style.font
+            font.name = 'Times New Roman'
+            font.size = Pt(12)
 
-            return send_file_response(
-                out_path,
-                f"BienBan_{ma_sv}_{ten}.docx",
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            # ===== HELPER =====
+            def center(text, bold=False):
+                p = doc.add_paragraph()
+                run = p.add_run(text)
+                run.bold = bold
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                return p
+
+            def left(text, bold=False):
+                p = doc.add_paragraph()
+                run = p.add_run(text)
+                run.bold = bold
+                return p
+
+            def set_border(table):
+                for row in table.rows:
+                    for cell in row.cells:
+                        tc = cell._element
+                        tcPr = tc.get_or_add_tcPr()
+                        tcBorders = OxmlElement('w:tcBorders')
+
+                        for border_name in ('top', 'left', 'bottom', 'right'):
+                            border = OxmlElement(f'w:{border_name}')
+                            border.set(qn('w:val'), 'single')
+                            border.set(qn('w:sz'), '8')
+                            border.set(qn('w:color'), '000000')
+                            tcBorders.append(border)
+
+                        tcPr.append(tcBorders)
+
+            # ===== HEADER =====
+            center("ĐẠI HỌC CÔNG NGHỆ KỸ THUẬT TP.HCM", True)
+            center("KHOA KINH TẾ", True)
+            center(f"NGÀNH {data.get('tenKhoa','')}".upper(), True)
+
+            doc.add_paragraph("")
+
+            center("BIÊN BẢN HỌP HỘI ĐỒNG ĐÁNH GIÁ KHÓA LUẬN TỐT NGHIỆP", True)
+            center(f"NGÀNH {data.get('tenKhoa','')} KHÓA {data.get('khoaHoc','................')}", True)
+
+            # ===== INFO =====
+            left("1. Thông tin chung", True)
+            left(f"Tên khóa luận: {data.get('tenDeTai','')}")
+            left(f"Sinh viên thực hiện: {data.get('sinhVien','')}")
+            left(f"MSSV: {data.get('maSV','')}")
+
+            # ===== TABLE =====
+            left("2. Bảng điểm tổng hợp", True)
+
+            table = doc.add_table(rows=1, cols=3)
+
+            # width giống node
+            table.columns[0].width = Inches(1.2)
+            table.columns[1].width = Inches(4.3)
+            table.columns[2].width = Inches(1.3)
+
+            hdr = table.rows[0].cells
+            hdr[0].text = "Vai trò"
+            hdr[1].text = "Họ tên / Nội dung"
+            hdr[2].text = "Điểm"
+
+            for cell in hdr:
+                for p in cell.paragraphs:
+                    for r in p.runs:
+                        r.bold = True
+
+            def add_row(role, name, score):
+                row = table.add_row().cells
+                row[0].text = role
+                row[1].text = name
+                row[2].text = str(score)
+
+            add_row("GVHD", data.get("tenGVHD",""), data.get("diemGVHD",""))
+            add_row("GVPB", data.get("tenGVPB",""), data.get("diemGVPB",""))
+
+            # parse thành viên
+            for line in str(data.get("diemThanhVien","")).split("\n"):
+                if ":" in line:
+                    name, score = line.split(":")
+                    add_row("TV", name.strip(), score.strip())
+
+            # trung bình
+            row = table.add_row().cells
+            row[0].merge(row[1])
+            row[0].text = "Trung bình hội đồng"
+            row[2].text = str(data.get("diemHoiDongTB",""))
+
+            # tổng
+            row = table.add_row().cells
+            row[0].text = "Tổng"
+            row[1].text = "Điểm tổng hợp"
+            row[2].text = str(data.get("diemTongHop",""))
+
+            set_border(table)
+
+            # ===== NHẬN XÉT =====
+            left("3. Nhận xét của các thành viên hội đồng:", True)
+            for line in (data.get("nhanXetCT","") + "\n" + data.get("nhanXetTV","")).split("\n"):
+                doc.add_paragraph(line)
+
+            # ===== YÊU CẦU =====
+            left("4. Yêu cầu chỉnh sửa", True)
+            for line in str(data.get("yeuCauChinhSua","")).split("\n"):
+                doc.add_paragraph(line)
+
+            # ===== SIGNATURE =====
+            doc.add_paragraph("")
+            doc.add_paragraph(f"Ngày {data.get('ngay','...')} tháng {data.get('thang','...')} năm {data.get('nam','...')}").alignment = WD_ALIGN_PARAGRAPH.RIGHT
+
+            table_sign = doc.add_table(rows=2, cols=2)
+
+            table_sign.cell(0,0).text = "Chủ tịch hội đồng"
+            table_sign.cell(0,1).text = "Thư ký"
+
+            table_sign.cell(1,0).text = data.get("chuTichHD","")
+            table_sign.cell(1,1).text = data.get("thuKy","")
+
+            # ===== EXPORT =====
+            file_stream = io.BytesIO()
+            doc.save(file_stream)
+            file_stream.seek(0)
+
+            return send_file(
+                file_stream,
+                as_attachment=True,
+                download_name="BienBan.docx",
+                mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             )
-        except subprocess.TimeoutExpired:
-            return fail("Timeout", 500)
+
         except Exception as e:
             return fail(str(e), 500)
-
+    
     @app.route("/api/thong-bao", methods=["GET"])
     @login_required
     def get_thong_bao():
