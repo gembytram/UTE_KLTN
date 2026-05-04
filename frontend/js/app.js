@@ -2911,7 +2911,7 @@ function renderKLTN() {
         </div>
         <div style="margin-top:12px;font-size:13px;color:var(--text3);">Turnitin do GVHD upload. ${k.fileTurnitin ? `<a href="${uploadFileHref(k.fileTurnitin)}" target="_blank" rel="noopener" style="font-weight:600; color:var(--accent)">📑 Mở Turnitin</a>` : 'Chưa có file Turnitin.'}</div>
         ${canSubmitKLTN ? `<button class="btn btn-success" style="margin-top:16px;width:100%" onclick="hoanTatKLTN('${k.id}')">📤 Hoàn tất nộp bài KLTN</button>` : ''}
-        <button class="btn btn-secondary" style="margin-top:12px;width:100%" onclick="toggleKLTNEditMode('${k.id}')">✏️ Chỉnh sửa bài</button>` : (isSubmittedKLTN || k.fileBai || k.fileBaiWord) ? `<button class="btn btn-secondary" style="width:100%" onclick="toggleKLTNEditMode('${k.id}')">✏️ Chỉnh sửa bài</button>` : ''}
+        <button class="btn btn-secondary" style="margin-top:12px;width:100%" onclick="toggleKLTNEditMode('${k.id}')">✏️ Chỉnh sửa bài</button>` : hasAssignments ? `<button class="btn btn-secondary" style="width:100%" onclick="toggleKLTNEditMode('${k.id}')">✏️ Chỉnh sửa bài</button>` : ''}
       </div>`;
     }
 
