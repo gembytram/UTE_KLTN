@@ -2471,10 +2471,27 @@ def register_routes(app):
         loai = request.form.get("loai_file")
         ma_sv = request.form.get("ma_sv")
 
-        if not all([dang_ky_id, loai, ma_sv]):
+        if not dang_ky_id or not loai:
             return fail("Thiếu dữ liệu upload", 400)
 
+        conn = get_db()
+        current_user = get_current_user(conn)
+        if current_user and str(current_user.get("role", "")).upper() == "SV":
+            if not ma_sv:
+                ma_sv = str(current_user.get("ma") or current_user.get("mssv") or "").strip()
+            if str(ma_sv or "").strip().lower() not in [
+                str(current_user.get("ma") or "").strip().lower(),
+                str(current_user.get("mssv") or "").strip().lower(),
+            ]:
+                conn.close()
+                return fail("Thông tin sinh viên không khớp", 403)
+
+        if not ma_sv:
+            conn.close()
+            return fail("Thiếu thông tin sinh viên", 400)
+
         if "file" not in request.files:
+            conn.close()
             return fail("Không có file upload", 400)
 
         f = request.files["file"]
