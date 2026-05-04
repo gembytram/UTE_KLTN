@@ -2605,7 +2605,6 @@ function renderDashboard() {
       <div class="stat-card" onclick="navigateTo('huongdan')" style="cursor:pointer"><div class="stat-icon orange">⏳</div><div><div class="stat-value">${pending}</div><div class="stat-label">Chờ duyệt BCTT</div></div></div>
       <div class="stat-card" onclick="navigateTo('detai')" style="cursor:pointer"><div class="stat-icon blue">📝</div><div><div class="stat-value">${total}</div><div class="stat-label">BCTT đang HD</div></div></div>
       <div class="stat-card" onclick="navigateToDetaiTab('tab-kltn-list')" style="cursor:pointer"><div class="stat-icon green">🎓</div><div><div class="stat-value">${kltnHD}</div><div class="stat-label">KLTN đang HD</div></div></div>
-      <div class="stat-card" onclick="navigateTo('profile')" style="cursor:pointer"><div class="stat-icon red">📊</div><div><div class="stat-value">${u.quota || 0}</div><div class="stat-label">Quota còn lại</div></div></div>
     </div>`;
     html += `<div class="card"><div class="card-header"><div class="card-title">📋 BCTT chờ duyệt</div><button class="btn btn-primary btn-sm" onclick="navigateTo('duyetde')">Xem tất cả</button></div>`;
     const pendingList = DB.bcttList.filter(b => normalizeEmail(b.gvEmail) === currentEmail && b.trangThai === 'cho_duyet');
@@ -6220,8 +6219,8 @@ function renderThuKy() {
         </table>
       </div>
     </div>`;
-    html += `<div class="form-group" style="margin-top:12px"><label>Góp ý phản biện và hội đồng</label><textarea id="tk-council-note-${k.id}" style="min-height:120px" placeholder="Nhập góp ý phản biện và hội đồng vào đây">${escapeHtml(buildSecretaryCouncilNotes(k))}</textarea></div>`;
-    html += `<div class="form-group"><label>Nội dung yêu cầu chỉnh sửa / tổng hợp biên bản</label><textarea id="tk-note-${k.id}" style="min-height:120px" placeholder="Nhập thêm góp ý của hội đồng để đưa vào biên bản">${escapeHtml(getSecretaryDraftValue(k))}</textarea></div>`;
+    html += `<div class="form-group" style="margin-top:12px"><label>Góp ý phản biện và hội đồng</label><textarea id="tk-council-note-${k.id}" style="min-height:120px" placeholder="Nhập góp ý phản biện và hội đồng vào đây" readonly>${escapeHtml(buildSecretaryCouncilNotes(k))}</textarea></div>`;
+    html += `<div class="form-group"><label>Nội dung yêu cầu chỉnh sửa / tổng hợp biên bản</label><textarea id="tk-note-${k.id}" style="min-height:120px" placeholder="Nhập thêm góp ý của hội đồng để đưa vào biên bản" readonly>${escapeHtml(getSecretaryDraftValue(k))}</textarea></div>`;
     html += `<div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn btn-ghost btn-sm" onclick="viewKLTNDetail('${k.id}')">👁 Chi tiết</button>
       <button class="btn btn-primary btn-sm" onclick="exportSecretaryBienBan('${k.id}', false)">📄 Xuất biên bản DOCX</button>
