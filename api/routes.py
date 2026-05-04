@@ -5,10 +5,13 @@ import subprocess
 import tempfile
 from datetime import datetime
 import requests
+import io
 
+from docx import Document
+from flask import request, send_file
 from flask import after_this_request, app, request, send_from_directory, session
 from werkzeug.utils import secure_filename
-
+from docx.shared import Pt
 from config.settings import UPLOAD_FOLDER
 from database import get_db
 from services.auth import get_current_user, login_required, role_required
@@ -26,6 +29,18 @@ from utils.helpers import (
 from utils.response import fail, ok, send_file_response
 
 from dotenv import load_dotenv
+
+from docx import Document
+from docx.shared import Pt
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml.ns import qn
+from flask import request, send_file
+from docx import Document
+from docx.shared import Pt, Inches
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+import io
 
 load_dotenv()
 
@@ -1981,43 +1996,145 @@ def register_routes(app):
     @login_required
     def xuat_cham_diem_docx():
         data = request.json or {}
-        tmp = tempfile.NamedTemporaryFile(suffix=".docx", delete=False)
-        tmp.close()
-        out_path = tmp.name
-        script_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "..", "scripts", "node", "gen_cham_diem.js"
-        )
-        script_path = os.path.abspath(script_path)
+
         try:
-            result = subprocess.run(
-                ["node", script_path, _json_mod.dumps(data, ensure_ascii=False), out_path],
-                capture_output=True,
-                text=True,
-                timeout=30,
+            doc = Document()
+
+            # ===== FONT CHUẨN =====
+            style = doc.styles['Normal']
+            font = style.font
+            font.name = 'Times New Roman'
+            font.size = Pt(12)
+
+            # ===== HELPER =====
+            def add_label_value(label, value):
+                p = doc.add_paragraph()
+                run1 = p.add_run(label)
+                run1.bold = True
+                run2 = p.add_run(str(value))
+                return p
+
+            # ✅ NEW: set border đen
+            def set_table_border(table):
+                for row in table.rows:
+                    for cell in row.cells:
+                        tc = cell._element
+                        tcPr = tc.get_or_add_tcPr()
+
+                        tcBorders = OxmlElement('w:tcBorders')
+
+                        for border_name in ('top', 'left', 'bottom', 'right'):
+                            border = OxmlElement(f'w:{border_name}')
+                            border.set(qn('w:val'), 'single')
+                            border.set(qn('w:sz'), '8')  # độ dày
+                            border.set(qn('w:space'), '0')
+                            border.set(qn('w:color'), '000000')  # màu đen
+                            tcBorders.append(border)
+
+                        tcPr.append(tcBorders)
+
+            # ===== TITLE =====
+            p = doc.add_paragraph()
+            run = p.add_run("BÁO CÁO CHẤM ĐIỂM KHÓA LUẬN TỐT NGHIỆP")
+            run.bold = True
+            run.font.size = Pt(14)
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+            if data.get("title"):
+                p = doc.add_paragraph()
+                run = p.add_run(data.get("title"))
+                run.bold = True
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+            # ===== INFO =====
+            add_label_value("Tên đề tài: ", data.get("tenDeTai",""))
+            add_label_value("Sinh viên: ", data.get("sinhVien",""))
+            add_label_value("MSSV: ", data.get("maSV",""))
+            add_label_value("Loại đề tài: ", data.get("topicType",""))
+            add_label_value("Vai trò chấm điểm: ", data.get("roleLabel",""))
+            add_label_value("Người chấm điểm: ", data.get("nguoiCham",""))
+            add_label_value("Điểm tổng: ", data.get("total",""))
+
+            # ===== TIÊU CHÍ =====
+            p = doc.add_paragraph("Tiêu chí chi tiết:")
+            p.runs[0].bold = True
+
+            criteria_names = data.get("criteriaNames", [])
+            criteria_scores = data.get("criteria", [])
+            criteria_max = data.get("criteriaMax", [])
+
+            table = doc.add_table(rows=1, cols=3)
+
+            # set width giống node
+            table.columns[0].width = Inches(1.8)
+            table.columns[1].width = Inches(1.1)
+            table.columns[2].width = Inches(1.8)
+
+            # header
+            hdr = table.rows[0].cells
+            hdr[0].text = "Tiêu chí"
+            hdr[1].text = "Điểm tối đa"
+            hdr[2].text = "Điểm"
+
+            for cell in hdr:
+                for p in cell.paragraphs:
+                    for r in p.runs:
+                        r.bold = True
+
+            # data rows
+            for i in range(len(criteria_names)):
+                row = table.add_row().cells
+                row[0].text = str(criteria_names[i])
+                row[1].text = str(criteria_max[i] if i < len(criteria_max) else "")
+                row[2].text = str(criteria_scores[i] if i < len(criteria_scores) else "")
+
+            # total row
+            row = table.add_row().cells
+            row[0].text = "Tổng điểm (0-10)"
+            row[1].text = "10"
+            row[2].text = str(data.get("total", ""))
+
+            # ✅ APPLY BORDER (QUAN TRỌNG)
+            set_table_border(table)
+
+            # ===== NHẬN XÉT =====
+            p = doc.add_paragraph("Nhận xét/chú giải:")
+            p.runs[0].bold = True
+
+            for line in (data.get("nhanXet") or "...").split("\n"):
+                doc.add_paragraph(line)
+
+            if data.get("cauHoi"):
+                p = doc.add_paragraph("Góp ý / câu hỏi:")
+                p.runs[0].bold = True
+                for line in data.get("cauHoi").split("\n"):
+                    doc.add_paragraph(line)
+
+            # ===== DATE =====
+            doc.add_paragraph(
+                f"Ngày {data.get('ngay','__')} tháng {data.get('thang','__')} năm {data.get('nam','____')}"
             )
-            if result.returncode != 0 or not os.path.exists(out_path):
-                return fail(f"Lỗi tạo file: {result.stderr or result.stdout}", 500)
+
+            doc.add_paragraph("Chữ ký người chấm điểm: _________________________________")
+
+            # ===== EXPORT =====
+            file_stream = io.BytesIO()
+            doc.save(file_stream)
+            file_stream.seek(0)
+
             ma_sv = data.get("maSV", "SV")
             ten = str(data.get("tenDeTai", "ChamDiem"))[:30].replace(" ", "_")
 
-            @after_this_request
-            def cleanup(response):
-                try:
-                    os.unlink(out_path)
-                except Exception:
-                    pass
-                return response
-
-            return send_file_response(
-                out_path,
-                f"ChamDiem_{ma_sv}_{ten}.docx",
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            return send_file(
+                file_stream,
+                as_attachment=True,
+                download_name=f"ChamDiem_{ma_sv}_{ten}.docx",
+                mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             )
-        except subprocess.TimeoutExpired:
-            return fail("Timeout", 500)
+
         except Exception as e:
             return fail(str(e), 500)
-
+    
     @app.route("/api/kltn/finalize", methods=["POST"])
     @role_required("TBM", "GV")
     def finalize_kltn():
@@ -2406,8 +2523,8 @@ def register_routes(app):
         
         # Check if council has assigned students
         assigned_count = conn.execute(
-            "SELECT COUNT(*) as count FROM dang_ky WHERE chu_tich_id IN (SELECT chu_tich_id FROM hoi_dong WHERE id = ?) OR thu_ky_id IN (SELECT thu_ky_id FROM hoi_dong WHERE id = ?) OR uy_vien_ids LIKE '%' || (SELECT chu_tich_id FROM hoi_dong WHERE id = ?) || '%'",
-            (hd_id, hd_id, hd_id)
+            "SELECT COUNT(*) as count FROM dang_ky WHERE hoi_dong_id = ?",
+            (hd_id,)
         ).fetchone()["count"]
         
         if assigned_count > 0:
