@@ -142,16 +142,9 @@ function parseLocalDateTime(value) {
   const raw = String(value).trim();
   if (!raw) return null;
 
-  // If the value contains an explicit timezone offset or Z, use native parsing.
-  if (/[zZ]|[+\-]\d{2}:?\d{2}$/.test(raw)) {
-    const tzDate = new Date(raw);
-    return Number.isNaN(tzDate.getTime()) ? null : tzDate;
-  }
-
-  // Normalize common local datetime formats to ISO-like local string.
-  let localIso = raw.replace(' ', 'T');
-  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(localIso)) {
-    const [datePart, timePart] = localIso.split('T');
+  const isoLocalMatch = raw.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}(?::\d{2})?)$/);
+  if (isoLocalMatch) {
+    const [datePart, timePart] = isoLocalMatch.slice(1);
     const [year, month, day] = datePart.split('-').map(Number);
     const [hour, minute, second = 0] = timePart.split(':').map(Number);
     const date = new Date();
@@ -160,7 +153,34 @@ function parseLocalDateTime(value) {
     return date;
   }
 
-  const parsed = new Date(raw);
+  const rfcGmtMatch = raw.match(/^[A-Za-z]{3},\s+(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+(\d{2}):(\d{2})(?::(\d{2}))?\s+GMT$/);
+  if (rfcGmtMatch) {
+    const [, day, monthText, year, hour, minute, second = '0'] = rfcGmtMatch;
+    const monthNames = {
+      Jan: 1,
+      Feb: 2,
+      Mar: 3,
+      Apr: 4,
+      May: 5,
+      Jun: 6,
+      Jul: 7,
+      Aug: 8,
+      Sep: 9,
+      Oct: 10,
+      Nov: 11,
+      Dec: 12,
+    };
+    const month = monthNames[monthText];
+    if (month) {
+      const date = new Date();
+      date.setFullYear(Number(year), month - 1, Number(day));
+      date.setHours(Number(hour), Number(minute), Number(second), 0);
+      return date;
+    }
+  }
+
+  const normalized = raw.replace(' ', 'T');
+  const parsed = new Date(normalized);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
