@@ -60,6 +60,23 @@ def fetch_bootstrap(conn):
 
     user_map = {u["id"]: serialize_user(u) for u in users}
     
+    # Count all active BCTT/KLTN assignments by lecturer, dot, and training type
+    active_slot_assignments = {}
+    for reg in regs:
+        if reg["loai"] not in ("BCTT", "KLTN"):
+            continue
+        sv = user_map.get(reg["sv_id"])
+        if not sv:
+            continue
+        he = "CLC" if str(sv.get("heDaoTao") or "").strip() == "CLC" else "DaiTra"
+        key = (reg["gv_id"], reg["dot_id"], he)
+        active_slot_assignments[key] = active_slot_assignments.get(key, 0) + 1
+
+    def compute_slot_remaining(slot):
+        hek = (slot["he_dao_tao"] or "").strip() or "DaiTra"
+        used = active_slot_assignments.get((slot["gv_id"], slot["dot_id"], hek), 0)
+        return max(0, int(slot["quota"] or 0) - used)
+
     # Process hoi_dong data
     hoi_dong_list = []
     for hd in hoi_dong_rows:
@@ -88,7 +105,7 @@ def fetch_bootstrap(conn):
                 "gvId": s["gv_id"],
                 "dotId": str(s["dot_id"]),
                 "heDaoTao": hek,
-                "slotConLai": s["slot_con_lai"],
+                "slotConLai": compute_slot_remaining(s),
                 "quota": s["quota"],
                 "duyetTbm": bool(s["duyet_tbm"]),
             }
@@ -271,18 +288,17 @@ def fetch_bootstrap(conn):
                     )
             kltn_list.append(record)
 
-    bctt_dots = [d for d in dots if d["loai"] == "BCTT"]
-    open_bctt_dot_ids = [d["id"] for d in bctt_dots if d["trang_thai"] == "mo"]
+    open_dot_ids = [d["id"] for d in dots if d["trang_thai"] == "mo"]
 
-    def gv_bctt_open_slots_aggregate(gv_uid):
+    def gv_open_slots_aggregate(gv_uid):
         user_slots = [s for s in slots if s["gv_id"] == gv_uid]
-        bctt_open = [s for s in user_slots if s["dot_id"] in open_bctt_dot_ids]
-        if not bctt_open:
+        open_slots = [s for s in user_slots if s["dot_id"] in open_dot_ids]
+        if not open_slots:
             return None
         return {
-            "slot_con_lai": sum(s["slot_con_lai"] for s in bctt_open),
-            "quota": sum(s["quota"] for s in bctt_open),
-            "duyet_tbm": all(bool(s["duyet_tbm"]) for s in bctt_open),
+            "slot_con_lai": sum(compute_slot_remaining(s) for s in open_slots),
+            "quota": sum(s["quota"] for s in open_slots),
+            "duyet_tbm": all(bool(s["duyet_tbm"]) for s in open_slots),
         }
 
     user_field_map = {}
@@ -317,7 +333,7 @@ def fetch_bootstrap(conn):
             "heDaoTao": (u["he_dao_tao"] or "").strip(),
         }
         if role in ("gv", "bm"):
-            agg = gv_bctt_open_slots_aggregate(u["id"])
+            agg = gv_open_slots_aggregate(u["id"])
             user_data["quota"] = agg["slot_con_lai"] if agg else 0
             user_data["quota_max"] = agg["quota"] if agg else 0
             user_data["slot_con_lai"] = agg["slot_con_lai"] if agg else 0

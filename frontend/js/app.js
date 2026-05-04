@@ -50,13 +50,13 @@ const DB = {
   kltnEditModeId: null,
   nhapDiemSelectedKLTN: null,
   nhapDiemFilter: { q: '', topicType: '', mangDeTai: '' },
-  huongDanBCTTFilter: { q: '', mangDeTai: '' },
-  huongDanKLTNFilter: { q: '', mangDeTai: '', loaiDeTai: '' },
+  huongDanBCTTFilter: { q: '', mangDeTai: '', trangThai: '' },
+  huongDanKLTNFilter: { q: '', mangDeTai: '', loaiDeTai: '', trangThai: '' },
   hdSelectedBcttDotId: null,
-  phanBienFilter: { q: '', mangDeTai: '' },
-  hoiDongFilter: { q: '', mangDeTai: '' },
-  chuTichFilter: { q: '', mangDeTai: '' },
-  thuKyFilter: { q: '', mangDeTai: '' },
+  phanBienFilter: { q: '', mangDeTai: '', trangThai: '' },
+  hoiDongFilter: { q: '', mangDeTai: '', trangThai: '' },
+  chuTichFilter: { q: '', mangDeTai: '', trangThai: '' },
+  thuKyFilter: { q: '', mangDeTai: '', trangThai: '' },
 };
 
 const ADMIN_USER_FILTER_STATE = {
@@ -198,6 +198,28 @@ function isBeforeDeadline(dot) {
 
 function isLate(dot) {
   return Boolean(dot && dot.ketThuc && !isBeforeDeadline(dot));
+}
+
+function formatLateDuration(dot) {
+  if (!dot || !dot.ketThuc) return '';
+  const deadline = parseDateString(dot.ketThuc);
+  if (!deadline) return '';
+  const diffSeconds = Math.max(0, Math.floor((Date.now() - deadline.getTime()) / 1000));
+  const minutes = Math.floor(diffSeconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  if (days > 0) {
+    const remainingHours = hours % 24;
+    return `quá hạn ${days} ngày${remainingHours ? ` ${remainingHours} giờ` : ''}`;
+  }
+  if (hours > 0) {
+    const remainingMinutes = minutes % 60;
+    return `quá hạn ${hours} giờ${remainingMinutes ? ` ${remainingMinutes} phút` : ''}`;
+  }
+  if (minutes > 0) {
+    return `quá hạn ${minutes} phút`;
+  }
+  return `quá hạn ${diffSeconds} giây`;
 }
 
 function toggleBCTTEditMode(recordId) {
@@ -928,7 +950,27 @@ function gvKLTNListForNhapDiem(u) {
     return true;
   });
 }
+function parseDateForSort(value) {
+  if (!value) return 0;
+  const isoMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) return Date.parse(value);
+  const parts = value.split(/[\/\-\.]/).map((p) => p.trim());
+  if (parts.length === 3) {
+    const [d, m, y] = parts;
+    const year = y.length === 2 ? `20${y}` : y;
+    return Date.parse(`${year.padStart(4, '0')}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`);
+  }
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function getBCTTBySV(email) { return DB.bcttList.filter(b => b.svEmail === email); }
+function getLatestBCTTBySV(email) {
+  const records = getBCTTBySV(email).slice();
+  if (!records.length) return null;
+  records.sort((a, b) => parseDateForSort(b.ngayDangKy) - parseDateForSort(a.ngayDangKy));
+  return records[0];
+}
 function getKLTNBySV(email) { return DB.kltnList.filter(k => k.svEmail === email); }
 function getUnreadNotifs(email) { return DB.notifications.filter(n => n.toEmail === email && !n.read); }
 
@@ -1765,8 +1807,8 @@ async function submitKLTN() {
     toast("Vui lòng nhập đủ thông tin đăng ký KLTN", "error");
     return;
   }
-  const myBCTT = getBCTTBySV(DB.currentUser.email).find(b => b.trangThai === 'pass');
-  if (myBCTT && myBCTT.diemBCTT !== null && myBCTT.diemBCTT < 5) {
+  const myBCTT = getLatestBCTTBySV(DB.currentUser.email);
+  if (!myBCTT || myBCTT.trangThai !== 'pass' || (myBCTT.diemBCTT !== null && myBCTT.diemBCTT < 5)) {
     toast("BCTT không đạt yêu cầu. Bạn không thể đăng ký KLTN", "error");
     return;
   }
@@ -1932,7 +1974,8 @@ function fakeUpload(kind, recordId) {
   }
   const dot = getDotById(record.dotId);
   if (isCurrentUserStudent() && isLate(dot)) {
-    toast("Bạn đang nộp trễ. Hệ thống vẫn chấp nhận file.", "warning");
+    const lateText = formatLateDuration(dot);
+    toast(`Bạn đang nộp trễ ${lateText}. Hệ thống vẫn chấp nhận file.`, "warning");
   }
   chooseFileAndUpload(record.dangKyId || extractId(record.id), loaiFile);
 }
@@ -1961,7 +2004,8 @@ function fakeUploadKLTN(recordId, field) {
   }
   const dot = getDotById(record.dotId);
   if (isCurrentUserStudent() && isLate(dot)) {
-    toast("Bạn đang nộp trễ. Hệ thống vẫn chấp nhận file.", "warning");
+    const lateText = formatLateDuration(dot);
+    toast(`Bạn đang nộp trễ ${lateText}. Hệ thống vẫn chấp nhận file.`, "warning");
   }
   chooseFileAndUpload(record.dangKyId || extractId(record.id), loaiFile);
 }
@@ -2485,7 +2529,7 @@ function renderDashboard() {
       <div class="stat-card" onclick="navigateTo('theodoi')" style="cursor:pointer"><div class="stat-icon red">📅</div><div><div class="stat-value">${DB.dotDangKy.filter(d => d.trangThai === 'dang_mo' && dotMatchesStudentHeAndMajor(d)).length}</div><div class="stat-label">Đợt đang mở</div></div></div>
     </div>`;
 
-    const bctt = myBCTT[0];
+    const bctt = getLatestBCTTBySV(u.email);
     const kltn = myKLTN[0];
     html += `<div class="grid-2">
       <div class="card"><div class="card-header"><div><div class="card-title">🗺️ Tiến độ BCTT</div></div></div>`;
@@ -2605,11 +2649,13 @@ function renderDashboard() {
 function renderBCTT() {
   const u = DB.currentUser;
   const myBCTT = getBCTTBySV(u.email);
+  const b = getLatestBCTTBySV(u.email);
   const el = document.getElementById('page-bctt');
   let html = `<div class="page-header"><h1>📝 Đăng ký Báo cáo Thực tập</h1><p>Đăng ký và theo dõi tiến độ thực tập doanh nghiệp</p></div>`;
 
-  if (myBCTT.length > 0) {
-    const b = myBCTT[0];
+  if (myBCTT.length > 0 && b) {
+    const sortedBCTT = myBCTT.slice().sort((a, c) => parseDateForSort(c.ngayDangKy) - parseDateForSort(a.ngayDangKy));
+    const historyBCTT = sortedBCTT.filter((rec) => rec.id !== b.id);
     const gv = getUser(b.gvEmail);
     const dot = DB.dotDangKy.find(d => d.id === b.dotId);
     html += `<div class="card" style="margin-bottom:20px">
@@ -2622,6 +2668,26 @@ function renderBCTT() {
       <div class="info-row"><span class="info-label">Hạn nộp BCTT:</span><span class="info-value">${formatDate(dot?.ketThuc) || 'Chưa cấu hình'}</span></div>
       <div class="info-row"><span class="info-label">Ngày đăng ký:</span><span class="info-value">${b.ngayDangKy}</span></div>
     </div>`;
+
+    if (historyBCTT.length > 0) {
+      html += `<div class="card" style="margin-bottom:20px">
+        <div class="card-header"><div><div class="card-title">🧾 Lịch sử đăng ký BCTT</div></div></div>
+        <div class="table-wrapper"><table class="table">
+          <thead><tr><th>Đợt</th><th>Tên đề tài</th><th>Công ty</th><th>Ngày đăng ký</th><th>Trạng thái</th><th>Điểm</th></tr></thead>
+          <tbody>${historyBCTT.map((rec) => {
+            const dotName = DB.dotDangKy.find(d => d.id === rec.dotId)?.ten || rec.dotId;
+            return `<tr>
+              <td>${escapeHtml(dotName)}</td>
+              <td>${escapeHtml(rec.tenDeTai)}</td>
+              <td>${escapeHtml(rec.tenCongTy || '–')}</td>
+              <td>${escapeHtml(rec.ngayDangKy || '–')}</td>
+              <td>${statusBadge(rec.trangThai)}</td>
+              <td>${rec.diemBCTT != null && rec.diemBCTT !== '' ? escapeHtml(String(rec.diemBCTT)) : '–'}</td>
+            </tr>`;
+          }).join('')}</tbody>
+        </table></div>
+      </div>`;
+    }
 
     if (b.diemBCTT != null || b.nhanXetBCTT) {
       html += `<div class="card" style="margin-bottom:20px">
@@ -2739,10 +2805,10 @@ function renderBCTT() {
 function renderKLTN() {
   const u = DB.currentUser;
   const myKLTN = getKLTNBySV(u.email);
-  const myBCTTs = getBCTTBySV(u.email);
-  const myBCTTpass = myBCTTs.find(b => b.trangThai === 'pass' && (b.diemBCTT === null || b.diemBCTT >= 5));
-  const myBCTTfail = myBCTTs.find(b => b.trangThai === 'fail' || (b.trangThai === 'pass' && b.diemBCTT != null && b.diemBCTT < 5));
-  const myBCTTactive = myBCTTs.find(b => ['cho_duyet', 'gv_xac_nhan', 'cho_cham'].includes(b.trangThai));
+  const myBCTT = getLatestBCTTBySV(u.email);
+  const myBCTTpass = myBCTT && myBCTT.trangThai === 'pass' && (myBCTT.diemBCTT === null || myBCTT.diemBCTT >= 5) ? myBCTT : null;
+  const myBCTTfail = myBCTT && (myBCTT.trangThai === 'fail' || (myBCTT.trangThai === 'pass' && myBCTT.diemBCTT != null && myBCTT.diemBCTT < 5)) ? myBCTT : null;
+  const myBCTTactive = myBCTT && ['cho_duyet', 'gv_xac_nhan', 'cho_cham'].includes(myBCTT.trangThai) ? myBCTT : null;
   const el = document.getElementById('page-kltn');
   let html = `<div class="page-header"><h1>🎓 Đăng ký Khóa Luận Tốt Nghiệp</h1><p>Đăng ký và theo dõi tiến độ KLTN</p></div>`;
 
@@ -2801,18 +2867,17 @@ function renderKLTN() {
         ${k.fileBaiWord ? `<div class="info-row"><span class="info-label">File Word:</span><span class="info-value">${escapeHtml(k.fileBaiWord)}</span></div>` : ''}
         ${k.fileBai ? `<div class="info-row"><span class="info-label">File PDF:</span><span class="info-value">${escapeHtml(k.fileBai)}</span></div>` : ''}
         ${k.fileTurnitin ? `<div class="info-row"><span class="info-label">Turnitin:</span><span class="info-value"><a href="${uploadFileHref(k.fileTurnitin)}" target="_blank" rel="noopener">📑 Turnitin</a></span></div>` : ''}
-        ${isLateKLTN ? `<div style="margin-top:12px;font-size:13px;color:#b91c1c;font-weight:600">Hạn nộp KLTN đã qua. Đây là nộp trễ.</div>` : ''}
+        ${isLateKLTN ? `<div style="margin-top:12px;font-size:13px;color:#b91c1c;font-weight:600">Hạn nộp KLTN đã qua. Đây là nộp trễ (${formatLateDuration(dot)}).</div>` : ''}
         <button class="btn btn-secondary" style="margin-top:16px;width:100%" onclick="toggleKLTNEditMode('${k.id}')">✏️ Chỉnh sửa bài</button>
       </div>`;
-    }
-
-    if (k.trangThai === 'thuc_hien' || (isSubmittedKLTN && isEditingKLTN)) {
+    } else if (k.trangThai === 'thuc_hien' || (isSubmittedKLTN && isEditingKLTN)) {
       const hasAssignments = k.gvPBEmail && k.hoiDong;
+      const canSubmitKLTN = k.fileBai && k.fileTurnitin && hasAssignments;
       html += `<div class="card"><div class="card-title" style="margin-bottom:16px">📤 Nộp bài KLTN</div>
         ${!hasAssignments ? `<div style="background:#FFF7D6;border:1px solid var(--accent3);border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;font-size:13px;color:#974F0C">
             ⏳ Vui lòng chờ Trưởng bộ môn phân công Giảng viên phản biện và Hội đồng trước khi nộp bài.
            </div>` : ''}
-        <div class="grid-2">
+        ${isEditingKLTN ? `<div class="grid-2">
           <div><label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">📄 File bài KLTN (Word)</label>
         <div class="upload-area ${k.fileBaiWord ? 'has-file' : ''}" onclick="fakeUploadKLTN('${k.id}','fileBaiWord')">
           <div class="upload-icon">${k.fileBaiWord ? '✅' : '📁'}</div>
@@ -2826,8 +2891,8 @@ function renderKLTN() {
           <div><label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">📅 Hạn nộp</label><div class="uploaded-file">${formatDate(dot?.ketThuc) ? `Hạn nộp KLTN: ${formatDate(dot?.ketThuc)}` : 'Chưa cấu hình'}</div></div>
         </div>
         <div style="margin-top:12px;font-size:13px;color:var(--text3);">Turnitin do GVHD upload. ${k.fileTurnitin ? `<a href="${uploadFileHref(k.fileTurnitin)}" target="_blank" rel="noopener" style="font-weight:600; color:var(--accent)">📑 Mở Turnitin</a>` : 'Chưa có file Turnitin.'}</div>
-        ${k.fileBai && k.fileTurnitin && hasAssignments ? `<button class="btn btn-success" style="margin-top:16px;width:100%" onclick="hoanTatKLTN('${k.id}')">✅ Hoàn tất nộp KLTN</button>` : ''}
-        ${isSubmittedKLTN ? `<button class="btn btn-secondary" style="margin-top:12px;width:100%" onclick="toggleKLTNEditMode('${k.id}')">✏️ Chỉnh sửa bài</button>` : ''}
+        ${canSubmitKLTN ? `<button class="btn btn-success" style="margin-top:16px;width:100%" onclick="hoanTatKLTN('${k.id}')">📤 Hoàn tất nộp bài KLTN</button>` : ''}
+        <button class="btn btn-secondary" style="margin-top:12px;width:100%" onclick="toggleKLTNEditMode('${k.id}')">✏️ Chỉnh sửa bài</button>` : (isSubmittedKLTN || k.fileBai || k.fileBaiWord) ? `<button class="btn btn-secondary" style="width:100%" onclick="toggleKLTNEditMode('${k.id}')">✏️ Chỉnh sửa bài</button>` : ''}
       </div>`;
     }
 
@@ -3399,7 +3464,7 @@ function renderDuyetDe() {
             <td><div style="font-weight:600">${escapeHtml(g.name)}</div><div style="font-size:12px;color:var(--text3)">${escapeHtml((g.chuyenMon || []).join(', '))}</div></td>
             <td>${he === 'DaiTra' ? 'Đại trà' : 'CLC'}</td>
             <td><input id="slot-quota-${slot.id}" type="number" min="0" value="${Number(slot.quota || 0)}" style="width:90px"></td>
-            <td><input id="slot-conlai-${slot.id}" type="number" min="0" value="${Number(slot.slotConLai || 0)}" style="width:90px"></td>
+            <td>${Number(slot.slotConLai || 0)}</td>
             <td>${slot.duyetTbm ? '<span class="badge badge-green">Đang mở</span>' : '<span class="badge badge-red">Đang khóa</span>'}</td>
             <td><div class="action-row">
               <button class="btn btn-primary btn-sm" onclick="saveGVSlotForDot('${g.id}','${selectedDot.id}','${he}','${slot.id}')">Lưu slot</button>
@@ -3594,9 +3659,8 @@ async function deleteManagedDot(dotId) {
 
 async function saveGVSlotForDot(gvId, dotId, heDaoTao, slotId) {
   const quota = Number(document.getElementById(`slot-quota-${slotId}`)?.value || 0);
-  const slot_con_lai = Number(document.getElementById(`slot-conlai-${slotId}`)?.value || 0);
-  if (Number.isNaN(quota) || Number.isNaN(slot_con_lai)) {
-    toast('Quota hoặc slot còn lại không hợp lệ', 'error');
+  if (Number.isNaN(quota)) {
+    toast('Quota không hợp lệ', 'error');
     return;
   }
   try {
@@ -3608,7 +3672,6 @@ async function saveGVSlotForDot(gvId, dotId, heDaoTao, slotId) {
         dot_id: dotId,
         he_dao_tao: heDaoTao,
         quota,
-        slot_con_lai,
       }),
     });
     toast('Đã cập nhật slot giảng viên');
@@ -4273,8 +4336,8 @@ function saveScoreToAPI(dangKyId, kltnId, vaiTro, ramScoreKey, ramNoteKey) {
 
 async function renderHuongDan() {
   const u = DB.currentUser;
-  const bcttFilterState = DB.huongDanBCTTFilter || { q: '', mangDeTai: '' };
-  const kltnFilterState = DB.huongDanKLTNFilter || { q: '', mangDeTai: '', loaiDeTai: '' };
+  const bcttFilterState = DB.huongDanBCTTFilter || { q: '', mangDeTai: '', trangThai: '' };
+  const kltnFilterState = DB.huongDanKLTNFilter || { q: '', mangDeTai: '', loaiDeTai: '', trangThai: '' };
   const activeTab = DB.nextHuongDanTab === 'tab-kltn-huongdan' ? 'tab-kltn-huongdan' : 'tab-bctt-huongdan';
   const searchEl = document.getElementById(activeTab === 'tab-bctt-huongdan' ? 'huongdan-bctt-search' : 'huongdan-kltn-search');
   const searchHadFocus = searchEl === document.activeElement;
@@ -4286,6 +4349,7 @@ async function renderHuongDan() {
   let bcttChamList = DB.bcttList.filter(b => normalizeEmail(b.gvEmail) === currentEmail && ['gv_xac_nhan', 'cho_cham'].includes(b.trangThai));
   let kltnList = DB.kltnList.filter(k => normalizeEmail(k.gvHDEmail) === currentEmail && k.trangThai === 'cho_duyet');
   let kltnChamList = DB.kltnList.filter(k => normalizeEmail(k.gvHDEmail) === currentEmail && ['thuc_hien', 'cham_diem', 'bao_ve', 'pass', 'fail', 'hoan_thanh'].includes(k.trangThai));
+  let scoredBctt = await loadScoredBCTT();
 
   const normalizeHuongDanTopicType = (value) => {
     const raw = String(value || '').trim().toLowerCase();
@@ -4301,24 +4365,33 @@ async function renderHuongDan() {
     const query = String(filterState.q || '').trim().toLowerCase();
     const fieldValue = String(filterState.mangDeTai || '').trim();
     const typeValue = String(filterState.loaiDeTai || '').trim();
+    const statusValue = String(filterState.trangThai || '').trim();
     const itemType = normalizeHuongDanTopicType(item.topicType || item.loaiDeTai);
     const matchesText = !query || text.includes(query);
     const matchesField = !fieldValue || String(item.mangDeTai || '').trim() === fieldValue;
     const matchesType = !typeValue || itemType === typeValue;
-    return matchesText && matchesField && matchesType;
+    const matchesStatus = !statusValue || String(item.trangThai || '').trim() === statusValue;
+    return matchesText && matchesField && matchesType && matchesStatus;
   };
 
   bcttList = bcttList.filter(item => matchesFilter(item, bcttFilterState));
   bcttChamList = bcttChamList.filter(item => matchesFilter(item, bcttFilterState));
+  scoredBctt = scoredBctt.filter(item => matchesFilter(item, bcttFilterState));
   kltnList = kltnList.filter(item => matchesFilter(item, kltnFilterState));
   kltnChamList = kltnChamList.filter(item => matchesFilter(item, kltnFilterState));
 
-  const bcttFieldOptions = Array.from(new Set([bcttFilterState.mangDeTai, ...bcttList, ...bcttChamList]
+  const bcttFieldOptions = Array.from(new Set([bcttFilterState.mangDeTai, ...bcttList, ...bcttChamList, ...scoredBctt]
     .map((item) => String(item.mangDeTai || item.loaiDeTai || '').trim())
     .filter(Boolean))).sort((a, b) => a.localeCompare(b, 'vi'));
+  const bcttStatusOptions = Array.from(new Set([bcttFilterState.trangThai, ...bcttList, ...bcttChamList, ...scoredBctt]
+    .map((item) => String(item.trangThai || '').trim())
+    .filter(Boolean))).sort((a, b) => (STATUS_LABELS[a]?.label || a).localeCompare(STATUS_LABELS[b]?.label || b, 'vi'));
   const kltnFieldOptions = Array.from(new Set([kltnFilterState.mangDeTai, ...kltnList, ...kltnChamList]
     .map((item) => String(item.mangDeTai || '').trim())
     .filter(Boolean))).sort((a, b) => a.localeCompare(b, 'vi'));
+  const kltnStatusOptions = Array.from(new Set([kltnFilterState.trangThai, ...kltnList, ...kltnChamList]
+    .map((item) => String(item.trangThai || '').trim())
+    .filter(Boolean))).sort((a, b) => (STATUS_LABELS[a]?.label || a).localeCompare(STATUS_LABELS[b]?.label || b, 'vi'));
   const kltnTypeOptions = [
     { value: '', label: 'Tất cả loại đề tài' },
     { value: 'ung_dung', label: 'Đề tài ứng dụng' },
@@ -4328,7 +4401,7 @@ async function renderHuongDan() {
   const el = document.getElementById('page-huongdan');
   let html = `<div class="page-header"><h1>✅ Hướng dẫn</h1><p>Duyệt BCTT và KLTN theo quy trình</p></div>
     <div class="tabs">
-      <button class="tab-btn ${activeTab === 'tab-bctt-huongdan' ? 'active' : ''}" onclick="switchTab(event,'tab-bctt-huongdan')">📝 BCTT (${bcttList.length + bcttChamList.length})</button>
+      <button class="tab-btn ${activeTab === 'tab-bctt-huongdan' ? 'active' : ''}" onclick="switchTab(event,'tab-bctt-huongdan')">📝 BCTT (${bcttList.length + bcttChamList.length + scoredBctt.length})</button>
       <button class="tab-btn ${activeTab === 'tab-kltn-huongdan' ? 'active' : ''}" onclick="switchTab(event,'tab-kltn-huongdan')">🎓 KLTN (${kltnList.length + kltnChamList.length})</button>
     </div>
     <div id="tab-bctt-huongdan" class="tab-content ${activeTab === 'tab-bctt-huongdan' ? 'active' : ''}">
@@ -4339,14 +4412,21 @@ async function renderHuongDan() {
             <input id="huongdan-bctt-search" type="text" class="form-control" placeholder="Tìm SV, MSSV, đề tài..." value="${escapeHtml(bcttFilterState.q || '')}" oninput="DB.huongDanBCTTFilter.q=this.value; renderHuongDan();" />
           </div>
           <div class="form-group" style="margin-bottom:0">
-            <label>Lĩnh vực / Loại</label>
+            <label>Lĩnh vực</label>
             <select id="huongdan-bctt-field" class="form-control" onchange="DB.huongDanBCTTFilter.mangDeTai=this.value; renderHuongDan();">
               <option value="">Tất cả</option>
               ${bcttFieldOptions.map((opt) => `<option value="${escapeHtml(opt)}"${opt === bcttFilterState.mangDeTai ? ' selected' : ''}>${escapeHtml(opt)}</option>`).join('')}
             </select>
           </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label>Trạng thái</label>
+            <select id="huongdan-bctt-status" class="form-control" onchange="DB.huongDanBCTTFilter.trangThai=this.value; renderHuongDan();">
+              <option value="">Tất cả</option>
+              ${bcttStatusOptions.map((opt) => `<option value="${escapeHtml(opt)}"${opt === bcttFilterState.trangThai ? ' selected' : ''}>${escapeHtml(STATUS_LABELS[opt]?.label || opt)}</option>`).join('')}
+            </select>
+          </div>
         </div>
-        ${bcttFilterState.q || bcttFilterState.mangDeTai ? `<div style="margin-top:12px;color:var(--text3);font-size:13px">Đang lọc theo: ${bcttFilterState.q ? `"${escapeHtml(bcttFilterState.q)}"` : ''}${bcttFilterState.q && bcttFilterState.mangDeTai ? ' • ' : ''}${bcttFilterState.mangDeTai ? `Lĩnh vực: ${escapeHtml(bcttFilterState.mangDeTai)}` : ''}</div>` : ''}
+        ${bcttFilterState.q || bcttFilterState.mangDeTai || bcttFilterState.trangThai ? `<div style="margin-top:12px;color:var(--text3);font-size:13px">Đang lọc theo: ${bcttFilterState.q ? `"${escapeHtml(bcttFilterState.q)}"` : ''}${bcttFilterState.q && bcttFilterState.mangDeTai ? ' • ' : ''}${bcttFilterState.mangDeTai ? `Lĩnh vực: ${escapeHtml(bcttFilterState.mangDeTai)}` : ''}${(bcttFilterState.trangThai && (bcttFilterState.q || bcttFilterState.mangDeTai)) ? ' • ' : ''}${bcttFilterState.trangThai ? `Trạng thái: ${escapeHtml(STATUS_LABELS[bcttFilterState.trangThai]?.label || bcttFilterState.trangThai)}` : ''}</div>` : ''}
       </div>`;
 
   const myBcttDotIds = new Set(DB.bcttList.filter((b) => normalizeEmail(b.gvEmail) === currentEmail).map((b) => String(b.dotId)));
@@ -4481,7 +4561,6 @@ async function renderHuongDan() {
 
   html += `</div>`;
 
-  const scoredBctt = await loadScoredBCTT();
   html += `<div class="card" style="margin-top:24px">
     <div class="card-header">
       <div class="card-title">📊 BCTT đã chấm</div>
@@ -4547,13 +4626,20 @@ async function renderHuongDan() {
           </select>
         </div>
         <div class="form-group" style="margin-bottom:0">
+          <label>Trạng thái</label>
+          <select id="huongdan-kltn-status" class="form-control" onchange="DB.huongDanKLTNFilter.trangThai=this.value; renderHuongDan();">
+            <option value="">Tất cả</option>
+            ${kltnStatusOptions.map((opt) => `<option value="${escapeHtml(opt)}"${opt === kltnFilterState.trangThai ? ' selected' : ''}>${escapeHtml(STATUS_LABELS[opt]?.label || opt)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:0">
           <label>Loại đề tài</label>
           <select id="huongdan-kltn-type" class="form-control" onchange="DB.huongDanKLTNFilter.loaiDeTai=this.value; renderHuongDan();">
             ${kltnTypeOptions.map((opt) => `<option value="${escapeHtml(opt.value)}"${opt.value === kltnFilterState.loaiDeTai ? ' selected' : ''}>${escapeHtml(opt.label)}</option>`).join('')}
           </select>
         </div>
       </div>
-      ${kltnFilterState.q || kltnFilterState.mangDeTai || kltnFilterState.loaiDeTai ? `<div style="margin-top:12px;color:var(--text3);font-size:13px">Đang lọc theo: ${kltnFilterState.q ? `"${escapeHtml(kltnFilterState.q)}"` : ''}${(kltnFilterState.q && kltnFilterState.mangDeTai) ? ' • ' : ''}${kltnFilterState.mangDeTai ? `Lĩnh vực: ${escapeHtml(kltnFilterState.mangDeTai)}` : ''}${(kltnFilterState.loaiDeTai && (kltnFilterState.q || kltnFilterState.mangDeTai)) ? ' • ' : ''}${kltnFilterState.loaiDeTai ? `Loại đề tài: ${escapeHtml(getTopicTypeLabel(kltnFilterState.loaiDeTai))}` : ''}</div>` : ''}
+      ${kltnFilterState.q || kltnFilterState.mangDeTai || kltnFilterState.loaiDeTai || kltnFilterState.trangThai ? `<div style="margin-top:12px;color:var(--text3);font-size:13px">Đang lọc theo: ${kltnFilterState.q ? `"${escapeHtml(kltnFilterState.q)}"` : ''}${(kltnFilterState.q && kltnFilterState.mangDeTai) ? ' • ' : ''}${kltnFilterState.mangDeTai ? `Lĩnh vực: ${escapeHtml(kltnFilterState.mangDeTai)}` : ''}${(kltnFilterState.trangThai && (kltnFilterState.q || kltnFilterState.mangDeTai)) ? ' • ' : ''}${kltnFilterState.trangThai ? `Trạng thái: ${escapeHtml(STATUS_LABELS[kltnFilterState.trangThai]?.label || kltnFilterState.trangThai)}` : ''}${(kltnFilterState.loaiDeTai && (kltnFilterState.q || kltnFilterState.mangDeTai || kltnFilterState.trangThai)) ? ' • ' : ''}${kltnFilterState.loaiDeTai ? `Loại đề tài: ${escapeHtml(getTopicTypeLabel(kltnFilterState.loaiDeTai))}` : ''}</div>` : ''}
     </div>`;
 
   const myKltnDotIds = new Set(DB.kltnList.filter((k) => String(k.gvHDEmail || '').toLowerCase() === String(u.email || '').toLowerCase()).map((k) => String(k.dotId)));
@@ -5671,7 +5757,7 @@ async function exportSecretaryBienBan(recordId, saveToServer = false) {
 
 function renderPhanBien() {
   const el = document.getElementById('page-phanbien');
-  const filterState = DB.phanBienFilter || { q: '', mangDeTai: '' };
+  const filterState = DB.phanBienFilter || { q: '', mangDeTai: '', trangThai: '' };
   const searchEl = document.getElementById('phanbien-search');
   const searchHadFocus = searchEl === document.activeElement;
   const prevSelectionStart = searchHadFocus ? searchEl.selectionStart : null;
@@ -5680,13 +5766,16 @@ function renderPhanBien() {
   let list = getKLTNRoleRecords((assignment) => assignment.isReviewer);
   const query = String(filterState.q || '').trim().toLowerCase();
   const fieldValue = String(filterState.mangDeTai || '').trim();
+  const statusValue = String(filterState.trangThai || '').trim();
   const matchesFilter = (item) => {
     const sv = getUser(item.svEmail);
     const text = [sv?.name, sv?.mssv, item.svEmail, item.tenDeTai, item.mangDeTai, item.loaiDeTai]
       .filter(Boolean).join(' ').toLowerCase();
-    return (!query || text.includes(query)) && (!fieldValue || String(item.mangDeTai || item.loaiDeTai || '').trim() === fieldValue);
+    return (!query || text.includes(query)) && (!fieldValue || String(item.mangDeTai || item.loaiDeTai || '').trim() === fieldValue)
+      && (!statusValue || String(item.trangThai || '').trim() === statusValue);
   };
   const fieldOptions = Array.from(new Set([fieldValue, ...list.map((item) => String(item.mangDeTai || item.loaiDeTai || '').trim()).filter(Boolean)])).sort((a, b) => a.localeCompare(b, 'vi'));
+  const statusOptions = Array.from(new Set([statusValue, ...list.map((item) => String(item.trangThai || '').trim()).filter(Boolean)])).sort((a, b) => (STATUS_LABELS[a]?.label || a).localeCompare(STATUS_LABELS[b]?.label || b, 'vi'));
   list = list.filter(matchesFilter);
 
   let html = renderKLTNRoleHeader('🧾 Phản biện', 'được phân công phản biện', list.length);
@@ -5703,9 +5792,16 @@ function renderPhanBien() {
           ${fieldOptions.map((opt) => `<option value="${escapeHtml(opt)}"${opt === fieldValue ? ' selected' : ''}>${escapeHtml(opt)}</option>`).join('')}
         </select>
       </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label>Trạng thái</label>
+        <select id="phanbien-status" class="form-control" onchange="DB.phanBienFilter.trangThai=this.value; renderPhanBien();">
+          <option value="">Tất cả</option>
+          ${statusOptions.map((opt) => `<option value="${escapeHtml(opt)}"${opt === statusValue ? ' selected' : ''}>${escapeHtml(STATUS_LABELS[opt]?.label || opt)}</option>`).join('')}
+        </select>
+      </div>
     </div>
   </div>
-  ${filterState.q || fieldValue ? `<div style="margin-bottom:16px;color:var(--text3);font-size:13px">Đang lọc theo: ${filterState.q ? `“${escapeHtml(filterState.q)}”` : ''}${filterState.q && fieldValue ? ' • ' : ''}${fieldValue ? `Lĩnh vực: ${escapeHtml(fieldValue)}` : ''}</div>` : ''}`;
+  ${filterState.q || fieldValue || statusValue ? `<div style="margin-bottom:16px;color:var(--text3);font-size:13px">Đang lọc theo: ${filterState.q ? `“${escapeHtml(filterState.q)}”` : ''}${filterState.q && fieldValue ? ' • ' : ''}${fieldValue ? `Lĩnh vực: ${escapeHtml(fieldValue)}` : ''}${((filterState.q || fieldValue) && statusValue) ? ' • ' : ''}${statusValue ? `Trạng thái: ${escapeHtml(STATUS_LABELS[statusValue]?.label || statusValue)}` : ''}</div>` : ''}`;
 
   if (!list.length) {
     el.innerHTML = `${html}<div class="card"><div class="empty-state"><div class="empty-state-icon">🧾</div><div class="empty-state-title">Bạn chưa được phân công phản biện KLTN nào</div></div></div>`;
@@ -5752,7 +5848,7 @@ function renderPhanBien() {
 
 function renderHoiDong() {
   const el = document.getElementById('page-hoidong');
-  const filterState = DB.hoiDongFilter || { q: '', mangDeTai: '' };
+  const filterState = DB.hoiDongFilter || { q: '', mangDeTai: '', trangThai: '' };
   const searchEl = document.getElementById('hoidong-search');
   const searchHadFocus = searchEl === document.activeElement;
   const prevSelectionStart = searchHadFocus ? searchEl.selectionStart : null;
@@ -5763,13 +5859,16 @@ function renderHoiDong() {
     .sort((a, b) => Number(b.dangKyId || 0) - Number(a.dangKyId || 0));
   const query = String(filterState.q || '').trim().toLowerCase();
   const fieldValue = String(filterState.mangDeTai || '').trim();
+  const statusValue = String(filterState.trangThai || '').trim();
   const matchesFilter = (item) => {
     const sv = getUser(item.svEmail);
     const text = [sv?.name, sv?.mssv, item.svEmail, item.tenDeTai, item.mangDeTai, item.loaiDeTai]
       .filter(Boolean).join(' ').toLowerCase();
-    return (!query || text.includes(query)) && (!fieldValue || String(item.mangDeTai || item.loaiDeTai || '').trim() === fieldValue);
+    return (!query || text.includes(query)) && (!fieldValue || String(item.mangDeTai || item.loaiDeTai || '').trim() === fieldValue)
+      && (!statusValue || String(item.trangThai || '').trim() === statusValue);
   };
   const fieldOptions = Array.from(new Set([fieldValue, ...list.map((item) => String(item.mangDeTai || item.loaiDeTai || '').trim()).filter(Boolean)])).sort((a, b) => a.localeCompare(b, 'vi'));
+  const statusOptions = Array.from(new Set([statusValue, ...list.map((item) => String(item.trangThai || '').trim()).filter(Boolean)])).sort((a, b) => (STATUS_LABELS[a]?.label || a).localeCompare(STATUS_LABELS[b]?.label || b, 'vi'));
   list = list.filter(matchesFilter);
 
   let html = renderKLTNRoleHeader('🏛️ Hội đồng', 'thuộc hội đồng bạn tham gia', list.length);
@@ -5786,9 +5885,16 @@ function renderHoiDong() {
           ${fieldOptions.map((opt) => `<option value="${escapeHtml(opt)}"${opt === fieldValue ? ' selected' : ''}>${escapeHtml(opt)}</option>`).join('')}
         </select>
       </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label>Trạng thái</label>
+        <select id="hoidong-status" class="form-control" onchange="DB.hoiDongFilter.trangThai=this.value; renderHoiDong();">
+          <option value="">Tất cả</option>
+          ${statusOptions.map((opt) => `<option value="${escapeHtml(opt)}"${opt === statusValue ? ' selected' : ''}>${escapeHtml(STATUS_LABELS[opt]?.label || opt)}</option>`).join('')}
+        </select>
+      </div>
     </div>
   </div>
-  ${filterState.q || fieldValue ? `<div style="margin-bottom:16px;color:var(--text3);font-size:13px">Đang lọc theo: ${filterState.q ? `“${escapeHtml(filterState.q)}”` : ''}${filterState.q && fieldValue ? ' • ' : ''}${fieldValue ? `Lĩnh vực: ${escapeHtml(fieldValue)}` : ''}</div>` : ''}`;
+  ${filterState.q || fieldValue || statusValue ? `<div style="margin-bottom:16px;color:var(--text3);font-size:13px">Đang lọc theo: ${filterState.q ? `“${escapeHtml(filterState.q)}”` : ''}${filterState.q && fieldValue ? ' • ' : ''}${fieldValue ? `Lĩnh vực: ${escapeHtml(fieldValue)}` : ''}${((filterState.q || fieldValue) && statusValue) ? ' • ' : ''}${statusValue ? `Trạng thái: ${escapeHtml(STATUS_LABELS[statusValue]?.label || statusValue)}` : ''}</div>` : ''}`;
 
   if (!list.length) {
     el.innerHTML = `${html}<div class="card"><div class="empty-state"><div class="empty-state-icon">🏛️</div><div class="empty-state-title">Bạn chưa là thành viên hội đồng của KLTN nào</div></div></div>`;
@@ -5837,7 +5943,7 @@ function renderHoiDong() {
 
 function renderChuTich() {
   const el = document.getElementById('page-chutich');
-  const filterState = DB.chuTichFilter || { q: '', mangDeTai: '' };
+  const filterState = DB.chuTichFilter || { q: '', mangDeTai: '', trangThai: '' };
   const searchEl = document.getElementById('chutich-search');
   const searchHadFocus = searchEl === document.activeElement;
   const prevSelectionStart = searchHadFocus ? searchEl.selectionStart : null;
@@ -5846,13 +5952,16 @@ function renderChuTich() {
   let list = getKLTNRoleRecords((assignment) => assignment.isChair);
   const query = String(filterState.q || '').trim().toLowerCase();
   const fieldValue = String(filterState.mangDeTai || '').trim();
+  const statusValue = String(filterState.trangThai || '').trim();
   const matchesFilter = (item) => {
     const sv = getUser(item.svEmail);
     const text = [sv?.name, sv?.mssv, item.svEmail, item.tenDeTai, item.mangDeTai, item.loaiDeTai]
       .filter(Boolean).join(' ').toLowerCase();
-    return (!query || text.includes(query)) && (!fieldValue || String(item.mangDeTai || item.loaiDeTai || '').trim() === fieldValue);
+    return (!query || text.includes(query)) && (!fieldValue || String(item.mangDeTai || item.loaiDeTai || '').trim() === fieldValue)
+      && (!statusValue || String(item.trangThai || '').trim() === statusValue);
   };
   const fieldOptions = Array.from(new Set([fieldValue, ...list.map((item) => String(item.mangDeTai || item.loaiDeTai || '').trim()).filter(Boolean)])).sort((a, b) => a.localeCompare(b, 'vi'));
+  const statusOptions = Array.from(new Set([statusValue, ...list.map((item) => String(item.trangThai || '').trim()).filter(Boolean)])).sort((a, b) => (STATUS_LABELS[a]?.label || a).localeCompare(STATUS_LABELS[b]?.label || b, 'vi'));
   list = list.filter(matchesFilter);
 
   let html = renderKLTNRoleHeader('👨‍⚖️ Chủ tịch', 'do bạn làm Chủ tịch hội đồng', list.length);
@@ -5869,9 +5978,16 @@ function renderChuTich() {
           ${fieldOptions.map((opt) => `<option value="${escapeHtml(opt)}"${opt === fieldValue ? ' selected' : ''}>${escapeHtml(opt)}</option>`).join('')}
         </select>
       </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label>Trạng thái</label>
+        <select id="chutich-status" class="form-control" onchange="DB.chuTichFilter.trangThai=this.value; renderChuTich();">
+          <option value="">Tất cả</option>
+          ${statusOptions.map((opt) => `<option value="${escapeHtml(opt)}"${opt === statusValue ? ' selected' : ''}>${escapeHtml(STATUS_LABELS[opt]?.label || opt)}</option>`).join('')}
+        </select>
+      </div>
     </div>
   </div>
-  ${filterState.q || fieldValue ? `<div style="margin-bottom:16px;color:var(--text3);font-size:13px">Đang lọc theo: ${filterState.q ? `“${escapeHtml(filterState.q)}”` : ''}${filterState.q && fieldValue ? ' • ' : ''}${fieldValue ? `Lĩnh vực: ${escapeHtml(fieldValue)}` : ''}</div>` : ''}`;
+  ${filterState.q || fieldValue || statusValue ? `<div style="margin-bottom:16px;color:var(--text3);font-size:13px">Đang lọc theo: ${filterState.q ? `“${escapeHtml(filterState.q)}”` : ''}${filterState.q && fieldValue ? ' • ' : ''}${fieldValue ? `Lĩnh vực: ${escapeHtml(fieldValue)}` : ''}${((filterState.q || fieldValue) && statusValue) ? ' • ' : ''}${statusValue ? `Trạng thái: ${escapeHtml(STATUS_LABELS[statusValue]?.label || statusValue)}` : ''}</div>` : ''}`;
 
   if (!list.length) {
     el.innerHTML = `${html}<div class="card"><div class="empty-state"><div class="empty-state-icon">👨‍⚖️</div><div class="empty-state-title">Bạn chưa được phân công làm Chủ tịch hội đồng</div></div></div>`;
@@ -5914,9 +6030,6 @@ function renderChuTich() {
       'Chủ tịch hội đồng chấm theo mẫu phiếu của hội đồng. Điểm CT đóng góp vào điểm trung bình hội đồng.',
       { existingScore: k.diemBB, noteValue: k.ctNote || '' }
     );
-    html += `<div style="margin-top:12px;font-size:13px;color:var(--text2)">
-      Chủ tịch hội đồng xem hồ sơ, theo dõi kết quả và duyệt bài chỉnh sửa sau khi hội đồng đã chấm. Bước này không phải duyệt phần sửa bài của sinh viên; phần đó thuộc GVHD.
-    </div>`;
     html += `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
       ${finalAvg != null ? `<div class="badge badge-purple">Điểm tổng hợp: ${finalAvg.toFixed(2)}</div>` : `<div class="badge badge-orange">Chưa đủ điểm để tổng hợp</div>`}
       <div class="badge badge-blue">GVHD: ${gvhdApproved ? 'Đã duyệt bài chỉnh sửa' : 'Chưa duyệt bài chỉnh sửa'}</div>
@@ -5967,7 +6080,7 @@ function renderChuTich() {
 
 function renderThuKy() {
   const el = document.getElementById('page-thuky');
-  const filterState = DB.thuKyFilter || { q: '', mangDeTai: '' };
+  const filterState = DB.thuKyFilter || { q: '', mangDeTai: '', trangThai: '' };
   const searchEl = document.getElementById('thuky-search');
   const searchHadFocus = searchEl === document.activeElement;
   const prevSelectionStart = searchHadFocus ? searchEl.selectionStart : null;
@@ -5976,13 +6089,16 @@ function renderThuKy() {
   let list = getKLTNRoleRecords((assignment) => assignment.isSecretary);
   const query = String(filterState.q || '').trim().toLowerCase();
   const fieldValue = String(filterState.mangDeTai || '').trim();
+  const statusValue = String(filterState.trangThai || '').trim();
   const matchesFilter = (item) => {
     const sv = getUser(item.svEmail);
     const text = [sv?.name, sv?.mssv, item.svEmail, item.tenDeTai, item.mangDeTai, item.loaiDeTai]
       .filter(Boolean).join(' ').toLowerCase();
-    return (!query || text.includes(query)) && (!fieldValue || String(item.mangDeTai || item.loaiDeTai || '').trim() === fieldValue);
+    return (!query || text.includes(query)) && (!fieldValue || String(item.mangDeTai || item.loaiDeTai || '').trim() === fieldValue)
+      && (!statusValue || String(item.trangThai || '').trim() === statusValue);
   };
   const fieldOptions = Array.from(new Set([fieldValue, ...list.map((item) => String(item.mangDeTai || item.loaiDeTai || '').trim()).filter(Boolean)])).sort((a, b) => a.localeCompare(b, 'vi'));
+  const statusOptions = Array.from(new Set([statusValue, ...list.map((item) => String(item.trangThai || '').trim()).filter(Boolean)])).sort((a, b) => (STATUS_LABELS[a]?.label || a).localeCompare(STATUS_LABELS[b]?.label || b, 'vi'));
   list = list.filter(matchesFilter);
 
   let html = renderKLTNRoleHeader('📝 Thư ký', 'do bạn làm Thư ký hội đồng', list.length);
@@ -5999,9 +6115,16 @@ function renderThuKy() {
           ${fieldOptions.map((opt) => `<option value="${escapeHtml(opt)}"${opt === fieldValue ? ' selected' : ''}>${escapeHtml(opt)}</option>`).join('')}
         </select>
       </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label>Trạng thái</label>
+        <select id="thuky-status" class="form-control" onchange="DB.thuKyFilter.trangThai=this.value; renderThuKy();">
+          <option value="">Tất cả</option>
+          ${statusOptions.map((opt) => `<option value="${escapeHtml(opt)}"${opt === statusValue ? ' selected' : ''}>${escapeHtml(STATUS_LABELS[opt]?.label || opt)}</option>`).join('')}
+        </select>
+      </div>
     </div>
   </div>
-  ${filterState.q || fieldValue ? `<div style="margin-bottom:16px;color:var(--text3);font-size:13px">Đang lọc theo: ${filterState.q ? `“${escapeHtml(filterState.q)}”` : ''}${filterState.q && fieldValue ? ' • ' : ''}${fieldValue ? `Lĩnh vực: ${escapeHtml(fieldValue)}` : ''}</div>` : ''}`;
+  ${filterState.q || fieldValue || statusValue ? `<div style="margin-bottom:16px;color:var(--text3);font-size:13px">Đang lọc theo: ${filterState.q ? `“${escapeHtml(filterState.q)}”` : ''}${filterState.q && fieldValue ? ' • ' : ''}${fieldValue ? `Lĩnh vực: ${escapeHtml(fieldValue)}` : ''}${((filterState.q || fieldValue) && statusValue) ? ' • ' : ''}${statusValue ? `Trạng thái: ${escapeHtml(STATUS_LABELS[statusValue]?.label || statusValue)}` : ''}</div>` : ''}`;
 
   if (!list.length) {
     el.innerHTML = `${html}<div class="card"><div class="empty-state"><div class="empty-state-icon">📝</div><div class="empty-state-title">Bạn chưa được phân công làm Thư ký hội đồng</div></div></div>`;
@@ -6125,7 +6248,7 @@ function renderThongKe() { document.getElementById('page-thongke').innerHTML = `
 function renderTheoDoi() {
   const u = DB.currentUser;
   const el = document.getElementById('page-theodoi');
-  const myBCTT = getBCTTBySV(u.email)[0] || null;
+  const myBCTT = getLatestBCTTBySV(u.email);
   const myKLTN = getKLTNBySV(u.email)[0] || null;
 
   let html = `<div class="page-header"><h1>⏱️ Theo dõi trạng thái</h1><p>Theo dõi tiến độ BCTT, KLTN và các đợt đăng ký của bạn</p></div>`;

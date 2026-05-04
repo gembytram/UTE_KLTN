@@ -1342,23 +1342,15 @@ def register_routes(app):
                     continue
 
                 sv_he = normalize_sv_slot_he(dk)
-                if gv["role"] == "TBM":
-                    # Cho bm, không giảm slot, chỉ update trạng thái
-                    cursor.execute("UPDATE dang_ky SET trang_thai = 'gv_xac_nhan' WHERE id = ?", (dk_id,))
-                    success_count += 1
-                else:
-                    slot = cursor.execute(
-                        "SELECT id, slot_con_lai FROM gv_slot WHERE gv_id = ? AND dot_id = ? AND he_dao_tao = ?",
-                        (gv["id"], dk["dot_id"], sv_he),
-                    ).fetchone()
+                slot = cursor.execute(
+                    "SELECT id, slot_con_lai FROM gv_slot WHERE gv_id = ? AND dot_id = ? AND he_dao_tao = ?",
+                    (dk["gv_id"], dk["dot_id"], sv_he),
+                ).fetchone()
 
-                    if slot and slot["slot_con_lai"] > 0:
-                        cursor.execute(
-                            "UPDATE dang_ky SET gv_id = ?, trang_thai = 'gv_xac_nhan' WHERE id = ?",
-                            (gv["id"], dk_id),
-                        )
-                        cursor.execute("UPDATE gv_slot SET slot_con_lai = slot_con_lai - 1 WHERE id = ?", (slot["id"],))
-                        success_count += 1
+                if slot and slot["slot_con_lai"] > 0:
+                    cursor.execute("UPDATE dang_ky SET trang_thai = 'gv_xac_nhan' WHERE id = ?", (dk_id,))
+                    cursor.execute("UPDATE gv_slot SET slot_con_lai = slot_con_lai - 1 WHERE id = ?", (slot["id"],))
+                    success_count += 1
 
         conn.commit()
         conn.close()
@@ -1375,17 +1367,21 @@ def register_routes(app):
         dang_ky_id = data.get("dang_ky_id")
         new_name = (data.get("ten_de_tai") or "").strip()
         if not dang_ky_id or not new_name:
-            return fail("Thiếu dữ liệu đổi tên đề tài", 400)
+            return fail("Thiếu thông tin đổi tên BCTT", 400)
 
         conn = get_db()
         gv = get_current_user(conn)
-        reg = conn.execute(
+        if not gv:
+            conn.close()
+            return fail("Chưa đăng nhập", 401)
+
+        old = conn.execute(
             "SELECT * FROM dang_ky WHERE id = ? AND gv_id = ? AND loai = 'BCTT'",
             (dang_ky_id, gv["id"]),
         ).fetchone()
-        if not reg:
+        if not old:
             conn.close()
-            return fail("Không tìm thấy đề tài BCTT cần đổi tên", 404)
+            return fail("Không tìm thấy đề tài BCTT của bạn", 404)
 
         conn.execute(
             "UPDATE dang_ky SET ten_de_tai = ?, trang_thai = 'gv_xac_nhan' WHERE id = ?",
@@ -1460,14 +1456,18 @@ def register_routes(app):
                     continue
 
                 sv_he = normalize_sv_slot_he(dk)
-                if gv["role"] == "TBM":
-                    # Cho bm, không giảm slot, chỉ update trạng thái
-                    cursor.execute("UPDATE dang_ky SET trang_thai = 'thuc_hien' WHERE id = ?", (dk_id,))
-                    success_count += 1
-                else:
-                    # GV duyệt đề tài, không giảm slot cho KLTN
-                    cursor.execute("UPDATE dang_ky SET trang_thai = 'thuc_hien' WHERE id = ?", (dk_id,))
-                    success_count += 1
+                
+                slot = cursor.execute(
+                    "SELECT id, slot_con_lai FROM gv_slot WHERE gv_id = ? AND dot_id = ? AND he_dao_tao = ?",
+                    (gv["id"], dk["dot_id"], sv_he),
+                ).fetchone()
+
+                cursor.execute("UPDATE dang_ky SET trang_thai = 'thuc_hien' WHERE id = ?", (dk_id,))
+                
+                if slot and slot["slot_con_lai"] > 0:
+                    cursor.execute("UPDATE gv_slot SET slot_con_lai = slot_con_lai - 1 WHERE id = ?", (slot["id"],))
+                
+                success_count += 1
 
         conn.commit()
         conn.close()
@@ -1537,11 +1537,10 @@ def register_routes(app):
         dot_id = data.get("dot_id")
         he_dao_tao = (data.get("he_dao_tao") or "").strip()
         quota = data.get("quota")
-        slot_con_lai = data.get("slot_con_lai")
         if not slot_id and not (gv_id and dot_id and he_dao_tao):
-            return fail("Thiếu slot_id hoặc (gv_id, dot_id, he_dao_tao)", 400)
-        if quota is None and slot_con_lai is None:
-            return fail("Thiếu dữ liệu cập nhật slot", 400)
+            return fail("Thiếu slot_id hoặc (gv_id, dot_id và he_dao_tao)", 400)
+        if quota is None:
+            return fail("Thiếu quota để cập nhật slot", 400)
 
         conn = get_db()
         current_user = get_current_user(conn)
@@ -1553,7 +1552,7 @@ def register_routes(app):
         target_gv_id = None
         if slot_id:
             slot = conn.execute(
-                "SELECT id, gv_id, quota, slot_con_lai, he_dao_tao FROM gv_slot WHERE id = ?",
+                "SELECT id, gv_id, dot_id, quota, slot_con_lai, he_dao_tao FROM gv_slot WHERE id = ?",
                 (slot_id,),
             ).fetchone()
             if not slot:
@@ -1589,23 +1588,36 @@ def register_routes(app):
             conn.close()
             return fail("Chỉ trưởng bộ môn cùng ngành mới được sửa slot", 403)
 
-        new_quota = slot["quota"]
-        new_slot_con_lai = slot["slot_con_lai"]
         try:
-            if quota is not None:
-                new_quota = int(quota)
-            if slot_con_lai is not None:
-                new_slot_con_lai = int(slot_con_lai)
+            new_quota = int(quota)
         except (TypeError, ValueError):
             conn.close()
-            return fail("Quota hoặc slot còn lại không hợp lệ", 400)
+            return fail("Quota không hợp lệ", 400)
 
-        if new_quota < 0 or new_slot_con_lai < 0:
+        if new_quota < 0:
             conn.close()
-            return fail("Quota và slot còn lại phải >= 0", 400)
-        if new_slot_con_lai > new_quota:
+            return fail("Quota phải >= 0", 400)
+
+        normalized_he = he_dao_tao or "DaiTra"
+        used_count_row = conn.execute(
+            """
+            SELECT COUNT(*) AS used_count
+            FROM dang_ky dk
+            JOIN users sv ON sv.id = dk.sv_id
+            WHERE dk.gv_id = ?
+              AND dk.dot_id = ?
+              AND dk.loai = 'BCTT'
+              AND CASE WHEN TRIM(sv.he_dao_tao) = 'CLC' THEN 'CLC' ELSE 'DaiTra' END = ?
+            """,
+            (target_gv_id, dot_id or slot["dot_id"], normalized_he),
+        ).fetchone()
+        used_count = used_count_row["used_count"] if used_count_row else 0
+
+        if new_quota < used_count:
             conn.close()
-            return fail("Slot còn lại không được lớn hơn quota", 400)
+            return fail("Quota không thể nhỏ hơn số đề tài BCTT đã được GV duyệt", 400)
+
+        new_slot_con_lai = max(0, new_quota - used_count)
 
         if he_dao_tao:
             cursor = conn.execute(
@@ -1614,7 +1626,7 @@ def register_routes(app):
                 SET quota = ?, slot_con_lai = ?
                 WHERE gv_id = ? AND dot_id = ? AND he_dao_tao = ?
                 """,
-                (new_quota, new_slot_con_lai, target_gv_id, dot_id or slot["dot_id"], he_dao_tao),
+                (new_quota, new_slot_con_lai, target_gv_id, dot_id or slot["dot_id"], normalized_he),
             )
             if cursor.rowcount == 0:
                 conn.close()
