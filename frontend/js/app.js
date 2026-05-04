@@ -2891,7 +2891,7 @@ function renderKLTN() {
       </div>`;
     } else if (k.trangThai === 'thuc_hien' || (isSubmittedKLTN && isEditingKLTN)) {
       const hasAssignments = k.gvPBEmail && k.hoiDong;
-      const canSubmitKLTN = k.fileBai && k.fileTurnitin && hasAssignments;
+      const canSubmitKLTN = k.fileBai && hasAssignments;
       html += `<div class="card"><div class="card-title" style="margin-bottom:16px">📤 Nộp bài KLTN</div>
         ${!hasAssignments ? `<div style="background:#FFF7D6;border:1px solid var(--accent3);border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;font-size:13px;color:#974F0C">
             ⏳ Vui lòng chờ Trưởng bộ môn phân công Giảng viên phản biện và Hội đồng trước khi nộp bài.
